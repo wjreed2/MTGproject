@@ -706,6 +706,8 @@ function closeCmcFilterMenu() {
 function toggleCmcFilterMenu(event) {
   if (event) { event.stopPropagation(); event.preventDefault(); }
   const open = !!document.querySelector('.cmc-menu');
+  closeQuickFilterMenu();
+  closeColorFilterMenu();
   closeCmcFilterMenu();
   if (!open) _openCmcFilterMenu();
 }
@@ -841,13 +843,20 @@ function _syncQuickFilterMenuUi() {
 }
 
 function closeQuickFilterMenu() {
-  document.querySelectorAll('.qf-menu').forEach(m => m.remove());
+  // `.qf-menu` is the shared glass-menu LOOK (colour, CMC, find, wishlist, sets, trade
+  // all wear it). Matching on it here removed — and reported as "already open" — any of
+  // those, which left the Type & more button dead while another filter menu was up.
+  document.querySelectorAll('.quick-filter-menu').forEach(m => m.remove());
   document.getElementById('quickFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
 }
 
 function toggleQuickFilterMenu(event) {
   if (event) { event.stopPropagation(); event.preventDefault(); }
-  const open = !!document.querySelector('.qf-menu');
+  const open = !!document.querySelector('.quick-filter-menu');
+  // The toggles stopPropagation, so the document-click closers never fire for a tap on a
+  // sibling filter button — without this the two menus sit stacked on top of each other.
+  closeCmcFilterMenu();
+  closeColorFilterMenu();
   closeQuickFilterMenu();
   if (!open) _openQuickFilterMenu();
 }
@@ -857,7 +866,7 @@ function _openQuickFilterMenu() {
   if (!btn) return;
 
   const menu = document.createElement('div');
-  menu.className = 'glass-menu qf-menu';
+  menu.className = 'glass-menu qf-menu quick-filter-menu';
   for (const [kind, value, label] of QUICK_FILTER_OPTIONS) {
     const on = kind === 'type' ? quickFilters.types.has(value) : quickFilters.flags.has(value);
     const item = document.createElement('button');
@@ -876,7 +885,7 @@ function _openQuickFilterMenu() {
       setTimeout(() => {
         closeQuickFilterMenu();
         _openQuickFilterMenu();
-        const next = document.querySelector('.qf-menu');
+        const next = document.querySelector('.quick-filter-menu');
         if (next) next.scrollTop = scroll;
       }, 0);
     });
@@ -1480,6 +1489,8 @@ function closeColorFilterMenu() {
 function toggleColorFilterMenu(event) {
   if (event) { event.stopPropagation(); event.preventDefault(); }
   const open = !!document.querySelector('.color-menu');
+  closeQuickFilterMenu();
+  closeCmcFilterMenu();
   closeColorFilterMenu();
   if (!open) _openColorFilterMenu();
 }

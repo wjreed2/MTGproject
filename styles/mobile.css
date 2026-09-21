@@ -1189,9 +1189,6 @@
   .scanner-sheet--fullscreen {
     max-height: 100dvh !important;
   }
-  .scn-match-overlay {
-    bottom: max(22%, 100px) !important;
-  }
   .scn-cand-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
   }

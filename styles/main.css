@@ -1108,7 +1108,12 @@ main > [data-data-disclosure] { margin-top: auto; }
 .deck-tab-pane {
   display: none;
   background: var(--bg2);
+  /* No top border, for the reason the glass skin gives below: the open tab is
+     meant to hide it but is translucent, so the line tints straight through and
+     reads as a rule drawn across the tabs. The surface change carries the top
+     edge where no tab covers it. */
   border: 1px solid var(--border2);
+  border-top: none;
   /* Square top-left: on a manila folder the left edge and the tab's left edge
      are one continuous line, so only the other three corners round off. */
   border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
@@ -2208,10 +2213,16 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   max-width: 96vw;
 }
 #voiceModal .voice-folder-tabs {
-  margin-bottom: -1px; /* active tab opens into the popup */
+  /* Meeting, not overlapping — the deck tabs learned this: two translucent
+     surfaces laid over each other stack into a brighter band exactly where the
+     joint is meant to disappear. */
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
 }
+/* And the popup drops its top border for the same reason the tab pages drop
+   theirs, so the active tab opens into it instead of onto a rule. */
+#voiceModal .voice-modal { border-top: none; }
 /* The Scan tab is phone-only: it hands off to the camera scanner, which is built around a
    rear camera filling a card-shaped reticle — pointless on a desktop webcam. Same ≤768px
    line every other mobile-only affordance uses. */
@@ -2231,20 +2242,38 @@ body.glass-mode #voiceModal .voice-modal {
      under the (translucent) active tab. The tab strip carries that edge now. */
   box-shadow: 0 28px 90px rgba(0,0,0,0.6);
 }
-/* Deck-page tabs sit over the wallpaper, where a 3.5% white fill reads fine. Over this
-   modal's dark backdrop the same fill reads as near-black, so the inactive tabs need more
-   light to look like the tabs everywhere else. */
+/* Deck-page tabs are a 3.5% white film over the wallpaper. Here the backdrop is
+   the modal's scrim, where that film reads as near-black — so the film goes over
+   the popup's own colour instead, which keeps the same relationship to the
+   surface the tab opens into. Raising the film to 12% instead, as this used to,
+   turned the inactive tabs into grey slabs that matched nothing.
+   The blur comes with it: without it the tabs tucked behind show both of their
+   crossing slants rather than melting into one edge. */
 body.glass-mode #voiceModal .deck-ftab::before {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.18);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.035)),
+    rgba(34,44,74,0.72);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 body.glass-mode #voiceModal .deck-ftab:hover::before {
-  background: rgba(255,255,255,0.17);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.075)),
+    rgba(34,44,74,0.78);
 }
 [data-theme="light"] body.glass-mode #voiceModal .deck-ftab::before {
-  background: rgba(255,255,255,0.55);
-  border-color: rgba(255,255,255,0.7);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.32)),
+    rgba(240,245,255,0.82);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab:hover::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.48), rgba(255,255,255,0.48)),
+    rgba(246,249,255,0.9);
 }
 body.glass-mode #voiceModal .deck-ftab.active::before {
   background:
@@ -2252,6 +2281,9 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
     rgba(34,44,74,0.92); /* = the popup's top colour */
   border-color: rgba(255,255,255,0.16);
   border-bottom: none;
+  /* Top highlight only, like the deck tabs: an all-round inset lights the
+     bottom edge too, right on the joint. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
 }
@@ -2267,6 +2299,7 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
     rgba(255,255,255,0.95);
   border-color: rgba(255,255,255,0.85);
   border-bottom: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 /* Destination controls — deck-list-toolbar pill look. The #voiceModal prefix is
@@ -4537,6 +4570,33 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   transform: translateY(-6px) scale(1.02);
   box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(200,168,74,0.35);
 }
+/* ── Reordering (press and hold a deck tile) ─────────────────────────────── */
+/* touch-action only while a reorder is live: set on the tile at rest it would
+   cost the grid its scrolling, and the hold has to survive a scroll attempt
+   without stealing one. */
+/* Nothing in the grid is the browser's to drag or select: holding a tile was
+   starting a native image drag and a text selection instead of a reorder. */
+#deckOrderGrid .browse-deck-card,
+#deckOrderGrid .browse-deck-card * {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#deckOrderGrid.is-reordering { touch-action: none; }
+#deckOrderGrid.is-reordering .browse-deck-card { transition: none; }
+#deckOrderGrid.is-reordering .browse-deck-card:not(.is-reordering) { opacity: 0.55; }
+#deckOrderGrid.is-reordering .browse-deck-card:hover { transform: none; box-shadow: none; }
+.browse-deck-card.is-reordering {
+  cursor: grabbing;
+  transform: scale(1.06);
+  box-shadow: 0 22px 60px rgba(0,0,0,0.6), 0 0 0 2px rgba(var(--lgx1), 0.75);
+  z-index: 5;
+  opacity: 1;
+}
+[data-theme="light"] body.glass-mode .browse-deck-card.is-reordering {
+  box-shadow: 0 22px 60px rgba(30,50,90,0.3), 0 0 0 2px rgba(var(--lgx1), 0.75);
+}
+
 .browse-deck-img { width: 100%; height: 100%; }
 .browse-deck-overlay {
   position: absolute; bottom: 0; left: 0; right: 0;
@@ -4677,7 +4737,12 @@ body.glass-mode .tagbadge-sym {
   align-self: flex-start;
   width: 236px;
   aspect-ratio: 0.715;
-  border-radius: 9px;
+  /* The card's own pale corners, clipped the way the deck list and the
+     collection clip theirs (.stack-main, .card-img-wrap): per-axis against the
+     0.715 aspect so the corner stays circular at any size, on a box with no
+     border — a border clips content at radius minus border-width, which is what
+     used to leave the light fringe showing. */
+  border-radius: 5.6% / 4%;
   overflow: hidden;
   background: var(--bg4);
 }
@@ -7588,6 +7653,11 @@ body.glass-mode .scn-fs-top-actions .btn {
   vertical-align: middle;
 }
 
+/* The camera frame is shown whole (object-fit: contain), so unless the sensor's aspect
+   happens to match the stage there is leftover space beside or above it. Painted black that
+   reads as broken video; painted the app's own ground it reads as the frame sitting on the
+   page, which is what it is. Cropping to fill instead would put the card's printed footer
+   back outside the capture, and the footer is what pins an exact printing. */
 .scn-fs-stage {
   position: absolute;
   /* Stops above the bottom bar, not behind it. The bar is opaque, so frame hidden under it is
@@ -7596,24 +7666,23 @@ body.glass-mode .scn-fs-top-actions .btn {
      still floats over the frame because it's transparent. */
   inset: 0 0 var(--scn-bar-h, 0px) 0;
   z-index: 0;
-  background: #000;
+  background: var(--bg);
 }
 
 .scn-camera-wrap {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--bg);
   overflow: hidden;
 }
 
 .scn-video {
   width: 100%;
   height: 100%;
-  /* `contain`, not `cover`: the guide is sized to the camera FRAME, so cropping the frame to
-     fill a taller screen pushed the box off the sides and far under the controls. Showing the
-     whole frame means the whole target box is on screen at the size the capture actually
-     uses. The letterboxing lands behind the top and bottom bars. */
-  object-fit: contain;
+  /* `cover` — the camera runs edge to edge with no letterbox. This is only safe because the
+     reticle is fitted to the VISIBLE region rather than the whole sensor (_scnGuideQuad), so
+     the crop moves the box instead of hiding it. */
+  object-fit: cover;
   display: none;
 }
 
@@ -7621,7 +7690,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   display: block;
 }
 
-/* Card outline overlay (object-fit: contain mapping in scanner.js) */
+/* Card outline overlay (object-fit: cover mapping in scanner.js) */
 .scn-overlay-svg,
 .scn-roi-svg {
   position: absolute;
@@ -7905,11 +7974,14 @@ body.glass-mode .scn-fs-top-actions .btn {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(78%, 300px);
+  /* Hugs its text (shrink-to-fit, as an absolutely-positioned box does with width:auto)
+     rather than reserving a fixed slab over the card art. */
+  width: auto;
+  max-width: min(84%, 320px);
   z-index: 3;
   pointer-events: none;
   text-align: center;
-  padding: 16px 18px;
+  padding: 10px 16px;
   border-radius: var(--radius3);
   /* Tier E (§2): text over camera art, so it stays a dark scrim in BOTH themes — a light
      panel here would be unreadable over a bright tray. Borderless: sitting on top of the card
@@ -7927,6 +7999,20 @@ body.glass-mode .scn-fs-top-actions .btn {
     0 16px 48px rgba(0,0,0,0.50);
   transition: background 0.28s var(--ease), box-shadow 0.28s var(--ease);
 }
+
+/* Declined as a repeat: gold, so "I skipped this" cannot be mistaken for "I added this" from
+   arm's length. Same material, different verdict. */
+.scn-match-overlay.scn-match-overlay--warn {
+  background:
+    linear-gradient(135deg, rgba(230,200,104,0.30), rgba(230,200,104,0.12) 60%, rgba(230,200,104,0.20)),
+    rgba(30,24,8,0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -1px 0 rgba(230,200,104,0.28),
+    0 0 36px rgba(230,200,104,0.26),
+    0 16px 48px rgba(0,0,0,0.50);
+}
+.scn-match-overlay.scn-match-overlay--warn .scn-match-sub { color: var(--gold2); }
 
 /* Added to the collection: the whole panel goes green, so a successful add is readable at a
    glance from arm's length without reading a word of it. */
@@ -7954,7 +8040,7 @@ body.glass-mode .scn-fs-top-actions .btn {
 }
 
 .scn-match-sub {
-  margin-top: 6px;
+  margin-top: 3px;
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -7963,10 +8049,10 @@ body.glass-mode .scn-fs-top-actions .btn {
   text-shadow: 0 1px 8px rgba(0,0,0,0.9);
 }
 
-/* The overlay ignores pointer events; the "+1" playset button opts back in. */
+/* The overlay ignores pointer events; the "+ Add this" button opts back in. */
 .scn-match-plus1 {
   pointer-events: auto;
-  margin-top: 10px;
+  margin-top: 8px;
   min-width: 72px;
 }
 
@@ -11484,7 +11570,11 @@ body.glass-mode .empty-state h2 {
       rgba(255,255,255,0.62) 0%,
       rgba(255,255,255,0.48) 180px,
       rgba(255,255,255,0.48) 100%);
+  /* Same as the dark rule above — the shorthand had been putting the top
+     border back, and on a light surface a white 1px line is the most visible
+     version of it. */
   border: 1px solid rgba(255,255,255,0.7);
+  border-top: none;
   box-shadow: 0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode .deck-tab-pane .panel {
@@ -11721,23 +11811,16 @@ body.glass-mode .tablet-life-btn {
   padding: 0;
   margin-bottom: 12px;
 }
-/* Card actions too — these are real actions, not chips, so they match the bar
-   above them rather than being a size of their own. */
+/* Every action on this tab is a tab-level control, so they all take the deck
+   list's box — the bar's New Game, the cards' Open/Resume, and the buttons on
+   the panel a game opens into, which were .btn-sm's 28px next to that bar's
+   34px. (.game-detail was in this list and matches nothing: the panel is
+   rendered into #activeGameArea / #gameDetailArea.) */
 #tab-games .game-card .btn,
-#tab-games .game-detail .btn,
 #tab-games .pg-card .btn,
-#tab-games .games-pane-bar .btn {
-  height: 34px !important;
-  border-radius: 8px !important;
-  padding: 0 12px !important;
-  font-size: 0.82rem !important;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-}
-
-/* Its actions are tab-level controls, so they take the deck list's box. */
-#tab-games .games-pane-bar .btn {
+#tab-games .games-pane-bar .btn,
+#tab-games #activeGameArea .btn,
+#tab-games #gameDetailArea .btn {
   height: 34px !important;
   border-radius: 8px !important;
   padding: 0 12px !important;
@@ -11807,7 +11890,31 @@ body.glass-mode .game-card.is-selected {
   font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
   color: rgb(var(--lgx1));
 }
-.game-card-seats { display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+/* The card sizes its own contents: two columns on a phone make it ~140px, where
+   the full button label is wider than the card it sits in. */
+.game-card { container-type: inline-size; container-name: gamecard; }
+.game-card-seats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+/* The table, named. */
+.game-card-group {
+  font-size: 0.82rem; font-weight: 600; color: var(--text2);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.game-card-dots { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* A seat's colour was always the identification; without the names it is all
+   of it, so the name rides along as the title. No ring: it muddied the colour
+   it was outlining, and the turn glow below needs the box-shadow anyway. */
+.game-card-dot { width: 9px; height: 9px; border-radius: 50%; }
+/* The seat on the clock, wearing the live dot's glow and pulse — in its own
+   colour (hence currentColor, set alongside the background) so the dot still
+   says who as well as when. */
+.game-card-dot.is-turn { animation: gameTurnDotPulse 2s ease-in-out infinite; }
+@keyframes gameTurnDotPulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 6px currentColor; }
+  50%      { opacity: 0.6; box-shadow: 0 0 12px currentColor; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-card-dot.is-turn { animation: none; box-shadow: 0 0 8px currentColor; }
+}
 /* Names are arbitrary, so they have to be allowed to break rather than hold the
    card open. */
 .game-card-seat { font-size: 0.78rem; min-width: 0; overflow-wrap: anywhere; }
@@ -11817,7 +11924,16 @@ body.glass-mode .game-card.is-selected {
   font-variant-numeric: tabular-nums;
 }
 .game-card-status { font-size: 0.76rem; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
-.game-card-open { align-self: flex-start; margin-top: 2px; }
+.game-card-open { align-self: flex-start; margin-top: 2px; max-width: 100%; }
+/* Narrow card: the label shortens and the button takes the width, which reads
+   as the card's action rather than a chip floating at the bottom of it. After
+   the rule above, or its align-self would win on equal specificity. */
+.gco-short { display: none; }
+@container gamecard (max-width: 215px) {
+  .game-card-open { align-self: stretch; justify-content: center; }
+  .game-card-open .gco-long { display: none; }
+  .game-card-open .gco-short { display: inline; }
+}
 /* Content width, like every other control in the app — stretched across half
    the modal each they read as banners rather than as the pair of buttons they
    are. */

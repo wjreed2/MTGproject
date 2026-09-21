@@ -381,6 +381,9 @@
   function evaluateInteraction(input, needs, mechanisms, cfg) {
     const colors = colorsOf(input);
     const types = (root && root.FOUNDATION_THREAT_TYPES) || [];
+    const burnApi = (root && root.burnIndicatesInteraction)
+      ? root
+      : (typeof require === 'function' ? (() => { try { return require('../burn-roles.js'); } catch (_) { return null; } })() : null);
     const threats = {};
     let coveredNeed = 0;
     let needSum = 0;
@@ -396,6 +399,10 @@
         let q = 0;
         const tags = row.tags || [];
         if ((spec.tags || []).some(t => tags.includes(t))) q = Math.max(q, 0.75);
+        // Legacy plain Burn: credit creature threats only when oracle can hit creatures / any target.
+        if (threat === 'creature' && burnApi && burnApi.burnIndicatesInteraction(tags, oracleFromRow(row, input))) {
+          q = Math.max(q, 0.75);
+        }
         if (spec.oracle && spec.oracle.test(oracleFromRow(row, input))) q = Math.max(q, 0.7);
         if (q > 0) units += q * row.qty * (cfg.multiRole.primaryFull || 1);
       }

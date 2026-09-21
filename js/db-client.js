@@ -156,8 +156,11 @@ async function authProviders() {
  * to render their consent screen inside XHR, and the redirect has to be
  * top-level for the session cookie to come back.
  */
-function authStartOauth(provider) {
-  window.location.href = mtgApiRoot() + '/auth/oauth/' + encodeURIComponent(provider) + '/start';
+function authStartOauth(provider, link) {
+  // ?link=1 is the only thing that turns this into an account link — the server
+  // will not infer it from the session cookie.
+  window.location.href = mtgApiRoot() + '/auth/oauth/' + encodeURIComponent(provider)
+    + '/start' + (link ? '?link=1' : '');
 }
 
 /** Providers linked to the signed-in account, plus whether a password is set. */

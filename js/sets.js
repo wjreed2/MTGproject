@@ -1,20 +1,39 @@
 // Set browser tab
 let activeSetCode = localStorage.getItem('mtg_active_set_code') || null;
 
+// The set list changes when a set releases — a few times a year — so the last
+// one is almost always current. Painting it first is what makes this tab feel
+// like the collection, which never waits on the network either.
+const SETS_CACHE_KEY = 'scryfall_sets_v1';
+
 async function loadSets() {
   if (allSets.length > 0) { renderSets(); return; }
-  await loadSetsFromAPI();
+  let painted = false;
+  try {
+    const cached = typeof cacheGet === 'function' ? await cacheGet(SETS_CACHE_KEY) : null;
+    if (Array.isArray(cached) && cached.length) {
+      allSets = cached;
+      renderSets();
+      painted = true;
+    }
+  } catch (_) { /* no snapshot yet */ }
+  await loadSetsFromAPI({ quiet: painted });
 }
 
-async function loadSetsFromAPI() {
-  document.getElementById('setEmpty').style.display = 'flex';
-  document.getElementById('setEmpty').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text3)"><div class="spinner" style="margin:0 auto 1rem"></div><p style="font-size:0.9rem">Loading sets…</p></div>';
+async function loadSetsFromAPI(opts) {
+  // Nothing on screen yet — say so. With a snapshot already painted the fetch
+  // is a background revalidate and a spinner over it would be a lie.
+  if (!(opts && opts.quiet)) {
+    document.getElementById('setEmpty').style.display = 'flex';
+    document.getElementById('setEmpty').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text3)"><div class="spinner" style="margin:0 auto 1rem"></div><p style="font-size:0.9rem">Loading sets…</p></div>';
+  }
   const res = await fetch('/api/scryfall/sets');
   if (!res.ok) return;
   const d = await res.json();
   // Scryfall `digital`: only released in a video game (Arena / Alchemy / etc.) — hide from paper-focused set browser
   allSets = (d.data || []).filter(s => !s.digital);
   allSets.sort((a,b) => new Date(b.released_at) - new Date(a.released_at));
+  if (typeof cacheSet === 'function') void cacheSet(SETS_CACHE_KEY, allSets);
   renderSets();
 }
 
@@ -32,7 +51,10 @@ function _ownedPrintingCountForSet(setCode) {
 
 function _setIconMarkup(iconUri) {
   if (!iconUri) return '';
-  return `<span class="set-list-icon-wrap"><img src="${iconUri}" class="set-list-icon" alt=""></span>`;
+  // lazy: All Sets draws ~989 cards, and every icon is its own request. Fired
+  // together they drowned the connection the set data itself was arriving on;
+  // only the dozen on screen are wanted.
+  return `<span class="set-list-icon-wrap"><img src="${iconUri}" class="set-list-icon" alt="" loading="lazy" decoding="async"></span>`;
 }
 
 // ── Search ───────────────────────────────────────────────────────────────────
@@ -572,14 +594,21 @@ async function browseSet(code, name) {
   if (_browseSetCode !== code) return;
 
   const all = firstPage.slice();
-  for (const page of rest) if (page && Array.isArray(page.data)) all.push(...page.data);
+  let complete = true;
+  for (const page of rest) {
+    if (page && Array.isArray(page.data)) all.push(...page.data);
+    else complete = false; // a 429 or a dropped request — this set is NOT fully loaded
+  }
   if (all.length === firstPage.length) return; // nothing new; keep what is painted
 
   // A re-render rebuilds the search field, so hold focus if it is being used.
   if (document.activeElement?.id === 'setBrowseSearchInput') _browseSetSearchKeepFocus = true;
   _browseSetCards = _sortSetCardsByCollector(all);
   _renderSetBrowse();
-  _putCachedSetCards(code, _browseSetCards);
+  // Paint what arrived, but only CACHE a complete set: the TTL is 30 days for an old
+  // set, so storing a run that lost a page to a 429 hides those cards — and wrongs every
+  // completion percentage — for a month, with no path to notice or refresh it.
+  if (complete) _putCachedSetCards(code, _browseSetCards);
 }
 
 function _setCardRarityKey(card) {

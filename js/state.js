@@ -120,6 +120,9 @@ function hydrateAppData(data) {
   collection = data.collection || [];
   collectionHistory = data.history || [];
   decks = data.decks || [];
+  // The server hands decks back in creation order; a hand-arranged grid is
+  // restored here (see sortDecksByStoredOrder in decks.js).
+  if (typeof sortDecksByStoredOrder === 'function') sortDecksByStoredOrder();
   games = data.games || [];
   wishlist = data.wishlist || [];
 
@@ -581,7 +584,12 @@ async function loadAppDataAfterAuth(opts) {
         }
         renderHydratedAppShell();
         if (typeof showNotif === 'function') showNotif('Collection synced.');
-      }).catch(() => {});
+      }).catch(() => {
+        // The slow load we deferred to has now failed outright. Painting from cache
+        // while it was still in flight was right; staying silent once it is gone is
+        // not — that leaves stale data on screen with nothing saying so.
+        if (typeof _setOffline === 'function') _setOffline();
+      });
     } else {
       // Fresh Home Screen PWA: empty IndexedDB. Wait longer instead of showing 0 cards.
       bootSplashStatus('Still syncing — large collections can take a moment…');

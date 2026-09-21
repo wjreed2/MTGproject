@@ -51,7 +51,7 @@
     'strategy.tokens.role': Object.freeze(['Token Maker']),
     'strategy.tokens.gold': Object.freeze(['Token Maker']),
     'strategy.sacrifice': Object.freeze(['Sac Outlet', 'Death Trigger', 'Sac Synergy', 'Drain']),
-    'strategy.spellslinger': Object.freeze(['Card Draw', 'Tutor', 'Counterspell', 'Copy', 'Burn']),
+    'strategy.spellslinger': Object.freeze(['Card Draw', 'Tutor', 'Counterspell', 'Copy', 'Burn', 'Burn.Any', 'Burn.Creature', 'Burn.Player', 'Burn.Opponents']),
     'strategy.reanimator': Object.freeze(['Recursion', 'Reanimate', 'Graveyard Cast', 'Self-Mill']),
     'strategy.voltron': Object.freeze(['Pump', 'Evasion', 'Protection', 'Anthem']),
     'strategy.counters': Object.freeze(['Pump', 'Anthem']),
@@ -92,7 +92,9 @@
     'strategy.big_mana': Object.freeze(['Ramp', 'Treasure', 'Card Draw']),
     'strategy.impulse': Object.freeze(['Treasure', 'Graveyard Cast', 'Card Draw']),
     'strategy.wheels': Object.freeze(['Wheel', 'Discard', 'Card Draw']),
-    'strategy.group_slug': Object.freeze(['Group Slug', 'Burn', 'Ping', 'Drain']),
+    // Face damage, so the burn half is Burn.Player / Burn.Opponents, not the
+    // interactive subtypes — docs/23-semantics-holes.md.
+    'strategy.group_slug': Object.freeze(['Group Slug', 'Burn', 'Burn.Player', 'Burn.Opponents', 'Ping', 'Drain']),
     // Self-Mill is Reanimator's signal, not Mill's — the row means milling OPPONENTS.
     'strategy.mill': Object.freeze(['Mill']),
     'strategy.goodstuff': Object.freeze([]),

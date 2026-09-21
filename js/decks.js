@@ -1538,6 +1538,10 @@ const SCRYFALL_AUTO_TAGS = (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.is
   { label: 'Bounce',         otag: 'bounce' },
   { label: 'Control',        query: '(o:"gain control" or o:"exchange control")' },
   { label: 'Burn',           otag: 'burn' },
+  { label: 'Burn.Any',       otag: 'burn.any' },
+  { label: 'Burn.Creature',  otag: 'burn.creature' },
+  { label: 'Burn.Player',    otag: 'burn.player' },
+  { label: 'Burn.Opponents', query: 'otag:burn (o:"each opponent" OR o:"all opponents" OR o:"to each opponent" OR o:"each other player")' },
   { label: 'Group Slug',     otag: 'group-slug' },
   { label: 'Stax',           otag: 'tax' },
   { label: 'Hatebear',       otag: 'hatebear' },
@@ -1726,6 +1730,10 @@ const DEFAULT_TAG_BADGE = {
   'Bounce':        { color: '#56b4e0', icon: '<path d="M9 10L4 15l5 5"/><path d="M4 15h11a5 5 0 005-5V6"/>' },
   'Control':       { color: '#7a52cc', icon: '<path d="M4 9h14l-4-4M20 15H6l4 4"/>' },
   'Burn':          { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Any':      { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Creature': { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Player':   { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Opponents':{ color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
   'Group Slug':    { color: '#c43d5a', icon: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M4 4l16 16"/>' },
   'Stax':          { color: '#6b7280', icon: '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/>' },
   'Hatebear':      { color: '#a9744f', icon: '<circle cx="7" cy="10" r="1.8"/><circle cx="12" cy="8.5" r="1.8"/><circle cx="17" cy="10" r="1.8"/><path d="M7.5 15a4.5 4.5 0 009 0c0-2-2-3-4.5-3s-4.5 1-4.5 3z"/>' },
@@ -2632,7 +2640,13 @@ function _glassMenuClippingAncestor(wrap) {
 // A hoisted menu is position:fixed, so it cannot follow its trigger. Close on
 // scroll rather than leave it stranded mid-page.
 if (typeof document !== 'undefined') {
-  document.addEventListener('scroll', () => {
+  document.addEventListener('scroll', (e) => {
+    // ...but scrolling the menu's OWN list is not the page moving under it. Capture-phase
+    // document listeners see non-bubbling scroll events from any element, so without this
+    // the first drag inside a capped, internally-scrolling menu closed it — exactly what
+    // _glassMenuFit exists to make possible.
+    const t = e.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest('.glass-menu[data-floating]')) return;
     if (document.querySelector('.glass-menu[data-floating]')) _glassMenuCloseAll();
   }, true);
 }
@@ -4035,13 +4049,14 @@ function _deckGridCard(d, isShared) {
   const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
     + (isShared && d.ownerEmail ? ' · ' + d.ownerEmail : '');
   return `
-  <div class="browse-deck-card" role="button" tabindex="0"
+  <div class="browse-deck-card" role="button" tabindex="0" data-deck-id="${d.id}"
     title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
     onclick="selectDeck('${d.id}')"
+    ${isShared ? '' : `onpointerdown="_deckOrderPointerDown(event,'${d.id}')"`}
     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDeck('${d.id}')}">
     <div class="browse-deck-img">
       ${img
-        ? `<img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+        ? `<img src="${escapeHtml(img)}" alt="" draggable="false" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
         : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
     </div>
   </div>`;
@@ -4050,6 +4065,8 @@ function _deckGridCard(d, isShared) {
 function renderDeckGrid() {
   const el = document.getElementById('deckGridArea');
   if (!el) return;
+  // A repaint mid-drag would replace the tile under the finger with a new node.
+  if (_deckOrderState && _deckOrderState.active) return;
 
   const ownedHtml = decks.map(d => _deckGridCard(d, false)).join('');
   const sharedHtml = sharedDecks.map(d => _deckGridCard(d, true)).join('');
@@ -4066,7 +4083,7 @@ function renderDeckGrid() {
 
   el.innerHTML =
     (ownedHtml
-      ? `<div class="deck-grid">${ownedHtml}</div>`
+      ? `<div class="deck-grid" id="deckOrderGrid">${ownedHtml}</div>`
       : `<div class="deck-grid"><div class="deck-grid-empty" style="padding:2rem;text-align:center;color:var(--text3)">No decks yet — <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ Create Deck</button></div></div>`)
     + (sharedHtml ? `
       <div style="margin-top:1.75rem">
@@ -4080,6 +4097,148 @@ function renderDeckGrid() {
         ${_sharedDecksCollapsed() ? '' : `<div class="deck-grid">${sharedHtml}</div>`}
       </div>` : '');
 }
+
+// ── Reordering the deck grid ────────────────────────────────────────────────
+// Press and hold a deck, then drag it where you want it. A hold rather than a
+// plain drag because the tile's ordinary job is to open the deck, and on a
+// phone a drag from rest is how you scroll the page.
+//
+// The order rides on the decks themselves (`order`), because the server returns
+// them by created_at — sorting on load is the only thing that makes a new
+// arrangement outlast the session.
+const DECK_ORDER_HOLD_MS = 350;
+const DECK_ORDER_SLOP = 8;
+let _deckOrderState = null;
+let _deckOrderSuppressClick = false;
+
+/** Order decks by their stored position; ones never placed keep the tail. */
+function sortDecksByStoredOrder() {
+  if (!Array.isArray(decks) || decks.length < 2) return;
+  decks.sort((a, b) => {
+    const ao = Number.isFinite(a?.order) ? a.order : Infinity;
+    const bo = Number.isFinite(b?.order) ? b.order : Infinity;
+    return ao - bo;
+  });
+}
+
+function _deckOrderCleanup() {
+  const st = _deckOrderState;
+  _deckOrderState = null;
+  if (!st) return;
+  clearTimeout(st.timer);
+  window.removeEventListener('pointermove', _deckOrderMove, true);
+  window.removeEventListener('pointerup', _deckOrderEnd, true);
+  window.removeEventListener('pointercancel', _deckOrderEnd, true);
+  window.removeEventListener('touchmove', _deckOrderTouchMove, _DECK_ORDER_TOUCH_OPTS);
+  st.el?.classList.remove('is-reordering');
+  document.getElementById('deckOrderGrid')?.classList.remove('is-reordering');
+}
+
+const _DECK_ORDER_TOUCH_OPTS = { passive: false, capture: true };
+
+/**
+ * The only thing that keeps a touch drag alive.
+ *
+ * A finger's gesture is committed to scrolling at touchstart, so switching
+ * touch-action once the hold lands is too late: the first move cancels the
+ * pointer stream and the drag dies after one event. preventDefault on a
+ * non-passive touchmove is what actually takes the gesture back — and only once
+ * the hold has landed, so a plain swipe over a deck still scrolls the page.
+ */
+function _deckOrderTouchMove(e) {
+  if (_deckOrderState && _deckOrderState.active && e.cancelable) e.preventDefault();
+}
+
+function _deckOrderPointerDown(e, id) {
+  if (e.button === 2 || !id) return;
+  const el = e.currentTarget;
+  const grid = document.getElementById('deckOrderGrid');
+  if (!el || !grid || !grid.contains(el)) return;
+  _deckOrderCleanup();
+  _deckOrderState = {
+    id, el, grid, active: false, pointerId: e.pointerId,
+    startX: e.clientX, startY: e.clientY,
+    timer: setTimeout(() => _deckOrderBegin(), DECK_ORDER_HOLD_MS),
+  };
+  window.addEventListener('pointermove', _deckOrderMove, true);
+  window.addEventListener('pointerup', _deckOrderEnd, true);
+  window.addEventListener('pointercancel', _deckOrderEnd, true);
+  window.addEventListener('touchmove', _deckOrderTouchMove, _DECK_ORDER_TOUCH_OPTS);
+}
+
+function _deckOrderBegin() {
+  const st = _deckOrderState;
+  if (!st) return;
+  st.active = true;
+  st.el.classList.add('is-reordering');
+  st.grid.classList.add('is-reordering');
+  // No pointer capture: the dragged tile is moved between siblings as it goes,
+  // and relocating a captured element drops the capture mid-drag. The listeners
+  // are on window, so there is nothing to capture for.
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch { /* unsupported */ } }
+}
+
+function _deckOrderMove(e) {
+  const st = _deckOrderState;
+  if (!st) return;
+  if (!st.active) {
+    // Moved before the hold landed — that was a scroll or a drag-off, not this.
+    if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) > DECK_ORDER_SLOP) _deckOrderCleanup();
+    return;
+  }
+  e.preventDefault();
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.browse-deck-card');
+  if (!over || over === st.el || !st.grid.contains(over)) return;
+  // Insert on the side the pointer is nearest, so the gap opens where it will land.
+  const r = over.getBoundingClientRect();
+  const after = e.clientX > r.left + r.width / 2;
+  st.grid.insertBefore(st.el, after ? over.nextSibling : over);
+}
+
+function _deckOrderEnd() {
+  const st = _deckOrderState;
+  if (st && st.active) {
+    _deckOrderCommit(st.grid);
+    // The pointerup after a drag still fires a click on the tile, which would
+    // open whatever deck it was dropped on.
+    _deckOrderSuppressClick = true;
+    setTimeout(() => { _deckOrderSuppressClick = false; }, 0);
+  }
+  _deckOrderCleanup();
+}
+
+function _deckOrderCommit(grid) {
+  const ids = [...grid.querySelectorAll('.browse-deck-card[data-deck-id]')].map(el => el.dataset.deckId);
+  if (ids.length !== decks.length) return;
+  const byId = new Map(decks.map(d => [String(d.id), d]));
+  const next = ids.map(id => byId.get(String(id))).filter(Boolean);
+  if (next.length !== decks.length) return;
+  decks.length = 0;
+  decks.push(...next);
+  // Renumber everything, not just what moved: decks that had never been placed
+  // need a position now or they would all sort to the tail together.
+  decks.forEach((d, i) => { d.order = i; });
+  save('decks');
+  if (typeof renderDeckSidebar === 'function') renderDeckSidebar();
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    if (!_deckOrderSuppressClick) return;
+    if (!e.target.closest?.('.browse-deck-card')) return;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+  // A tile is mostly a card image, and an image is natively draggable: holding
+  // one and moving handed the gesture to the browser's own drag-and-drop, which
+  // peeled off a translucent copy of the art and ended the pointer stream — the
+  // tile looked picked up and nothing reordered.
+  document.addEventListener('dragstart', e => {
+    if (e.target.closest?.('#deckOrderGrid')) e.preventDefault();
+  }, true);
+}
+globalThis._deckOrderPointerDown = _deckOrderPointerDown;
+globalThis.sortDecksByStoredOrder = sortDecksByStoredOrder;
 
 function _deckSidebarItem(d) {
   const total  = d.cards.reduce((s,c)=>s+c.qty,0);
@@ -6246,7 +6405,8 @@ let _archGroupModel = null;
 let _archGoalPending = '';
 function _ensureArchGoals(deck) {
   if (!deck || typeof _e2Analyze !== 'function') return;
-  if (_e2AnalysisCache && _e2AnalysisCache.data && _e2AnalysisCache.data.goals) return;
+  const have = _e2CachedAnalysis(deck);
+  if (have && have.goals) return;
   const key = String(deck.id || '');
   if (_archGoalPending === key) return;
   _archGoalPending = key;
@@ -6264,7 +6424,7 @@ function _archModelOrNull(deck, cards) {
   try {
     // Reuse whatever /api/decks/analyze already returned for this deck; the view
     // falls back to detected themes until the goal lands, then re-renders.
-    const cached = (_e2AnalysisCache && _e2AnalysisCache.data) || null;
+    const cached = _e2CachedAnalysis(deck);
     return classifyDeckArchitecture(deck, typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan, {
       cards,
       overrides: deck.architectureOverrides,
@@ -6352,8 +6512,9 @@ function _archVisualTile(row, opts) {
 
 function _archCardImageSrc(c) {
   if (!c) return '';
-  return c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  return cap(c.imageLarge || c.image
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
 }
 
 function _archCardPriceLabel(c) {
@@ -7963,9 +8124,10 @@ function _deckRowOwnershipChipHtml(own) {
  * (same URL). tileWidthPx unknown/0 keeps the old normal-first behavior.
  */
 function _stackTileImgSrc(c, tileWidthPx) {
-  const small = c.image || '';
-  const big = c.imageLarge
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  const small = cap(c.image || '');
+  const big = cap(c.imageLarge
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
   if (!small || !big) return big || small;
   const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1;
   const need = (Number(tileWidthPx) || 0) * dpr;
@@ -10042,6 +10204,18 @@ function setAnalyzeProjMode(mode) {
 // Deterministic server-side analysis over precomputed card semantics: deck goal,
 // synergy-aware cuts, and on-plan adds. Only called in semantic mode.
 let _e2AnalysisCache = { key: null, data: null, promise: null };
+
+/** The cached analysis, but only when it belongs to THIS deck. The cache is a
+ * single slot keyed by deck + list; reading `.data` blind paints one deck's goals
+ * onto the next deck opened. */
+function _e2CachedAnalysis(deck) {
+  if (!deck || !_e2AnalysisCache || !_e2AnalysisCache.data) return null;
+  try {
+    return _e2AnalysisCache.key === _e2AnalysisKey(deck) ? _e2AnalysisCache.data : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function _e2AnalysisKey(deck) {
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);

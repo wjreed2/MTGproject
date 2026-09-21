@@ -29,6 +29,19 @@
 
 Ping = 1 damage to creature/player; it is a project role.
 
+## Burn subtypes
+
+Parent project tag **Burn** (Scryfall `otag:burn`) is an umbrella only — it does **not** count as interaction or removal by itself.
+
+| Label | Meaning | Interaction? |
+| --- | --- | --- |
+| `Burn.Any` | Damage to any target / creature-or-player style | Yes |
+| `Burn.Creature` | Creature-directed damage | Yes |
+| `Burn.Player` | Target player / player-or-planeswalker | No |
+| `Burn.Opponents` | Each/all opponents (e.g. Valakut Exploration, Guttersnipe) | No |
+
+Scryfall tagger already has `burn.any`, `burn.creature`, and `burn.player` (ingested as project labels `Burn.Any` / `Burn.Creature` / `Burn.Player`). There is **no** Scryfall `burn.opponents` otag — `Burn.Opponents` is a project oracle query. CardIR/semantics only has the flat role `burn` (no `burn.any` etc.). Until tag schema v5 is re-ingested, Architecture and Foundation also fall back to oracle text via `js/burn-roles.js`.
+
 ## Verification checklist
 
 - Empty decklist + 3 key cards via autocomplete roles derive; staples pre-checked.

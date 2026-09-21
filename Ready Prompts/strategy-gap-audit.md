@@ -694,8 +694,8 @@ belong under a widened `wincon.combat` label rather than its own row.
 ## 9. What shipped — 2026-09-20
 
 Owner asked for everything fixable without touching `engine2/`, CardIR or the semantics
-data. All of the below is app-side. `npm test` passes except `test-card-image-loading`,
-which fails identically on the untouched baseline (`js/decks.js`, unrelated).
+data. All of the below is app-side. `npm test` was green except for
+`test-card-image-loading`; that one is fixed in §9b and the suite now passes in full.
 
 **Measured before → after**
 
@@ -798,11 +798,23 @@ left undone. All are now fixed.
 4. **§2.1's "Named in the extraction prompt?" column was wrong** — see the correction
    note in that section. All 121 axes are taught; the grep measured bespoke rules.
 
-Also confirmed, not a defect: `test-card-image-loading` fails on Windows only. `js/ui.js`
-is byte-identical to HEAD and is 100% CRLF (`core.autocrlf=true`, no `.gitattributes`),
-while the test's slice needle uses bare `
-`. It passes in CI and has nothing to do with
-any change here.
+6. **Merged the 31 commits this branch was behind, and acted on
+   [docs/23-semantics-holes.md](../docs/23-semantics-holes.md).** That doc did not exist
+   in this checkout — it lives in remote commit `db9d71c`. It records one hole: `Burn` is
+   a flat role while Scryfall already splits it into `burn.any` / `burn.creature` /
+   `burn.player`, so face damage and creature answers are indistinguishable. It applies
+   directly to the Group slug row added above, because group slug *is* face damage — the
+   doc names Guttersnipe as `Burn.Opponents`. Group slug and its sub-tag now carry
+   `Burn.Player` / `Burn.Opponents`, and the impulse goal carries `Burn.Any`; the plain
+   `Burn` umbrella is kept alongside, matching how the remote wired Spellslinger.
+   Nothing written here contradicted the new rule — none of these rows ever used `Burn`
+   for interaction.
+
+7. **`test-card-image-loading` is fixed, so the suite is green for the first time.** The
+   cause was never the code: `js/ui.js` is byte-identical to HEAD and 100% CRLF
+   (`core.autocrlf=true`, no `.gitattributes`), while the test's slice needles are
+   written with `\n`, so no needle spanning a line break could match. It passed in CI and
+   failed only on Windows. The test now normalises line endings on read.
 
 ---
 

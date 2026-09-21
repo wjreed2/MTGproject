@@ -19,7 +19,8 @@ const TEMPLATES = require('./goal-templates');
 const COMMANDER_WEIGHT = 3;
 
 function axisHistogram(deckCards, commander) {
-  const providers = {};   // axis → distinct provider count (qty-aware)
+  const providers = {};   // axis → RANKING count: qty-aware, commander-emphasised (see add)
+  const cardCounts = {};  // axis → the honest card count, no emphasis — anything a user reads
   const weight = {};      // axis → summed weight
   const byAxisCards = {}; // axis → [names]
   const typeCounts = {};  // card type → qty ("Enchantment", "Artifact", …) — some goals
@@ -32,6 +33,10 @@ function axisHistogram(deckCards, commander) {
       // graveyard) must not rank like a random 1-of supports it (mult is 1 for the
       // 99, COMMANDER_WEIGHT for the command zone — same rule the weights follow).
       providers[p.axis] = (providers[p.axis] || 0) + qty * mult;
+      // …but the emphasis is a ranking device, not a fact about the deck. Evidence and
+      // the goal summary are shown to the user ("3 mill payoffs"), and a commander that
+      // is the only provider of an axis must not be reported as three cards.
+      cardCounts[p.axis] = (cardCounts[p.axis] || 0) + qty;
       weight[p.axis] = (weight[p.axis] || 0) + (p.weight || 1) * mult * qty;
       (byAxisCards[p.axis] = byAxisCards[p.axis] || []).push(card.name);
     }
@@ -43,7 +48,7 @@ function axisHistogram(deckCards, commander) {
   };
   for (const c of deckCards) if (c.ir) add(c, 1, c.qty || 1);
   if (commander?.ir) add(commander, COMMANDER_WEIGHT, 1);
-  return { providers, weight, byAxisCards, typeCounts };
+  return { providers, cardCounts, weight, byAxisCards, typeCounts };
 }
 
 // Greedy label propagation over enabler_payoff edges: each node starts labeled by its
@@ -245,7 +250,7 @@ function inferGoals(deckCards, commander, opts = {}) {
     if (score <= 0.15) continue;
     const evidenceAxes = (tpl.core || []).flatMap(g => coreGroupAxes(g, mech.mechanism))
       .concat(tpl.support || [])
-      .map(ax => ({ axis: ax, count: hist.providers[ax] || 0 }))
+      .map(ax => ({ axis: ax, count: hist.cardCounts[ax] || 0 }))
       .filter(a => a.count > 0)
       .sort((a, b) => b.count - a.count)
       .slice(0, 6);

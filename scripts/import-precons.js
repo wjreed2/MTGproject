@@ -109,8 +109,12 @@ function preconToCard(c, isCommander) {
     number: c.number || '',
     // Filled from the printing id rather than left null: these decks are read by
     // people who do not own the cards, so nothing would fetch the art for them.
-    image: scryImage(scryfallId),
-    imageLarge: scryImage(scryfallId, 'large'),
+    // The app's convention (see cardThumbAttrs in js/ui.js): `image` is the
+    // small thumbnail, `imageLarge` the normal one. A size too big in each meant
+    // every deck tile fetched a 700x1000 scan for a 270px slot — 13.9 MB to open
+    // one of these decks.
+    image: scryImage(scryfallId, 'small'),
+    imageLarge: scryImage(scryfallId, 'normal'),
     priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
     addedAt: Date.now(),
   };

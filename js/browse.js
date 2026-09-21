@@ -10,6 +10,10 @@ let _browseQuery = '';
 let _browseFetch = null;
 let _browseFetchedAt = 0;
 const BROWSE_TTL_MS = 60_000;
+// The listing survives a reload, so reopening the tab paints the decks you saw
+// last time straight away and the fetch behind it only repaints what changed —
+// the same stale-while-revalidate the collection boots with.
+const BROWSE_CACHE_KEY = 'public_decks_v1';
 
 async function renderBrowseDecks({ force = false } = {}) {
   const grid = document.getElementById('browseDeckGrid');
@@ -19,8 +23,30 @@ async function renderBrowseDecks({ force = false } = {}) {
   const fresh = !force && _browseDecks.length && (Date.now() - _browseFetchedAt) < BROWSE_TTL_MS;
   if (fresh) { _paintBrowseCount(label); _renderBrowseGrid(); return; }
 
+  let painted = false;
+  if (!_browseDecks.length && typeof cacheGet === 'function') {
+    try {
+      const cached = await cacheGet(BROWSE_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length) {
+        _browseDecks = cached;
+        _paintBrowseCount(label);
+        _renderBrowseGrid();
+        painted = true;
+      }
+    } catch (_) { /* no snapshot yet */ }
+  }
+
+  // Opening the tab calls this twice (state.js and ui.js), and the two race:
+  // whichever runs first at boot can read the snapshot before IndexedDB is
+  // ready and get nothing back. So ask the grid what is on it rather than
+  // trusting this call's own view — neither the placeholder nor the error below
+  // may paint over a listing the other call has already put up.
+  const gridHasCards = () => !!grid.querySelector('.pubdeck-card');
+
   if (!_browseFetch) {
-    grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
+    if (!painted && !gridHasCards()) {
+      grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
+    }
     const base = (document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api');
     _browseFetch = fetch(`${base}/decks/public`, { credentials: 'include' })
       .then(async res => {
@@ -33,7 +59,10 @@ async function renderBrowseDecks({ force = false } = {}) {
   try {
     _browseDecks = await pending;
     _browseFetchedAt = Date.now();
+    if (typeof cacheSet === 'function') void cacheSet(BROWSE_CACHE_KEY, _browseDecks);
   } catch (e) {
+    // A snapshot on screen is better than an error over the top of it.
+    if (painted || gridHasCards()) return;
     grid.innerHTML = `<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--red);font-size:0.85rem">Could not load public decks: ${e.message}</div>`;
     return;
   }

@@ -611,6 +611,28 @@ function imgFadeLoadingAttr(...urls) {
 }
 
 /**
+ * Cap a Scryfall image at `normal` (488px wide).
+ *
+ * A card carries `image` (small) and `imageLarge` (normal) by this app's
+ * convention, but decks that arrived from an import can hold a whole size
+ * bigger in each — normal in `image`, large in `imageLarge`. Nothing in the app
+ * draws a card wider than about 300 CSS px, so `large` is never the right
+ * answer: opening one such deck pulled 13.9 MB of card art, most of it
+ * resolution no tile can show. Its own decks looked faster only because that
+ * art was already in the browser's cache.
+ */
+function cardImgCapNormal(url) {
+  const u = String(url || '');
+  if (!u) return u;
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
+}
+
+/**
  * Build the src/srcset/loading/decoding attributes for a card thumbnail.
  * Cards carry both `image` (Scryfall small ~146px) and `imageLarge` (normal ~488px).
  * Small-tile grids serve the small image on standard displays and only upgrade to

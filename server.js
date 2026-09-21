@@ -3319,8 +3319,12 @@ authRouter.get('/oauth/:provider/start', authLimiter, async (req, res) => {
     const { verifier, challenge } = createPkcePair();
     const redirectUri = oauthRedirectUri(req, provider);
     const now = Date.now();
-    // Linking only when there is a live session; otherwise this is a sign-in.
-    const linkAccountId = req.session?.accountId || null;
+    // Linking is an explicit act from Settings (?link=1), never inferred from an
+    // ambient session: the gate also appears when /auth/me merely failed, and a
+    // session cookie alone would then bind the next person's provider identity to
+    // whoever was signed in before them.
+    const wantsLink = String(req.query.link || '') === '1';
+    const linkAccountId = wantsLink ? (req.session?.accountId || null) : null;
 
     await db().query(
       `INSERT INTO oauth_states (state_hash, provider, code_verifier, nonce, redirect_uri, link_account_id, created_at, expires_at)
@@ -3386,7 +3390,15 @@ async function handleOauthCallback(req, res) {
       } catch { /* name is optional — never fail the sign-in over it */ }
     }
 
-    const result = await resolveOauthAccount(provider, profile, row.link_account_id || null);
+    // The link target must still be the live session. An abandoned consent screen
+    // (user walks away, signs out, hands over the device) would otherwise let the
+    // next person attach their provider account to the previous user's login.
+    let linkAccountId = row.link_account_id || null;
+    if (linkAccountId && Number(req.session?.accountId) !== Number(linkAccountId)) {
+      console.warn('[auth] oauth link dropped — session no longer matches the linking account');
+      linkAccountId = null;
+    }
+    const result = await resolveOauthAccount(provider, profile, linkAccountId);
 
     const [accRows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [result.accountId]);
     if (!accRows.length) return finishOauth(req, res, { oauth_error: 'account_missing' });
@@ -4119,9 +4131,20 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   }
 });
 
-// Public decks — no auth required
+// Public decks — no auth required.
+// The payload is identical for every caller, so one build serves the burst: this is an
+// unauthenticated route that reads every public deck, and the precon library made that a
+// library-wide scan per Browse open.
+let _publicDecksCache = { at: 0, body: null };
+const PUBLIC_DECKS_CACHE_MS = 30_000;
+/** Publishing, unpublishing or editing a deck must show up in Browse now, not in 30s. */
+function bustPublicDecksCache() { _publicDecksCache = { at: 0, body: null }; }
+
 app.get('/api/decks/public', async (req, res) => {
   try {
+    if (_publicDecksCache.body && Date.now() - _publicDecksCache.at < PUBLIC_DECKS_CACHE_MS) {
+      return res.json(_publicDecksCache.body);
+    }
     const [rows] = await db().query(
       `SELECT d.id, d.data, d.account_id, a.email, a.username, a.display_name,
               d.revision, d.semantics_goal, d.semantics_goal_rev, d.semantics_goal_json
@@ -4135,10 +4158,15 @@ app.get('/api/decks/public', async (req, res) => {
     // Cards come from deck_cards and prices from the price log, exactly as the
     // single-deck view builds them. Summing the blob's stamped prices instead
     // under-reported every deck and reported zero for the ones whose blob was
-    // written before prices were attached at all. One extra query for every
-    // public deck's cards, and one price lookup over the union of them.
+    // written before prices were attached at all.
+    //
+    // Only the columns a LISTING needs, though: qty and scryfall_id to price the deck,
+    // plus the finish. Selecting card_data pulled every public deck's every card blob
+    // through this route and JSON.parsed it — a whole published precon library per
+    // anonymous request, for a card count and a sum.
     const [cardRows] = await db().query(
-      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.card_data
+      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.qty, dc.scryfall_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.foil')) AS foil_json
          FROM deck_cards dc
          JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
         WHERE d.is_public = 1`
@@ -4146,16 +4174,37 @@ app.get('/api/decks/public', async (req, res) => {
     const cardsByDeck = new Map();
     const allCards = [];
     for (const r of cardRows) {
-      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
-      if (!parsed) continue;
-      const uid = parsed.uid || r.card_uid || '';
-      const card = { ...parsed, uid, foil: parsed.foil != null ? !!parsed.foil : String(uid).endsWith('_f') };
+      const uid = r.card_uid || '';
+      const card = {
+        uid,
+        scryfallId: r.scryfall_id || null,
+        qty: Number(r.qty) || 1,
+        foil: r.foil_json != null ? r.foil_json === 'true' : String(uid).endsWith('_f'),
+      };
       const key = `${r.account_id}::${r.deck_id}`;
       if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
       cardsByDeck.get(key).push(card);
       allCards.push(card);
     }
     await attachPriceLogPricesToDeckCards(allCards);
+
+    // The commander's art, one row per deck rather than a scan of every card.
+    const [cmdRows] = await db().query(
+      `SELECT dc.deck_id, dc.account_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.image')) AS image,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.imageLarge')) AS imageLarge
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
+        WHERE d.is_public = 1 AND dc.is_commander = 1
+        ORDER BY dc.sort_order, dc.card_uid`
+    );
+    // Partner/background decks have two commander rows; the deck's own order decides
+    // which face fronts the listing, so keep the first and ignore the rest.
+    const cmdByDeck = new Map();
+    for (const r of cmdRows) {
+      const key = `${r.account_id}::${r.deck_id}`;
+      if (!cmdByDeck.has(key)) cmdByDeck.set(key, r);
+    }
 
     // The card's own finish, falling back to non-foil when a foil price is
     // missing — the same rule the deck page's value uses.
@@ -4191,8 +4240,10 @@ app.get('/api/decks/public', async (req, res) => {
 
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deck.cards || [];
-      const cmdCard = cards.find(c => c.isCommander);
+      const key = `${r.account_id}::${r.id}`;
+      // Legacy decks with no deck_cards rows still fall back to the stored blob.
+      const cards = cardsByDeck.get(key) || deck.cards || [];
+      const cmdCard = cmdByDeck.get(key) || cards.find(c => c.isCommander);
       return {
         id: deck.id,
         name: deck.name || 'Untitled',
@@ -4212,6 +4263,7 @@ app.get('/api/decks/public', async (req, res) => {
         accountId: r.account_id,
       };
     });
+    _publicDecksCache = { at: Date.now(), body: out };
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -5158,6 +5210,7 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
           'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
+        bustPublicDecksCache();
       } else {
         await conn.query(
           'UPDATE decks SET name=?, format=?, data=?, updated_at=?, revision=revision+1 WHERE id=?',
@@ -5463,6 +5516,7 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
           [(merged.name || '').slice(0, 255), (merged.format || '').slice(0, 50), JSON.stringify(merged),
            merged.isPublic ? 1 : 0, now, nextRevision, ownerId, deckId]
         );
+        bustPublicDecksCache();
         // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
         // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
         const cardsChanged = applied.changedZones.includes('cards');
@@ -5770,7 +5824,12 @@ const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysi
 function deckThumbUrl(url) {
   const u = String(url || '');
   if (!u) return null;
-  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|png|border_crop)\//, '$1normal/');
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
 }
 
 async function computeDeckSemanticsGoal(cards, commanderName, preResolved = null) {
@@ -8657,7 +8716,7 @@ async function ensureCardSemanticsTables() {
  * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
-async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '5' } = {}) {
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -9235,24 +9294,48 @@ function _fpSameArtRows(i, j) {
 
 // Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
 // which beats collector alone (collector numbers repeat across sets).
-function _fpPickByHint(rows, hintSet, hintNum) {
+function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
   if (!hintSet && !hintNum) return null;
+  // A hint chooses a PRINTING, never a card. Callers pass retrieval sets that span
+  // several names (a title shortlist, a within-margin decision group), and a misread
+  // 2-digit collector number that happens to be unique across them would otherwise
+  // substitute a different card for the one the title and the hash both chose — so
+  // the pool is narrowed to the printings of the row already settled on.
+  let pool = rows;
+  if (sameNameAsRow != null) {
+    const want = _fpNormName(_fpIndex.meta[sameNameAsRow].name);
+    pool = [];
+    for (const i of rows) if (_fpNormName(_fpIndex.meta[i].name) === want) pool.push(i);
+  }
   let exact = null;
   const setOnly = [];
-  for (const i of rows) {
+  const numOnly = [];
+  for (const i of pool) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
     if (setOk && numOk) { exact = i; break; }
     if (setOk) setOnly.push(i);
+    // A one-character number is the junk case: a stray digit off rules text reads as "1"
+    // (both 2026-09-16 failures did exactly that). A wrong printing added silently costs more
+    // than falling back to the hash, so single digits only count alongside a set code.
+    if (numOk && hintNum.length >= 2) numOnly.push(i);
   }
-  // Both fields agreeing names one printing. A set code alone is only decisive when the name
-  // has exactly one printing in that set — otherwise a misread collector number would pick
-  // arbitrarily among siblings, and a bare collector number never decides anything (the same
-  // number exists in every set).
+  // Both fields agreeing names one printing. Either field ALONE decides when it lands on
+  // exactly one of these rows — and it usually does, because the pool above is the printings
+  // of a single card, not the whole index. That matters most for the treatments the hash
+  // cannot rank (full art, showcase, foil): the collector number is printed large and reads
+  // cleanly, while the set code shares a tiny grey line with the language and the artist.
   if (exact != null) return exact;
-  return setOnly.length === 1 ? setOnly[0] : null;
+  if (setOnly.length === 1) return setOnly[0];
+  return numOnly.length === 1 ? numOnly[0] : null;
 }
+
+// Beyond this combined distance the hash is not ranking a card's printings, it is guessing.
+// Measured on saved captures: a full-art/showcase/foil capture lands 50-70 combined from its
+// OWN index row, while Monstrous Rage's Marvel full art sits 58-72 from its three siblings —
+// the noise is wider than the spread, so the nearest printing is a coin flip.
+const SCAN_PRINTING_HASH_TRUST = 30;
 
 // How many OTHER printings of this card share its artwork? These are the printings no image
 // hash can separate at any resolution, so a non-zero count is the client's cue to read the
@@ -9313,7 +9396,8 @@ async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCH
   }
 }
 
-const SCRY_TAG_SCHEMA_VERSION = '4';
+// v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
+const SCRY_TAG_SCHEMA_VERSION = '5';
 let _scryfallImportProgress = {
   running: false,
   phase: 'idle',
@@ -9748,7 +9832,7 @@ async function saveTagQueryCache(schemaVersion, cacheMap) {
   }
 }
 
-async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, refreshCache = false, onProgress = null } = {}) {
+async function buildTagMapFromQueries({ schemaVersion = '5', useCache = true, refreshCache = false, onProgress = null } = {}) {
   const specs = SCRYFALL_AUTO_TAGS.map(spec => ({
     label: spec.label,
     query: spec.query || `otag:${spec.otag}`,
@@ -9822,7 +9906,7 @@ async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, re
 }
 
 async function importScryfallOracleBulkToDb({
-  schemaVersion = '4',
+  schemaVersion = '5',
   importCards = true,
   rebuildTags = true,
   useTagQueryCache = true,
@@ -10246,8 +10330,20 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         // The name is settled; the printed footer settles the printing, which the image hash
         // cannot do for same-art reprints at any resolution.
-        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum, tBest.i);
         if (hinted != null) tBest = { ...tBest, i: hinted };
+        // Only a footer that agrees on BOTH fields has actually settled the printing;
+        // a lone collector number that picked among siblings has not earned "no rivals".
+        const hintExact = hinted != null && hintSet && hintNum
+          && String(_fpIndex.meta[hinted].set_code).toLowerCase() === hintSet
+          && String(_fpIndex.meta[hinted].collector_number).toLowerCase() === hintNum;
+        // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
+        // past the trust distance, same-art siblings are not the only rivals — every printing
+        // of the name is one, so ask the client for a footer rather than banking the guess.
+        const printingRivals = hintExact ? 0
+          : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
+            ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
+            : 0);
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {
           cards[0]._scanDistance = tBest.dist;
@@ -10257,7 +10353,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           ok: true, matched: true, ambiguous: false, titleMatched: true,
           variantIndex: tBest.variant.idx,
           distance: tBest.dist, artDistance: tBest.artDist,
-          printingRivals: hinted != null ? 0 : _fpPrintingRivals(tBest.i),
+          printingRivals,
           best: cards[0] || null, candidates: cards,
         });
       }
@@ -10280,7 +10376,17 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         // vote — which matters because the captures that need this are exactly the ones whose
         // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
         const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
-        if (fBest && (fBest.comb <= SCAN_FOOTER_COMB_MAX || titleAgrees)) {
+        // A footer carrying BOTH a set code and a multi-character collector number is strong
+        // evidence by itself. The set code only parses when it sits next to the language
+        // marker, and the pair resolves to exactly one printing out of ~100k. Every bad footer
+        // read seen live was missing one of those: an empty set code, or a single stray digit
+        // picked off the rules text — "1", "1r", and the "hob 3" that queued Troop of Ponies.
+        // So a strong read no longer has to agree with the image, because on the captures that
+        // need it the image is actively wrong: Mesa Lynx's capture sits 34 combined bits from
+        // the true card and 28 from an unrelated one, Meteor Crater's 66 from true and 24 from
+        // a Thrull token. A weak read still has to clear the old distance bar.
+        const strongFooter = hintNum.length >= 2;
+        if (fBest && (strongFooter || titleAgrees || fBest.comb <= SCAN_FOOTER_COMB_MAX)) {
           const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
           if (cards[0]) {
             cards[0]._scanDistance = fBest.dist;
@@ -10323,9 +10429,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     ).values()].sort((a, b) => a.comb - b.comb);
     let hintPicked = false;
     if (decision.length > 1) {
-      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum);
+      // Scoped to the chosen card's own printings — see _fpPickByHint. Choosing a
+      // printing is NOT corroboration, so this no longer sets hintPicked: the gates
+      // below are waived only by the full set+number agreement checked right after.
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum, chosen.i);
       const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
-      if (byHint) { chosen = byHint; hintPicked = true; }
+      if (byHint) chosen = byHint;
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
@@ -10336,7 +10445,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // A footer that confirms the winner counts even when nothing competed with it — the hint
     // was previously only consulted to CHOOSE between candidates, so a lone correct answer
     // with its set code printed on the card got no credit for it.
-    if (!hintPicked && hintSet && hintNum
+    if (hintSet && hintNum
       && String(chosen.meta.set_code).toLowerCase() === hintSet
       && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
 
@@ -10874,7 +10983,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -10958,7 +11067,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
@@ -12312,15 +12421,147 @@ app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (
 // and pushes finished CardIR rows here in batches; `status` exposes the
 // updated_at watermark that makes the sync incremental.
 
-/** Watermark + row counts — the push script diffs against this. */
+/** Watermark + row counts — the push script diffs against this. `?since=<ms>` also
+ * reports how many rows sit above that watermark, which is how the status/pull scripts
+ * say "N cards waiting to come down" without fetching a page first. */
 app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
   try {
     const [[row]] = await db().query(
       `SELECT COUNT(*) n, COALESCE(MAX(updated_at), 0) maxUpdatedAt FROM card_semantics`);
     const [[ax]] = await db().query(`SELECT COUNT(*) n FROM card_semantics_axes`);
-    res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
+    const since = Math.max(0, Number(req.query.since) || 0);
+    let newer = Number(row.n); // since=0 (or absent) — everything is "newer"
+    if (since) {
+      const [[n]] = await db().query(
+        `SELECT COUNT(*) n FROM card_semantics WHERE updated_at > ?`, [since]);
+      newer = Number(n.n);
+    }
+    res.json({
+      cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt), newer,
+    });
   } catch (e) {
     console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Which of these rows does this DB not have (or hold a staler copy of)? A single
+ * updated_at watermark only works with ONE machine pushing: rows extracted on machine B
+ * before machine A's latest push sit *below* the watermark and would never be sent. The
+ * push script diffs by (oracle_id, updated_at) against this instead. */
+app.post('/api/internal/semantics-ingest/diff', requireSemanticsIngestSecret, async (req, res) => {
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
+  if (!cards) return res.status(400).json({ error: 'cards[] required' });
+  if (cards.length > 5000) return res.status(400).json({ error: 'max 5000 rows per diff' });
+  try {
+    const ids = [];
+    const stamp = new Map();
+    for (const c of cards) {
+      const id = String(c?.oracle_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: `bad oracle_id: ${id}` });
+      ids.push(id);
+      stamp.set(id, Number(c.updated_at) || 0);
+    }
+    const have = new Map();
+    for (let i = 0; i < ids.length; i += 1000) {
+      const chunk = ids.slice(i, i + 1000);
+      const [rows] = await db().query(
+        `SELECT oracle_id, updated_at FROM card_semantics
+          WHERE oracle_id IN (${chunk.map(() => '?').join(',')})`, chunk);
+      for (const r of rows) have.set(r.oracle_id, Number(r.updated_at));
+    }
+    res.json({
+      need: ids.filter(id => !have.has(id) || have.get(id) < stamp.get(id)),
+      checked: ids.length,
+    });
+  } catch (e) {
+    console.error('[semantics-diff]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Export finished CardIR rows so a second dev machine can mirror what is already
+ * extracted — the reverse of the ingest below (scripts/semantics-pull.js). Paged by an
+ * (updated_at, oracle_id) cursor the caller echoes back, so rows sharing a millisecond
+ * can never straddle a page boundary and go missing. */
+app.get('/api/internal/semantics-export', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const since = Math.max(0, Number(req.query.since) || 0);
+    const after = /^[0-9a-f-]{36}$/i.test(String(req.query.after || '')) ? String(req.query.after) : '';
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+    const [rows] = await db().query(
+      `SELECT oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+              status, run_id, model, prompt_version, updated_at
+         FROM card_semantics
+        WHERE updated_at > ? OR (updated_at = ? AND oracle_id > ?)
+        ORDER BY updated_at, oracle_id LIMIT ${limit}`, [since, since, after]);
+    const axesByCard = new Map();
+    if (rows.length) {
+      const ids = rows.map(r => r.oracle_id);
+      const [ax] = await db().query(
+        `SELECT oracle_id, kind, axis, param, weight, rate FROM card_semantics_axes
+          WHERE oracle_id IN (${ids.map(() => '?').join(',')})`, ids);
+      for (const a of ax) {
+        if (!axesByCard.has(a.oracle_id)) axesByCard.set(a.oracle_id, []);
+        axesByCard.get(a.oracle_id).push({ kind: a.kind, axis: a.axis, param: a.param, weight: a.weight, rate: a.rate });
+      }
+    }
+    const last = rows[rows.length - 1];
+    res.json({
+      cards: rows.map(r => ({
+        oracle_id: r.oracle_id, ir_version: r.ir_version, vocab_version: r.vocab_version,
+        ir_json: typeof r.ir_json === 'string' ? r.ir_json : JSON.stringify(r.ir_json),
+        roles_json: r.roles_json == null ? null : (typeof r.roles_json === 'string' ? r.roles_json : JSON.stringify(r.roles_json)),
+        confidence: Number(r.confidence),
+        validation_score: r.validation_score != null ? Number(r.validation_score) : null,
+        status: r.status, run_id: r.run_id, model: r.model, prompt_version: r.prompt_version,
+        updated_at: Number(r.updated_at), axes: axesByCard.get(r.oracle_id) || [],
+      })),
+      nextSince: last ? Number(last.updated_at) : since,
+      nextAfter: last ? last.oracle_id : after,
+      more: rows.length === limit,
+    });
+  } catch (e) {
+    console.error('[semantics-export]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Corpus coverage by EDHREC-rank band — the shared "where are we" view when extraction
+ * runs on more than one machine (scripts/semantics-status.js). The denominator matches
+ * the runner's own card selection (paper printings, non-excluded layouts) so the bands
+ * line up with what `semantics-extract.js --incremental` would actually pick up. */
+app.get('/api/internal/semantics-coverage', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const band = Math.min(20000, Math.max(500, parseInt(req.query.band) || 2000));
+    const layouts = engine2.vocab.EXCLUDED_LAYOUTS;
+    const corpusWhere = `JSON_CONTAINS(c.games_json, '"paper"') AND (c.layout IS NULL OR c.layout NOT IN (?))`;
+    const [bands] = await db().query(
+      `SELECT FLOOR(c.edhrec_rank / ?) AS band, COUNT(*) AS total,
+              SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NOT NULL
+        GROUP BY band ORDER BY band`, [band, engine2.irSchema.IR_VERSION, layouts]);
+    const [[unranked]] = await db().query(
+      `SELECT COUNT(*) AS total, SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NULL`, [engine2.irSchema.IR_VERSION, layouts]);
+    const [[runs]] = await db().query(
+      `SELECT COUNT(*) AS n FROM card_semantics WHERE ir_version = ?`, [engine2.irSchema.IR_VERSION]);
+    res.json({
+      bandSize: band,
+      irVersion: engine2.irSchema.IR_VERSION,
+      bands: bands.map(b => ({
+        from: Number(b.band) * band + 1, to: (Number(b.band) + 1) * band,
+        total: Number(b.total), done: Number(b.done),
+      })),
+      unranked: { total: Number(unranked.total), done: Number(unranked.done) },
+      cardsAtIrVersion: Number(runs.n),
+    });
+  } catch (e) {
+    console.error('[semantics-coverage]', e);
     res.status(500).json({ error: e.message });
   }
 });

@@ -35,6 +35,7 @@ const CHUNKS = {
     'js/collection.js',
     'js/sets.js',
     'js/project-role-tags.js',
+    'js/burn-roles.js',
     'js/archetype-role-bridge.js',
     'js/adds-scoring.js',
     'js/foundation/foundation-config.js',

@@ -23,6 +23,9 @@ Open-deck **By Architecture** view is a third list mode. Visualization Foundatio
 ## DECIDED — Plan feature off by default (2026-09-18)
 Saved Plan strategy/wincon identity is **off** unless Settings → Deck Plan is enabled (`mtg_deck_plan === '1'`). `getDeckPlan` clears identity on read while keeping Commander Gameplan numbers; stored `deck.plan` JSON is not wiped. Architecture strategy/wincon identity lives on `architectureOverrides` with auto-defaults from semantic goals/themes. `deck-plan.js` catalogs stay for labels and pickers. Wizard code remains for a later re-enable.
 
+## DECIDED — Burn subtypes vs interaction (2026-09-20)
+Parent project tag **Burn** (`otag:burn`) is an umbrella only — it does not imply interaction or removal. Interactive burn is **Burn.Any** and **Burn.Creature**. Face burn is **Burn.Player** and **Burn.Opponents** (e.g. Valakut Exploration) and must not count toward Interaction / Removal or Foundation creature-threat coverage. Oracle fallback in `js/burn-roles.js` applies until subtype tags are re-ingested (tag schema v5).
+
 ## DECIDED — Foundation is not a mandatory checklist
 Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
 

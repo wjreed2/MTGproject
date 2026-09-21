@@ -22,9 +22,12 @@
  *   node scripts/semantics-extract.js                          # full corpus (~27k cards)
  *   node scripts/semantics-extract.js --requeue                # escalate invalid items (Opus + feedback)
  *   node scripts/semantics-extract.js --incremental            # only cards missing at current ir_version
+ *   node scripts/semantics-extract.js --incremental --rank-from 20001 --rank-to 22000
+ *                                                              # one EDHREC-rank band (multi-machine split)
  *
  * Flags: --run-id <id> --billing subscription|api --model <alias> --escalate-model <alias>
  *        --limit N --pilot --cards-from-decks <dir> --incremental --requeue
+ *        --rank-from N --rank-to N --unranked
  *        --group-size 10 --limit-poll-minutes 20 --dry-run
  */
 'use strict';
@@ -70,6 +73,9 @@ function parseArgs(argv) {
     decksDir: val('--cards-from-decks', has('--pilot') ? DECKS_DIR_DEFAULT : null),
     incremental: has('--incremental'),
     requeue: has('--requeue'),
+    rankFrom: parseInt(val('--rank-from', '0')) || 0,
+    rankTo: parseInt(val('--rank-to', '0')) || 0,
+    unranked: has('--unranked'),
     groupSize: Math.max(1, parseInt(val('--group-size', '10')) || 10),
     concurrency: Math.min(8, Math.max(1, parseInt(val('--concurrency', '3')) || 3)),
     limitPollMinutes: Math.max(1, parseInt(val('--limit-poll-minutes', '20')) || 20),
@@ -123,7 +129,19 @@ async function selectCards(db, opts) {
     sql += ` AND NOT EXISTS (SELECT 1 FROM card_semantics s WHERE s.oracle_id = c.oracle_id AND s.ir_version = ?)`;
     params.push(irSchema.IR_VERSION);
   }
-  if (opts.limit) { sql += ` ORDER BY c.edhrec_rank IS NULL, c.edhrec_rank LIMIT ${opts.limit}`; }
+  // Rank windows are how two machines split the corpus without a shared lock: each takes
+  // a band (docs/deployment-runbook.md §1c). `>=`/`<=` on edhrec_rank drop NULL ranks on
+  // their own, so an unranked sweep is its own explicit flag.
+  if (opts.unranked) {
+    sql += ` AND c.edhrec_rank IS NULL`;
+  } else {
+    if (opts.rankFrom) { sql += ` AND c.edhrec_rank >= ?`; params.push(opts.rankFrom); }
+    if (opts.rankTo) { sql += ` AND c.edhrec_rank <= ?`; params.push(opts.rankTo); }
+  }
+  if (opts.limit || opts.rankFrom || opts.rankTo) {
+    sql += ` ORDER BY c.edhrec_rank IS NULL, c.edhrec_rank`;
+    if (opts.limit) sql += ` LIMIT ${opts.limit}`;
+  }
   const [rows] = await db.query(sql, params);
   return rows.map(r => r.oracle_id);
 }

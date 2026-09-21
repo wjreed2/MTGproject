@@ -31,7 +31,15 @@
     { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
     { label: 'Bounce', otag: 'bounce' },
     { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
+    // Burn umbrella (otag) does not imply interaction — see Burn.* subtypes + js/burn-roles.js.
+    // Scryfall tagger already has burn.any / burn.creature / burn.player (hyphen aliases work).
+    // There is no Scryfall burn.opponents otag; opponent-only face burn is usually burn.player.
     { label: 'Burn', otag: 'burn' },
+    { label: 'Burn.Any', otag: 'burn.any' },
+    { label: 'Burn.Creature', otag: 'burn.creature' },
+    { label: 'Burn.Player', otag: 'burn.player' },
+    // Project-only: Scryfall has no burn.opponents; keep an oracle slice for each/all opponents.
+    { label: 'Burn.Opponents', query: 'otag:burn (o:"each opponent" OR o:"all opponents" OR o:"to each opponent" OR o:"each other player")' },
     // CP-Q32: 1 damage to a creature or player (aliases: poke, Tim, zap, pinger).
     { label: 'Ping', query: '(o:"deals 1 damage" or o:"deal 1 damage")' },
     { label: 'Group Slug', otag: 'group-slug' },
