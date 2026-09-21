@@ -9492,6 +9492,9 @@ function _ensureCutPrefsForDeck(deck) {
   if (deck.id === _deckCutLastDeckId) return;
   _deckCutLastDeckId = deck.id;
   _applyCutPrefsToState(_loadCutPrefsForDeck(deck.id));
+  // The category-targets dropdown is per-deck too — never leave it showing the
+  // previous deck's sliders.
+  if (typeof _closeSuggestTargetsPop === 'function') _closeSuggestTargetsPop();
   // Close both editors so stale typed values cannot disagree with scoring.
   for (const id of ['deckCutThresholdEditor', 'deckAddThresholdEditor']) {
     const editorEl = document.getElementById(id);
@@ -10035,6 +10038,13 @@ function _syncSuggestAlgoUI() {
   document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
     el.style.display = semantic ? 'none' : '';
   });
+  // The category-targets sliders drive thresholdOverrides on the analyze API —
+  // semantic-only; classic has its own ⚙ threshold editor.
+  const targetsBtn = document.getElementById('deckAddTargetsBtn');
+  if (targetsBtn) {
+    targetsBtn.style.display = semantic ? '' : 'none';
+    if (!semantic) _closeSuggestTargetsPop();
+  }
   // Developer switch: with Hybrid disabled, remove its option from the mode toggles.
   const hybridOn = _hybridFeatureEnabled();
   for (const id of ['deckCutAlgoHybridBtn', 'deckAddAlgoHybridBtn']) {
@@ -10220,7 +10230,11 @@ function _e2CachedAnalysis(deck) {
 function _e2AnalysisKey(deck) {
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
   const cards = list.map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
-  return `${deck.id}::${_analyzeProjected(deck) ? 'proj' : 'now'}::${cards}`;
+  // Custom category targets change the answer for the same list, so they are
+  // part of the key — otherwise a slider edit would keep serving stale results.
+  const ov = _semanticThresholdOverrides(deck, list);
+  const ovSig = ov ? Object.keys(ov).sort().map(k => `${k}=${ov[k]}`).join(',') : '';
+  return `${deck.id}::${_analyzeProjected(deck) ? 'proj' : 'now'}::${cards}::${ovSig}`;
 }
 
 async function _e2Analyze(deck) {
@@ -10241,18 +10255,30 @@ async function _e2Analyze(deck) {
           if (nm && !seen.has(nm)) { seen.add(nm); ownedNames.push(nm); }
         }
       }
-      const res = await fetch('/api/decks/analyze', {
+      const payload = {
+        cards: list.map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
+        commander,
+        // Semantic mode ignores the classic playstyle slider (it's hidden in this
+        // mode) — a saved slider position must not invisibly shift the targets.
+        playstyleStep: 0,
+        ownedNames,
+        budget: { maxCardPrice: null, flagAbove: 5 },
+      };
+      // Per-deck category targets from the sliders dropdown; the server applies
+      // them after its own goal/playstyle adjustments (engine2/thresholds.js).
+      const overrides = _semanticThresholdOverrides(deck, list);
+      if (overrides) payload.thresholdOverrides = overrides;
+      const reqInit = {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cards: list.map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
-          commander,
-          // Semantic mode ignores the classic playstyle slider (it's hidden in this
-          // mode) — a saved slider position must not invisibly shift the targets.
-          playstyleStep: 0,
-          ownedNames,
-          budget: { maxCardPrice: null, flagAbove: 5 },
-        }),
-      });
+        body: JSON.stringify(payload),
+      };
+      let res = await fetch('/api/decks/analyze', reqInit);
+      if (res.status === 429) {
+        // The endpoint allows 1 request/second per account — a quick pair of
+        // slider commits can brush it. One retry beats blanking the panel.
+        await new Promise(r => setTimeout(r, 1100));
+        res = await fetch('/api/decks/analyze', reqInit);
+      }
       if (!res.ok) return null;
       const data = await res.json();
       // Low semantics coverage → classic heuristics know this deck better.
@@ -10317,6 +10343,299 @@ function _renderDeckGoalReadout(deck, e2) {
     + `${projBit}${secondBit}</div>`
     + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + comboHtml;
 }
+
+// ── Semantic category targets (sliders dropdown on the Suggested Adds header) ─
+// Per-deck card-count targets for the suggestion categories. Saved targets go to
+// /api/decks/analyze as thresholdOverrides (applied server-side after the goal
+// and playstyle adjustments); whatever the sliders leave unallocated of the
+// 100-minus-lands slots flows into the deck's Plan target automatically.
+const SEMANTIC_TARGETS_KEY = 'mtg_semantic_targets';
+// Mirrors engine2/thresholds.js BASE_THRESHOLDS, minus Plan — Plan is derived.
+const _SEM_TARGET_BASE = {
+  Ramp: 10, 'Card Draw': 10, Removal: 10, Counterspell: 3, Protection: 3,
+  'Board Wipe': 3, Tutor: 2, Recursion: 3,
+};
+// Core quotas every deck gets a slider for…
+const _SEM_CORE_CATS = ['Ramp', 'Card Draw', 'Removal', 'Counterspell', 'Protection'];
+// …plus up to two of these, picked from the deck's wants and needs.
+const _SEM_EXTRA_CATS = ['Board Wipe', 'Tutor', 'Recursion'];
+const _SEM_CAT_LABELS = { Counterspell: 'Counterspells', 'Board Wipe': 'Board Wipes', Tutor: 'Tutors' };
+const _SEM_SLIDER_MAX = {
+  Ramp: 20, 'Card Draw': 20, Removal: 20, Counterspell: 15, Protection: 15,
+  'Board Wipe': 10, Tutor: 10, Recursion: 12,
+};
+
+function _readAllSemanticTargets() {
+  try {
+    const raw = localStorage.getItem(SEMANTIC_TARGETS_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    return all && typeof all === 'object' ? all : {};
+  } catch (_) { return {}; }
+}
+
+/** {targets:{cat:n}, shown:[extra cats]} for this deck, or null when untouched. */
+function _semanticTargetsForDeck(deckId) {
+  if (deckId == null) return null;
+  const e = _readAllSemanticTargets()[String(deckId)];
+  return (e && typeof e === 'object' && e.targets && typeof e.targets === 'object') ? e : null;
+}
+
+function _saveSemanticTargetsForDeck(deckId, entry) {
+  if (deckId == null) return;
+  const all = _readAllSemanticTargets();
+  if (entry) all[String(deckId)] = entry;
+  else delete all[String(deckId)];
+  try { localStorage.setItem(SEMANTIC_TARGETS_KEY, JSON.stringify(all)); } catch (_) { /* quota */ }
+}
+
+function _semanticLandCount(list) {
+  return (list || []).reduce((s, c) => s + (_isLandCardSafe(c) ? (c.qty || 1) : 0), 0);
+}
+
+/** Saved targets → the thresholdOverrides payload for THIS analyzed list, with
+ * the rest of the non-land slots allocated to Plan. Null when nothing is saved. */
+function _semanticThresholdOverrides(deck, list) {
+  const saved = deck ? _semanticTargetsForDeck(deck.id) : null;
+  if (!saved) return null;
+  const out = {};
+  let total = 0;
+  for (const cat of Object.keys(_SEM_TARGET_BASE)) {
+    const v = Number(saved.targets[cat]);
+    if (!Number.isFinite(v)) continue;
+    out[cat] = Math.max(0, Math.round(v));
+    total += out[cat];
+  }
+  if (!Object.keys(out).length) return null;
+  out.Plan = Math.max(0, 100 - _semanticLandCount(list) - total);
+  return out;
+}
+
+/** Up to two extra sliders: categories the deck's goals raised the target for,
+ * the list already leans into, or that still run short of their target. */
+function _semanticExtraSliderCats(e2) {
+  if (!e2 || !e2.thresholds) return [];
+  return _SEM_EXTRA_CATS
+    .map(cat => {
+      const base = _SEM_TARGET_BASE[cat];
+      const want = Number(e2.thresholds[cat]);
+      const target = Number.isFinite(want) ? want : base;
+      const has = Number((e2.roleCounts || {})[cat]) || 0;
+      const s = Math.max(target - base, (has - base) / 2, (target - has) / 2);
+      return { cat, s };
+    })
+    .filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 2)
+    .map(x => x.cat);
+}
+
+// ── the dropdown itself ──────────────────────────────────────────────────────
+let _suggTargetsCommitTimer = null;
+
+function _suggTargetsPop() { return document.getElementById('deckAddTargetsPop'); }
+
+function _toggleSuggestTargetsPop(ev) {
+  if (ev) ev.stopPropagation();
+  const pop = _suggTargetsPop();
+  if (pop && pop.classList.contains('open')) _closeSuggestTargetsPop();
+  else _openSuggestTargetsPop();
+}
+
+function _openSuggestTargetsPop() {
+  const btn = document.getElementById('deckAddTargetsBtn');
+  if (!btn) return;
+  let pop = _suggTargetsPop();
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'deckAddTargetsPop';
+    // .deck-options-dropdown brings the frosted overlay treatment along; the
+    // panel clips absolute children (overflow:hidden), so it lives on <body>
+    // as position:fixed, anchored to the button below.
+    pop.className = 'deck-options-dropdown suggest-targets-pop';
+    document.body.appendChild(pop);
+  }
+  _renderSuggestTargetsPop();
+  pop.classList.add('open');
+  btn.classList.add('active');
+  btn.setAttribute('aria-expanded', 'true');
+  const r = btn.getBoundingClientRect();
+  const margin = 12;
+  pop.style.right = Math.max(10, Math.round(window.innerWidth - r.right)) + 'px';
+  const below = window.innerHeight - r.bottom - margin;
+  const above = r.top - margin;
+  const flip = below < 220 && above > below;
+  pop.style.maxHeight = Math.min(560, Math.max(160, flip ? above : below)) + 'px';
+  if (flip) {
+    pop.style.top = 'auto';
+    pop.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px';
+  } else {
+    pop.style.bottom = 'auto';
+    pop.style.top = Math.round(r.bottom + 6) + 'px';
+  }
+}
+
+function _closeSuggestTargetsPop() {
+  const pop = _suggTargetsPop();
+  if (pop) pop.classList.remove('open');
+  const btn = document.getElementById('deckAddTargetsBtn');
+  if (btn) {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function _renderSuggestTargetsPop() {
+  const pop = _suggTargetsPop();
+  if (!pop) return;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck) { pop.innerHTML = ''; return; }
+  const e2 = _e2CachedAnalysis(deck);
+  const saved = _semanticTargetsForDeck(deck.id);
+  if (!e2 && !saved) {
+    pop.innerHTML = '<div class="suggest-target-note">Waiting for the deck analysis — targets appear once it loads.</div>';
+    return;
+  }
+  const thr = (e2 && e2.thresholds) || {};
+  const have = (e2 && e2.roleCounts) || {};
+  const cur = cat => {
+    if (saved && Number.isFinite(Number(saved.targets[cat]))) return Math.max(0, Math.round(Number(saved.targets[cat])));
+    if (Number.isFinite(Number(thr[cat]))) return Math.max(0, Math.round(Number(thr[cat])));
+    return _SEM_TARGET_BASE[cat];
+  };
+  // A customized deck keeps the slider set it was customized with — the extras
+  // must not swap out from under saved values when the analysis shifts.
+  const extras = saved && Array.isArray(saved.shown)
+    ? _SEM_EXTRA_CATS.filter(c => saved.shown.includes(c))
+    : _semanticExtraSliderCats(e2);
+  const hidden = _SEM_EXTRA_CATS.filter(c => !extras.includes(c));
+  const rows = [..._SEM_CORE_CATS, ...extras].map(cat => {
+    const v = cur(cat);
+    const max = _SEM_SLIDER_MAX[cat] || 20;
+    const label = _SEM_CAT_LABELS[cat] || cat;
+    const h = Number(have[cat]);
+    const haveBit = Number.isFinite(h) ? `<span class="suggest-target-have">${h} in deck</span>` : '';
+    return `<div class="suggest-target-row">
+      <div class="suggest-target-top">
+        <span class="suggest-target-name">${label}</span>
+        ${haveBit}
+        <span class="suggest-target-val" data-val-cat="${cat}">${v}</span>
+      </div>
+      <input type="range" min="0" max="${max}" step="1" value="${v}" data-cat="${cat}"
+        style="--range-fill:${Math.round(Math.min(1, v / max) * 100)}%" aria-label="${label} target"
+        oninput="_onSuggestTargetInput(this)" onchange="_onSuggestTargetChanged()">
+    </div>`;
+  }).join('');
+  const reserved = hidden.map(cat => `${_SEM_CAT_LABELS[cat] || cat} ${cur(cat)}`).join(' · ');
+  const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
+  pop.dataset.lands = String(_semanticLandCount(list));
+  pop.dataset.reserved = String(hidden.reduce((s, cat) => s + cur(cat), 0));
+  pop.innerHTML = `
+    <div class="suggest-target-head">
+      <span class="suggest-target-title">Suggestion targets</span>
+      <button type="button" class="btn btn-ghost btn-sm suggest-target-reset" onclick="_resetSuggestTargets()">Reset</button>
+    </div>
+    ${rows}
+    ${reserved ? `<div class="suggest-target-note">Also reserved: ${reserved}</div>` : ''}
+    <div class="suggest-target-plan">
+      <span class="suggest-target-name">Plan — theme &amp; win conditions</span>
+      <span class="suggest-target-val" id="suggestTargetPlanVal"></span>
+    </div>
+    <div class="suggest-target-note" id="suggestTargetPlanNote"></div>`;
+  _syncSuggestTargetPlan();
+}
+
+/** Recompute the derived Plan target from the live slider positions. */
+function _syncSuggestTargetPlan() {
+  const pop = _suggTargetsPop();
+  if (!pop) return;
+  const lands = Number(pop.dataset.lands) || 0;
+  let total = Number(pop.dataset.reserved) || 0;
+  pop.querySelectorAll('input[type="range"][data-cat]').forEach(inp => { total += Number(inp.value) || 0; });
+  const slots = Math.max(0, 100 - lands);
+  const plan = slots - total;
+  const valEl = document.getElementById('suggestTargetPlanVal');
+  const noteEl = document.getElementById('suggestTargetPlanNote');
+  if (valEl) valEl.textContent = String(Math.max(0, plan));
+  if (!noteEl) return;
+  noteEl.classList.toggle('suggest-target-note-over', plan < 0);
+  noteEl.textContent = plan >= 0
+    ? `${slots} non-land slots (${lands} lands) − ${total} targeted → ${plan} stay on plan`
+    : `Targets overshoot the ${slots} non-land slots by ${-plan} — plan drops to 0`;
+}
+
+function _onSuggestTargetInput(inp) {
+  const max = Number(inp.max) || 20;
+  const v = Math.max(0, Math.round(Number(inp.value) || 0));
+  inp.style.setProperty('--range-fill', Math.round(Math.min(1, v / max) * 100) + '%');
+  const pop = _suggTargetsPop();
+  const val = pop && pop.querySelector(`.suggest-target-val[data-val-cat="${inp.dataset.cat}"]`);
+  if (val) val.textContent = String(v);
+  _syncSuggestTargetPlan();
+}
+
+/** Slider released — persist every slider position (plus the unshown categories
+ * at their current effective targets, so the Plan arithmetic covers all of
+ * them) and re-run the analysis after a beat of quiet (endpoint: 1 req/sec). */
+function _onSuggestTargetChanged() {
+  const pop = _suggTargetsPop();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!pop || !deck || deck.id == null) return;
+  const prev = _semanticTargetsForDeck(deck.id);
+  const thr = (_e2CachedAnalysis(deck) || {}).thresholds || {};
+  const targets = {};
+  const shown = [];
+  pop.querySelectorAll('input[type="range"][data-cat]').forEach(inp => {
+    const cat = inp.dataset.cat;
+    if (!(cat in _SEM_TARGET_BASE)) return;
+    targets[cat] = Math.max(0, Math.round(Number(inp.value) || 0));
+    if (_SEM_EXTRA_CATS.includes(cat)) shown.push(cat);
+  });
+  if (!Object.keys(targets).length) return;
+  for (const cat of Object.keys(_SEM_TARGET_BASE)) {
+    if (targets[cat] != null) continue;
+    const carried = prev ? Number(prev.targets[cat]) : NaN;
+    const fallback = Number.isFinite(Number(thr[cat])) ? Number(thr[cat]) : _SEM_TARGET_BASE[cat];
+    targets[cat] = Math.max(0, Math.round(Number.isFinite(carried) ? carried : fallback));
+  }
+  _saveSemanticTargetsForDeck(deck.id, { targets, shown });
+  _scheduleSuggestTargetRefresh(700);
+}
+
+function _resetSuggestTargets() {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck) return;
+  _saveSemanticTargetsForDeck(deck.id, null);
+  _renderSuggestTargetsPop();
+  _scheduleSuggestTargetRefresh(250);
+}
+
+function _scheduleSuggestTargetRefresh(delay) {
+  if (_suggTargetsCommitTimer) clearTimeout(_suggTargetsCommitTimer);
+  _suggTargetsCommitTimer = setTimeout(() => {
+    _suggTargetsCommitTimer = null;
+    const d = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (!d) return;
+    _renderCutSuggestions(d);
+    _renderAddSuggestions(d);
+  }, delay);
+}
+
+// Outside click closes; so does scrolling the page under a fixed-position panel
+// (mirrors the hoisted glass menus — dragging inside the panel stays open).
+document.addEventListener('click', e => {
+  const pop = _suggTargetsPop();
+  if (!pop || !pop.classList.contains('open')) return;
+  const btn = document.getElementById('deckAddTargetsBtn');
+  if ((btn && btn.contains(e.target)) || pop.contains(e.target)) return;
+  _closeSuggestTargetsPop();
+});
+document.addEventListener('scroll', e => {
+  const pop = _suggTargetsPop();
+  if (!pop || !pop.classList.contains('open')) return;
+  const t = e.target;
+  if (t && t.nodeType === 1 && t.closest && t.closest('#deckAddTargetsPop')) return;
+  _closeSuggestTargetsPop();
+}, true);
 
 async function _renderCutSuggestions(deck) {
   const panel = document.getElementById('deckCutSuggestionsPanel');
@@ -11194,6 +11513,8 @@ async function _renderAddSuggestions(deck) {
     const e2 = await _e2Analyze(deck);
     if (e2Token !== _addSuggestToken) return;
     _renderDeckGoalReadout(deck, e2);
+    // Fresh thresholds/roleCounts → keep an open targets dropdown in step.
+    if (_suggTargetsPop()?.classList.contains('open')) _renderSuggestTargetsPop();
     // hygiene: never re-suggest a card already on the planned-adds board (in projected
     // mode planned adds are part of the analyzed list, so the server excludes them)
     const _plannedNow = _analyzeProjected(deck) ? new Set() : _plannedAddNames(deck);
@@ -17881,15 +18202,20 @@ async function loadDeckSimilarity() {
     return r.json();
   };
 
-  const [edhrecRes, archiveRes] = await Promise.allSettled([
+  const [edhrecRes, preconRes, archiveRes] = await Promise.allSettled([
     safeJson(`${base}/decks/edhrec-similarity?commander=${encCmd}`),
+    safeJson(`${base}/decks/precon-similarity?commander=${encCmd}`),
     safeJson(`${base}/decks/archive-similarity?commander=${encCmd}&deckId=${encodeURIComponent(deck.id)}`),
   ]);
 
   const edhrecData  = edhrecRes.status  === 'fulfilled' ? edhrecRes.value  : { error: edhrecRes.reason?.message ?? 'Request failed' };
   const archiveData = archiveRes.status === 'fulfilled' ? archiveRes.value : { error: archiveRes.reason?.message ?? 'Request failed' };
+  // The precon section only exists for commanders that fronted one, so a failed
+  // request draws nothing rather than an error where most decks show no section.
+  const preconData  = preconRes.status  === 'fulfilled' ? preconRes.value  : null;
+  if (preconRes.status === 'rejected') console.warn('Precon match unavailable:', preconRes.reason?.message);
 
-  panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData);
+  panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData, preconData);
 }
 
 
@@ -17956,7 +18282,164 @@ function _simCardInPlannedCuts(card, cutKeys) {
   return !!(k && cutKeys.has(k));
 }
 
-function _simRenderHTML(deck, commander, edhrecData, archiveData) {
+// ── Precon match ──────────────────────────────────────────────────────────────
+// Every Commander precon is published here as a public deck, so a commander that
+// fronted one has a real list to diff against. The comparison is by card name, so
+// printings never matter, and by count, so a mana base that swapped ten Forests
+// for ten duals reads as twenty changes rather than none.
+
+/**
+ * Match key for a card name. Lowercased, and cut to the front face: a transform
+ * or meld card is written "Gisela, the Broken Blade // Brisela, Voice of
+ * Nightmares" by one source and "Gisela, the Broken Blade" by another, and those
+ * are the same card. A front face names exactly one card, so this can't collide.
+ */
+function _simNameKey(name) {
+  return String(name || '').trim().toLowerCase().split(' // ')[0].trim();
+}
+
+/** Name-keyed multiset of the deck as it will be played: mainboard + planned adds − planned cuts. */
+function _simDeckCounts(deck) {
+  const counts = new Map(); // name key → { name, qty }
+  const bump = (card, sign) => {
+    const name = String(card?.name || '').trim();
+    const key = _simNameKey(name);
+    if (!key) return;
+    const cur = counts.get(key) || { name, qty: 0 };
+    cur.qty += sign * (card.qty || 1);
+    counts.set(key, cur);
+  };
+  for (const c of (deck.cards || [])) bump(c, 1);
+  if (_deckSwapsEnabled()) {
+    for (const c of _deckPlannedAdds(deck)) bump(c, 1);
+    // Planned cuts are still on the mainboard, so they have to come back off here.
+    for (const c of _deckPlannedCuts(deck)) bump(c, -1);
+  }
+  for (const [key, v] of counts) if (v.qty <= 0) counts.delete(key);
+  return counts;
+}
+
+/** Your list against one precon: cards in common, plus what you cut and what you added. */
+function _simPreconDiff(deck, precon) {
+  const mine = _simDeckCounts(deck);
+  const theirs = new Map(); // name key → { name, qty }
+  for (const c of (precon.cards || [])) {
+    const name = String(c?.name || '').trim();
+    const key = _simNameKey(name);
+    if (!key) continue;
+    const cur = theirs.get(key) || { name, qty: 0 };
+    cur.qty += c.qty || 1;
+    theirs.set(key, cur);
+  }
+
+  let matched = 0, total = 0;
+  const cuts = [];
+  for (const [key, t] of theirs) {
+    total += t.qty;
+    const hit = Math.min(mine.get(key)?.qty || 0, t.qty);
+    matched += hit;
+    if (t.qty > hit) cuts.push({ name: t.name, qty: t.qty - hit });
+  }
+  const adds = [];
+  for (const [key, m] of mine) {
+    const extra = m.qty - (theirs.get(key)?.qty || 0);
+    if (extra > 0) adds.push({ name: m.name, qty: extra });
+  }
+
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  return {
+    matched, total,
+    pct: total ? Math.round((matched / total) * 100) : 0,
+    cuts: cuts.sort(byName),
+    adds: adds.sort(byName),
+  };
+}
+
+/**
+ * Chips carry the card name and uid in attributes rather than inline call
+ * arguments: a handful of real card names contain a double quote
+ * (Kongming, "Sleeping Dragon") and would otherwise close the onclick attribute.
+ */
+function simAddToMaybeFromChip(btn) {
+  const name = btn?.closest?.('[data-card-name]')?.getAttribute('data-card-name');
+  if (name) simAddToMaybe(btn, name);
+}
+
+function simRemoveFromDeckChip(btn) {
+  const uid = btn?.closest?.('[data-card-uid]')?.getAttribute('data-card-uid');
+  if (uid) simRemoveFromDeck(btn, uid);
+}
+
+function _simPreconChipsHTML(items, kind, mainByName) {
+  return `<ul class="card-chip-row">${items.map(it => {
+    const qtyTag = it.qty > 1 ? ` <em>&times;${it.qty}</em>` : '';
+    const nameBtn = `<button type="button" class="card-chip-name" onclick="openCardDetailFromSimChip(this)">${escapeHtml(it.name)}${qtyTag}</button>`;
+    if (kind === 'cut') {
+      return `<li class="sim-chip sim-chip--missing card-chip" data-card-name="${escapeHtml(it.name)}" title="In the precon, not in your deck">`
+        + nameBtn
+        + `<button type="button" class="sim-chip-btn" onclick="simAddToMaybeFromChip(this)" title="Add to maybe board">+</button></li>`;
+    }
+    const card = mainByName.get(_simNameKey(it.name));
+    const uid = card ? (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : (card.uid || card.scryfallId || '')) : '';
+    const cutTitle = _deckSwapsEnabled()
+      ? 'Mark as a planned cut — cut from Cuts zone or apply all swaps'
+      : 'Remove from deck';
+    // Planned adds have no mainboard slot to remove, so those chips are read-only.
+    return `<li class="sim-chip sim-chip--spice card-chip" data-card-name="${escapeHtml(it.name)}"${uid ? ` data-card-uid="${escapeHtml(uid)}"` : ''} title="Not in the precon">`
+      + nameBtn
+      + (uid ? `<button type="button" class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeckChip(this)" title="${cutTitle}">&minus;</button>` : '')
+      + `</li>`;
+  }).join('')}</ul>`;
+}
+
+function _simPreconSectionHTML(deck, preconData) {
+  const list = Array.isArray(preconData?.decks) ? preconData.decks : [];
+  if (!list.length) return '';
+
+  const scored = list.map(p => ({ ...p, ..._simPreconDiff(deck, p) }))
+    .sort((a, b) => b.pct - a.pct);
+  const best = scored[0];
+  if (!best.total) return '';
+
+  const col = _lgxVerdictColor(best.pct / 100); // blue = close to the precon, purple = rebuilt
+  const mainByName = new Map();
+  for (const c of (deck.cards || [])) {
+    const key = _simNameKey(c?.name);
+    if (key && !mainByName.has(key)) mainByName.set(key, c);
+  }
+  const others = scored.slice(1);
+
+  return `
+<div class="sim-section">
+  <div class="sim-section-title">Precon Match — <strong>${escapeHtml(best.deck_name)}</strong>
+    ${best.subtitle ? `<span class="sim-meta">${escapeHtml(best.subtitle)}</span>` : ''}
+  </div>
+  <div class="sim-score-row">
+    <div class="sim-score-bar-wrap"><div class="sim-score-bar" style="width:${best.pct}%;background:${col}"></div></div>
+    <span class="sim-score-label" style="color:${col}">${best.pct}%</span>
+  </div>
+  <p class="sim-note">${best.matched} of the precon's ${best.total} cards are still in your deck (by name — any printing counts)</p>
+  ${best.cuts.length ? `
+  <div class="sim-subsection-title">Cut from the precon <span class="sim-meta">(${best.cuts.reduce((s, c) => s + c.qty, 0)} cards)</span></div>
+  ${_simPreconChipsHTML(best.cuts, 'cut', mainByName)}` : ''}
+  ${best.adds.length ? `
+  <div class="sim-subsection-title">Added to the precon <span class="sim-meta">(${best.adds.reduce((s, c) => s + c.qty, 0)} cards)</span></div>
+  ${_simPreconChipsHTML(best.adds, 'add', mainByName)}` : ''}
+  ${others.length ? `
+  <div class="sim-subsection-title">Other precons with this commander</div>
+  <div class="sim-archive-list">${others.map(p => {
+    const c = _lgxVerdictColor(p.pct / 100);
+    return `<div class="sim-archive-row">
+      <div class="sim-archive-name">${escapeHtml(p.deck_name)}</div>
+      <div class="sim-score-bar-wrap" style="flex:1;max-width:160px"><div class="sim-score-bar" style="width:${p.pct}%;background:${c}"></div></div>
+      <span class="sim-score-label" style="color:${c};min-width:38px">${p.pct}%</span>
+      <span class="sim-meta">${p.matched} shared</span>
+    </div>`;
+  }).join('')}</div>` : ''}
+</div>`;
+}
+
+function _simRenderHTML(deck, commander, edhrecData, archiveData, preconData) {
   const parts = [];
 
   // ── EDHREC ────────────────────────────────────────────────────────────────
@@ -18016,6 +18499,10 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   }).join('')}</ul>` : ''}
 </div>`);
   }
+
+  // ── Precon ────────────────────────────────────────────────────────────────
+  // Drawn only for commanders that fronted a precon; everyone else sees nothing here.
+  parts.push(_simPreconSectionHTML(deck, preconData));
 
   // ── Archive ───────────────────────────────────────────────────────────────
   if (archiveData?.error) {

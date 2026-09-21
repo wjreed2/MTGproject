@@ -2464,7 +2464,8 @@ const {
   applyDeckPlanningWrite,
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
-const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
+const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -3939,6 +3940,182 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   }
 });
 
+// ── Collection op sync (js/collection-ops.js) ─────────────────────────────────
+// Additive sibling of PUT /api/collection. The blob PUT replaces every row, which
+// is why a client that might be stale is not allowed to send one at all — and that
+// refusal is what silently discarded 500+ scanned cards on 2026-09-18. Ops describe
+// only what changed, applied onto the CURRENT rows under a per-account lock, so a
+// stale client can affect exactly what it touched and nothing else.
+//
+// Every op is absolute rather than relative (set/qty/rm, never "+1"), so replaying
+// a batch is harmless — a retried flush cannot double a quantity.
+async function _collectionTagContext(conn, accountId, cards) {
+  const oidList = [...new Set(cards
+    .map(c => (c?.oracleId && ORACLE_UUID_RE.test(String(c.oracleId))) ? String(c.oracleId).toLowerCase() : null)
+    .filter(Boolean))];
+  let typeRows = [], tagRows = [];
+  if (oidList.length) {
+    const ph = oidList.map(() => '?').join(',');
+    const [tr] = await conn.query(
+      `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oidList);
+    typeRows = tr || [];
+    const [tg] = await conn.query(
+      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
+        WHERE oracle_id IN (${ph}) AND schema_version = ?`, [...oidList, SCRY_TAG_SCHEMA_VERSION]);
+    tagRows = tg || [];
+  }
+  const typeByOid = new Map((typeRows || [])
+    .map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')]));
+  const tagsByOidMap = tagsFromBatchLogic(oidList, typeRows || [], tagRows || []);
+  const [ovRows] = await conn.query(
+    'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?', [accountId]);
+  const ovByOid = new Map();
+  for (const r of ovRows || []) {
+    ovByOid.set(String(r.oracle_id || '').toLowerCase(), {
+      add: parseMysqlJsonArray(r.add_tags_json),
+      remove: parseMysqlJsonArray(r.remove_tags_json),
+    });
+  }
+  return { typeByOid, tagsByOidMap, ovByOid };
+}
+
+app.post('/api/collection/ops', requireAuth, async (req, res) => {
+  const accountId = req.accountId;
+  const body = req.body || {};
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  if (!ops.length) return res.status(400).json({ error: 'No ops' });
+  if (ops.length > 4000) return res.status(400).json({ error: 'Too many ops' });
+
+  // Validate before opening a transaction: a malformed batch must not take a lock.
+  for (const op of ops) {
+    if (!op || typeof op !== 'object') return res.status(400).json({ error: 'Malformed op' });
+    if (!['set', 'qty', 'rm'].includes(op.t)) return res.status(400).json({ error: `Unknown op: ${op.t}` });
+    if (typeof op.k !== 'string' || !op.k || op.k.length > 120) return res.status(400).json({ error: 'Bad op key' });
+    if (op.t === 'set' && (!op.card || typeof op.card !== 'object')) {
+      return res.status(400).json({ error: `set op without a card: ${op.k}` });
+    }
+    if (op.t === 'qty' && !Number.isFinite(Number(op.qty))) {
+      return res.status(400).json({ error: `qty op without a quantity: ${op.k}` });
+    }
+  }
+
+  try {
+    // Oracle ids are what role tags hang off; resolve any the client lacks BEFORE
+    // the transaction, exactly as the blob PUT does (it is a network call).
+    const setCards = ops.filter(o => o.t === 'set').map(o => o.card);
+    const needOracle = setCards.filter(c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || '')));
+    if (needOracle.length) await enrichCardsFromScryfall(needOracle);
+
+    const now = Date.now();
+    let applied = { added: 0, changed: 0, removed: 0 };
+    let revision = 0;
+    let existingCount = 0;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      // The lock: one row per account, created on demand. Every op batch for this
+      // account serialises behind it, so two devices cannot interleave mid-apply.
+      await conn.query(
+        'INSERT IGNORE INTO collection_sync (account_id, revision, updated_at) VALUES (?, 0, 0)', [accountId]);
+      const [[sync]] = await conn.query(
+        'SELECT revision FROM collection_sync WHERE account_id = ? FOR UPDATE', [accountId]);
+      const [[cnt]] = await conn.query(
+        'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [accountId]);
+      existingCount = Number(cnt?.n) || 0;
+
+      // A client whose local copy came back cold diffs as "remove everything".
+      // Ops would carry that out row by row, so the threshold lives here too —
+      // the client checks it before sending, this is the backstop.
+      const removes = ops.filter(o => o.t === 'rm').length;
+      if (shouldBlockBulkCollectionRemove(removes, existingCount, !!body.allowBulkRemove)) {
+        await conn.rollback();
+        conn.release();
+        return res.status(409).json({
+          error: 'Refusing a batch that removes most of the collection. Re-sync and retry, or confirm.',
+          code: 'COLLECTION_BULK_REMOVE_BLOCKED',
+          removes, existingCount,
+        });
+      }
+
+      const ctx = await _collectionTagContext(conn, accountId, setCards);
+      for (const op of ops) {
+        if (op.t === 'rm') {
+          const [r] = await conn.query(
+            'DELETE FROM collection WHERE account_id = ? AND uid = ?', [accountId, op.k]);
+          applied.removed += r.affectedRows || 0;
+        } else if (op.t === 'qty') {
+          // qty lives in both the column and the stored blob; they must not drift.
+          const qty = Math.max(0, Math.trunc(Number(op.qty) || 0)) || 1;
+          const [r] = await conn.query(
+            `UPDATE collection SET qty = ?, data = JSON_SET(data, '$.qty', ?)
+              WHERE account_id = ? AND uid = ?`, [qty, qty, accountId, op.k]);
+          applied.changed += r.affectedRows || 0;
+        } else {
+          const c = op.card;
+          const rawOid = c?.oracleId;
+          const oracleId = rawOid && ORACLE_UUID_RE.test(String(rawOid)) ? String(rawOid).toLowerCase() : null;
+          const roleTags = computeCollectionStoredRoleTags(c, oracleId, ctx.typeByOid, ctx.tagsByOidMap, ctx.ovByOid);
+          const dataObj = { ...c, uid: op.k, roleTags, ...(oracleId ? { oracleId } : {}) };
+          const [r] = await conn.query(
+            `INSERT INTO collection
+               (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data, added_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE
+               name = VALUES(name), qty = VALUES(qty), foil = VALUES(foil),
+               scryfall_id = VALUES(scryfall_id), oracle_id = VALUES(oracle_id),
+               role_tags_json = VALUES(role_tags_json), data = VALUES(data),
+               -- a re-send must not restamp when the row was first acquired
+               added_at = IF(VALUES(added_at) > 0, VALUES(added_at), added_at)`,
+            [accountId, op.k, (c.name || '').slice(0, 255), c.qty ?? 1, c.foil ? 1 : 0,
+             c.scryfallId || null, oracleId, JSON.stringify(roleTags), JSON.stringify(dataObj),
+             Number(c.addedAt) || 0]);
+          // mysql2 reports 1 for an insert and 2 for an update on ON DUPLICATE KEY.
+          if ((r.affectedRows || 0) >= 2) applied.changed++; else applied.added++;
+        }
+      }
+
+      revision = (Number(sync?.revision) || 0) + 1;
+      await conn.query(
+        'UPDATE collection_sync SET revision = ?, updated_at = ? WHERE account_id = ?',
+        [revision, now, accountId]);
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) { /* already gone */ }
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    // Same downstream invalidation the blob PUT performs.
+    invalidateTradelistCache(accountId);
+    void reconcileAccountWishlist(accountId);
+    const [[after]] = await db().query(
+      'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [accountId]);
+    res.json({ ok: true, revision, applied, count: Number(after?.n) || 0 });
+  } catch (e) {
+    console.error('[collection-ops]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The revision a client's shadow is measured against. */
+app.get('/api/collection/revision', requireAuth, async (req, res) => {
+  try {
+    const [[row]] = await db().query(
+      'SELECT revision, updated_at FROM collection_sync WHERE account_id = ?', [req.accountId]);
+    const [[cnt]] = await db().query(
+      'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [req.accountId]);
+    res.json({
+      revision: Number(row?.revision) || 0,
+      updatedAt: Number(row?.updated_at) || 0,
+      count: Number(cnt?.n) || 0,
+    });
+  } catch (e) {
+    console.error('[collection-ops]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Deck Map (axis ordination) ───────────────────────────────────────────────
 // Per-user payload for the Deck Map visualization (dist/deck-map.html). Cards
 // are vectorized against the FIXED global basis in data/ordination-basis.json
@@ -5084,6 +5261,86 @@ app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
         is_own: Number(r.account_id) === Number(accountId),
         card_names: r.card_names ? r.card_names.split('|||') : [],
       })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Precon match ─────────────────────────────────────────────────────────────
+// Every Commander preconstructed deck is already in this database as a public
+// deck under one system account, ids prefixed `precon_` (scripts/import-precons.js).
+// So a commander that fronted a precon has a real list here to diff against, and
+// one that never did simply returns no decks — the client then draws nothing.
+const PRECON_ACCOUNT_EMAIL = (process.env.PRECON_ACCOUNT_EMAIL || 'precons@mtg-archive.local').toLowerCase();
+
+app.get('/api/decks/precon-similarity', requireAuth, async (req, res) => {
+  const { commander } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  try {
+    // A meld or transform commander is stored under its full "front // back" name
+    // by whichever side wrote it, and the two sides don't always agree — MTGJSON
+    // gave the precon library "Gisela, the Broken Blade // Brisela, Voice of
+    // Nightmares" for a deck a player may have saved as just the front face. Both
+    // spellings are matched, as equality and a prefix so the card_name index is
+    // still what narrows the scan.
+    const front = String(commander).split(' // ')[0].trim();
+    const names = front && front !== commander ? [commander, front] : [commander];
+    const likeFront = front.replace(/[\\%_]/g, c => '\\' + c) + ' // %';
+    // Driven from deck_cards rather than decks: idx_deck_cards_name narrows this
+    // to the few decks that run the card as a commander before either precon
+    // test is applied, so neither the `LIKE` nor the accounts join scans.
+    // `is_public` is not redundant next to those tests: deck ids come from the
+    // client, so without it any private deck saved under an id that happens to
+    // start with `precon_` would hand its list to whoever shares its commander.
+    const [heads] = await db().query(`
+      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name,
+             JSON_UNQUOTE(JSON_EXTRACT(d.data, '$.notes')) AS notes
+      FROM deck_cards dc
+      JOIN decks d ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      JOIN accounts a ON a.id = d.account_id
+      WHERE (dc.card_name IN (?) OR dc.card_name LIKE ?) AND dc.is_commander = 1
+        AND d.is_public = 1 AND (a.email = ? OR d.id LIKE 'precon\\_%')
+      LIMIT 8
+    `, [names, likeFront, PRECON_ACCOUNT_EMAIL]);
+    // One row per commander printing, so a deck that lists the commander twice
+    // (two printings, or a front-face and a full-name row) arrives twice.
+    const decks = [...new Map(heads.map(h => [`${h.account_id}::${h.deck_id}`, h])).values()];
+    if (!decks.length) return res.json({ decks: [] });
+
+    // One query per owning account (in practice exactly one — the precon library).
+    const deckIdsByAccount = new Map();
+    for (const h of decks) {
+      if (!deckIdsByAccount.has(h.account_id)) deckIdsByAccount.set(h.account_id, []);
+      deckIdsByAccount.get(h.account_id).push(h.deck_id);
+    }
+    const cardsByDeck = new Map(); // `${account_id}::${deck_id}` -> cards
+    for (const [accountId, deckIds] of deckIdsByAccount) {
+      const [rows] = await db().query(
+        `SELECT deck_id, card_name, qty, is_commander FROM deck_cards
+          WHERE account_id = ? AND deck_id IN (?)`,
+        [accountId, deckIds]
+      );
+      for (const r of rows) {
+        const key = `${accountId}::${r.deck_id}`;
+        if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
+        cardsByDeck.get(key).push({
+          name: r.card_name,
+          qty: Number(r.qty) || 1,
+          is_commander: !!r.is_commander,
+        });
+      }
+    }
+
+    res.json({
+      decks: decks.map(h => ({
+        deck_id: h.deck_id,
+        deck_name: h.deck_name,
+        // "Commander Deck · LTC · 2023 — preconstructed deck, as released." — the
+        // half before the dash is the only part worth a subtitle.
+        subtitle: String(h.notes || '').split('—')[0].trim().slice(0, 80),
+        cards: cardsByDeck.get(`${h.account_id}::${h.deck_id}`) || [],
+      })).filter(d => d.cards.length),
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -9065,8 +9322,45 @@ function _fpDigitFix(s) {
 // OCR title → candidate rows. Returns { rows, strongRows } — strongRows are printings of
 // names backed by at least one exact (or confusion-exact) token hit; purely fuzzy-anchored
 // names are plausible but earn a stricter hash gate.
+// A card name is short and is not a sentence. Title bands land on rules text more often than
+// they should — the middle-band pass on an ordinary frame, or a top band misplaced by a card
+// rect that came in low — and the scorer below measures how much of a NAME the read
+// corroborates, never how much of the READ the name explains. So a sentence beats a correct
+// short title whenever it happens to contain a long run of some card's name: "Destroy target
+// artifact or enchantment" returned Enchantmentize, "Landfall — Whenever a land enters the
+// battlefield" returned Immersturm Battlefield. Rejecting here costs a decline (the hash still
+// runs); accepting costs a wrong card, so the asymmetry favours rejecting.
+const SCAN_TITLE_MAX_NAME_ALPHA = 40;
+// A type line is ONLY type words ("Enchantment", "Legendary Creature — Crab"); a NAME that
+// merely starts with one is not (Battle Squadron, Tribal Flames, Kindred Discovery), so this
+// tests every word before the subtype dash rather than matching a prefix.
+const SCAN_TYPE_WORDS = new Set(['legendary', 'basic', 'snow', 'world', 'ongoing', 'host',
+  'artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'battle',
+  'kindred', 'tribal', 'conspiracy', 'dungeon', 'phenomenon', 'plane', 'scheme']);
+
+function _fpIsTypeLine(text) {
+  // Split only on the SUBTYPE dash — an em/en dash, or a hyphen with spaces around it (which is
+  // how OCR usually renders one). Splitting on any hyphen cut "Snow-Covered Mountain" down to
+  // "Snow" and "Battle-Rattle Shaman" to "Battle", condemning both as type lines.
+  const head = String(text || '').split(/—|–|\s-\s/)[0];
+  const words = head.toLowerCase().match(/[a-z]+/g) || [];
+  return words.length > 0 && words.every(w => SCAN_TYPE_WORDS.has(w));
+}
+// Words that carry rules meaning. ONE can legitimately appear in a name (Destroy the Evidence,
+// Enchanted Evening), so the bar is two or more — rules text always clears it.
+const SCAN_RULES_WORDS_RE = /\b(?:whenever|when|enters|dies|destroy|exile|sacrifice|discard|draws?|target|opponents?|battlefield|graveyard|library|instead|unless|until|activate|equipped|enchanted|landfall|counters?|artifact|creature|enchantment|instant|sorcery|permanent|nonland|control)\b/gi;
+
+function _fpTitleLooksLikeRulesText(title) {
+  const text = String(title || '').trim();
+  if (text.replace(/[^A-Za-z]/g, '').length > SCAN_TITLE_MAX_NAME_ALPHA) return true;
+  if (_fpIsTypeLine(text)) return true;
+  const hits = new Set((text.match(SCAN_RULES_WORDS_RE) || []).map(w => w.toLowerCase()));
+  return hits.size >= 2;
+}
+
 function _fpRowsForTitle(title) {
   const names = _fpEnsureNameIndex();
+  if (_fpTitleLooksLikeRulesText(title)) return null;
   const norm = _fpNormName(title);
   if (norm.length < 3) return null;
   const words = norm.split(' ').filter(w => w.length >= 3).map(_fpDigitFix);
@@ -9294,23 +9588,12 @@ function _fpSameArtRows(i, j) {
 
 // Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
 // which beats collector alone (collector numbers repeat across sets).
-function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
+function _fpPickByHint(rows, hintSet, hintNum) {
   if (!hintSet && !hintNum) return null;
-  // A hint chooses a PRINTING, never a card. Callers pass retrieval sets that span
-  // several names (a title shortlist, a within-margin decision group), and a misread
-  // 2-digit collector number that happens to be unique across them would otherwise
-  // substitute a different card for the one the title and the hash both chose — so
-  // the pool is narrowed to the printings of the row already settled on.
-  let pool = rows;
-  if (sameNameAsRow != null) {
-    const want = _fpNormName(_fpIndex.meta[sameNameAsRow].name);
-    pool = [];
-    for (const i of rows) if (_fpNormName(_fpIndex.meta[i].name) === want) pool.push(i);
-  }
   let exact = null;
   const setOnly = [];
   const numOnly = [];
-  for (const i of pool) {
+  for (const i of rows) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
@@ -9322,7 +9605,7 @@ function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
     if (numOk && hintNum.length >= 2) numOnly.push(i);
   }
   // Both fields agreeing names one printing. Either field ALONE decides when it lands on
-  // exactly one of these rows — and it usually does, because the pool above is the printings
+  // exactly one of these rows — and it usually does, because both callers pass the printings
   // of a single card, not the whole index. That matters most for the treatments the hash
   // cannot rank (full art, showcase, foil): the collector number is printed large and reads
   // cleanly, while the set code shares a tiny grey line with the language and the artist.
@@ -10330,17 +10613,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         // The name is settled; the printed footer settles the printing, which the image hash
         // cannot do for same-art reprints at any resolution.
-        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum, tBest.i);
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
         if (hinted != null) tBest = { ...tBest, i: hinted };
-        // Only a footer that agrees on BOTH fields has actually settled the printing;
-        // a lone collector number that picked among siblings has not earned "no rivals".
-        const hintExact = hinted != null && hintSet && hintNum
-          && String(_fpIndex.meta[hinted].set_code).toLowerCase() === hintSet
-          && String(_fpIndex.meta[hinted].collector_number).toLowerCase() === hintNum;
         // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
         // past the trust distance, same-art siblings are not the only rivals — every printing
         // of the name is one, so ask the client for a footer rather than banking the guess.
-        const printingRivals = hintExact ? 0
+        const printingRivals = hinted != null ? 0
           : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
             ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
             : 0);
@@ -10429,12 +10707,9 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     ).values()].sort((a, b) => a.comb - b.comb);
     let hintPicked = false;
     if (decision.length > 1) {
-      // Scoped to the chosen card's own printings — see _fpPickByHint. Choosing a
-      // printing is NOT corroboration, so this no longer sets hintPicked: the gates
-      // below are waived only by the full set+number agreement checked right after.
-      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum, chosen.i);
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum);
       const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
-      if (byHint) chosen = byHint;
+      if (byHint) { chosen = byHint; hintPicked = true; }
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
@@ -10445,7 +10720,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // A footer that confirms the winner counts even when nothing competed with it — the hint
     // was previously only consulted to CHOOSE between candidates, so a lone correct answer
     // with its set code printed on the card got no credit for it.
-    if (hintSet && hintNum
+    if (!hintPicked && hintSet && hintNum
       && String(chosen.meta.set_code).toLowerCase() === hintSet
       && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
 
@@ -12089,6 +12364,26 @@ app.delete('/api/deck-history/:deckId/:historyId', requireAuth, async (req, res)
   }
 });
 
+// One row per account: the lock that serialises op batches, and the revision a
+// client tracks so it knows whether its shadow is still current. The collection
+// itself has no single row to lock the way a deck does.
+async function ensureCollectionSyncTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS collection_sync (
+        account_id BIGINT UNSIGNED NOT NULL,
+        revision   BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (account_id),
+        CONSTRAINT fk_collsync_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureCollectionHistoryTable() {
   const conn = await db().getConnection();
   try {
@@ -12845,6 +13140,7 @@ async function start() {
       await pruneOauthStates();
       await ensureDeckHistoryTable();
       await ensureCollectionHistoryTable();
+      await ensureCollectionSyncTable();
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();

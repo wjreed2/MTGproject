@@ -304,8 +304,12 @@ async function cacheLoadAll(accountId) {
   }
   const keys = ['collection','decks','games','wishlist','prefs','sharedDecks','history','sharedCollections','sharedWishlists'];
   const vals = await Promise.all(keys.map(k => cacheGet(k)));
+  // Deliberately read AFTER the emptiness check below: a lone marker with no data
+  // behind it must not make an empty cache look like a hit.
   if (vals.every(v => v === null)) return null;
+  const pendingWork = await cacheGet('pendingCollectionWork').catch(() => null);
   return {
+    pendingCollectionWork: !!pendingWork,
     collection:        vals[0] || [],
     decks:             vals[1] || [],
     games:             vals[2] || [],
@@ -316,6 +320,106 @@ async function cacheLoadAll(accountId) {
     sharedCollections: vals[7] || [],
     sharedWishlists:   vals[8] || [],
   };
+}
+
+// ── Local snapshot ────────────────────────────────────────────────────────
+// Every save writes its domains to the local cache, synced or not. cacheSaveAll only
+// ever ran on SERVER payloads, so anything edited before the first successful sync
+// lived in page memory alone: a force-quit took it with it, and the only trace left
+// was the per-event history POSTs (500 scans recovered that way on 2026-09-18).
+
+/**
+ * May this value be written to the local cache? An empty array is only real once the
+ * server has confirmed it — before the first sync the arrays can be [] from a cold PWA
+ * cache miss, and persisting that would overwrite a good snapshot with nothing.
+ */
+function shouldPersistLocalSnapshot(value, synced) {
+  if (!Array.isArray(value)) return false;
+  return value.length > 0 || !!synced;
+}
+
+const _LOCAL_SNAPSHOT_KEYS = ['collection', 'decks', 'games', 'wishlist'];
+const _localSnapshotDirty = new Set();
+let _localSnapshotTimer = null;
+
+function _localSnapshotValue(domain) {
+  switch (domain) {
+    case 'collection': return typeof collection !== 'undefined' ? collection : null;
+    case 'decks':      return typeof decks !== 'undefined' ? decks : null;
+    case 'games':      return typeof games !== 'undefined' ? games : null;
+    case 'wishlist':   return typeof wishlist !== 'undefined' ? wishlist : null;
+    default:           return null;
+  }
+}
+
+/** Debounced local persist — called by save() for every domain it touches. */
+function scheduleLocalSnapshot(...domains) {
+  const list = domains.length ? domains : _LOCAL_SNAPSHOT_KEYS;
+  for (const d of list) if (_LOCAL_SNAPSHOT_KEYS.includes(d)) _localSnapshotDirty.add(d);
+  if (!_localSnapshotDirty.size) return;
+  clearTimeout(_localSnapshotTimer);
+  _localSnapshotTimer = setTimeout(() => { void _flushLocalSnapshot(); }, 400);
+}
+
+async function _flushLocalSnapshot() {
+  if (typeof cacheSet !== 'function' || !_localSnapshotDirty.size) return;
+  const list = [..._localSnapshotDirty];
+  _localSnapshotDirty.clear();
+  for (const d of list) {
+    const value = _localSnapshotValue(d);
+    if (!shouldPersistLocalSnapshot(value, _appDataSynced)) continue;
+    try { await cacheSet(d, value); } catch (_) { /* quota / private mode — never surface */ }
+  }
+  if (typeof collectionHistory !== 'undefined' && Array.isArray(collectionHistory) && collectionHistory.length) {
+    try { await cacheSet('history', collectionHistory); } catch (_) { /* same */ }
+  }
+}
+
+// ── Unsaved-while-unsynced ────────────────────────────────────────────────
+// markDirty drops server saves until the first sync lands. That is deliberate (a cold
+// empty cache must never PUT [] over a real collection) but it used to be SILENT: the
+// grid showed the cards, the KPIs counted them, the scanner said "Added", and every one
+// of those writes was going nowhere. Say so, and remember there is work to reconcile.
+let _unsavedWhileUnsynced = false;
+
+function hasUnsavedLocalWork() { return _unsavedWhileUnsynced; }
+function clearUnsavedLocalWork() {
+  _unsavedWhileUnsynced = false;
+  if (typeof cacheSet === 'function') cacheSet('pendingCollectionWork', 0).catch(() => {});
+  _applyUnsavedBannerText();
+}
+
+/**
+ * Re-arm the marker at boot from the local cache. It used to be a plain variable,
+ * so a force-quit before the app reconnected cleared it — and the next server
+ * hydrate then overwrote the cached work instead of replaying it, which is the
+ * whole failure this machinery exists to prevent. No _setOffline() here: being
+ * mid-boot is not evidence of a network problem.
+ */
+function restoreUnsavedLocalWork() {
+  _unsavedWhileUnsynced = true;
+  _applyUnsavedBannerText();
+}
+
+function _applyUnsavedBannerText() {
+  const el = typeof document !== 'undefined' && document.getElementById('offlineBanner');
+  if (!el) return;
+  const text = _unsavedWhileUnsynced
+    ? ' Not saved yet — waiting to reach the server'
+    : ' Offline — changes will sync when reconnected';
+  // The banner is an icon plus a bare text node; replace only the text.
+  for (const node of el.childNodes) {
+    if (node.nodeType === 3 && node.textContent.trim()) { node.textContent = text; return; }
+  }
+}
+
+function _noteUnsavedLocalWork() {
+  if (_unsavedWhileUnsynced) return;
+  _unsavedWhileUnsynced = true;
+  // Persisted so a force-quit cannot quietly downgrade this to "nothing pending".
+  if (typeof cacheSet === 'function') cacheSet('pendingCollectionWork', 1).catch(() => {});
+  _applyUnsavedBannerText();
+  if (typeof _setOffline === 'function') _setOffline();
 }
 
 // ── Offline state ─────────────────────────────────────────────────────────
@@ -426,6 +530,97 @@ function _flushPendingSavesOnUnload() {
 }
 window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
 window.addEventListener('pagehide', _flushPendingSavesOnUnload);
+
+// ── Op-based collection sync (js/collection-ops.js) ─────────────────────────
+// Replaces the whole-collection PUT. That PUT re-uploaded every row on every
+// change — measured at ~547 bytes/row, so a 5,200-card collection sent ~2.7MB
+// per scanned card — and because a blob replaces everything, a client that might
+// be stale was not allowed to send one at all. Both of this week's data incidents
+// came out of that trade-off.
+//
+// The shadow is the last state the server acknowledged. Diffing live against it
+// yields only what changed, so a flush is a few hundred bytes, a stale client can
+// only affect rows it touched, and work done offline is REGENERATED by the diff
+// after a reload rather than needing a queue that survives one.
+
+let _collectionShadow = null;      // rows as of the last server ack, or null before first sync
+let _collectionOpsUnsupported = false; // server predates /collection/ops → blob PUT
+
+/** Record the server-acked state; diffs are computed against this. */
+function seedCollectionShadow(rows) {
+  if (typeof CollectionOps === 'undefined') return;
+  _collectionShadow = CollectionOps.snapshotCollection(rows || []);
+}
+
+function hasCollectionShadow() { return Array.isArray(_collectionShadow); }
+
+/**
+ * Ops that carry local work onto whatever the server now holds, for the case
+ * where a load lands while unsent edits exist. Removals are deliberately dropped:
+ * an unsynced client cannot tell "I deleted this" from "my copy never had it",
+ * and resurrecting one card costs far less than deleting a real one.
+ */
+function collectionReplayOps(localRows, serverRows) {
+  if (typeof CollectionOps === 'undefined') return [];
+  const serverQty = new Map();
+  for (const r of serverRows || []) {
+    const k = CollectionOps.cardKey(r);
+    if (k) serverQty.set(k, Number(r.qty) || 1);
+  }
+  return CollectionOps.diffCollections(serverRows || [], localRows || []).filter(op => {
+    if (op.t === 'rm') return false;
+    // The local copy can be an OLD snapshot, not just an edited one. Replaying a
+    // quantity from it would undo an increase another device already saved, so a
+    // replay may only ever raise one.
+    if (op.t === 'qty') return Number(op.qty) > (serverQty.get(op.k) ?? 0);
+    return true;
+  });
+}
+
+/**
+ * Send the collection as ops. Returns a promise that rejects like apiPut so the
+ * caller's existing retry/offline handling applies unchanged.
+ */
+async function _saveCollectionViaOps() {
+  const allowEmpty = _allowEmptyCollectionPut;
+  _allowEmptyCollectionPut = false;
+
+  // No shadow (or no shared module) means we cannot say what changed — fall back
+  // to the blob, which carries its own empty-wipe guard.
+  if (typeof CollectionOps === 'undefined' || !hasCollectionShadow() || _collectionOpsUnsupported) {
+    return apiPut(allowEmpty ? '/collection?allowEmpty=1' : '/collection', collection);
+  }
+
+  const live = Array.isArray(collection) ? collection : [];
+  const ops = CollectionOps.diffCollections(_collectionShadow, live);
+  if (!ops.length) return { ok: true, noop: true };
+
+  // A local copy that came back cold diffs as "remove everything". The server
+  // refuses such a batch too, but not sending it keeps a bug here from ever
+  // reaching the data — and an intentional clear says so explicitly.
+  const share = CollectionOps.destructiveShare(ops, _collectionShadow.length);
+  if (share >= 0.34 && !allowEmpty) {
+    console.warn(`[db] withholding a collection batch that removes ${Math.round(share * 100)}% of rows`);
+    throw new Error('Collection change looked like a wipe; not sent. Re-sync and retry.');
+  }
+
+  const sent = CollectionOps.snapshotCollection(live);
+  try {
+    const res = await apiPostJson('/collection/ops', { ops, allowBulkRemove: !!allowEmpty });
+    // The shadow advances to exactly what we sent, not to `collection`, which may
+    // have changed again while the request was in flight.
+    _collectionShadow = sent;
+    return res;
+  } catch (e) {
+    // An older deployment has no ops route; use the blob and stop trying.
+    if (/404/.test(String(e && e.message))) {
+      _collectionOpsUnsupported = true;
+      console.warn('[db] server has no /collection/ops — falling back to whole-collection saves');
+      return apiPut('/collection', live);
+    }
+    throw e;
+  }
+}
 
 // ── Op-based deck sync (js/deck-ops.js) ──────────────────────────────────────
 // Every deck write — owned or shared — diffs the live deck against the last
@@ -729,14 +924,23 @@ function markDirty(...domains) {
   // Until the server load succeeds, local arrays may be [] from a cold PWA cache
   // miss — do not queue those for upload.
   if (!_appDataSynced) {
-    const blocked = list.filter(d => d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist');
+    // The block exists because a blob save replaces everything, so a client that
+    // might be stale must not send one. That reasoning does not apply to the
+    // collection any more: with a shadow we know exactly which rows changed, the
+    // server merges them onto current state, and a cold copy is caught by the
+    // destructive-share check instead of by refusing all work. Without a shadow
+    // there is nothing to diff against, so the old rule still holds.
+    const collectionSendable = typeof hasCollectionShadow === 'function' && hasCollectionShadow();
+    const isBlobDomain = d => d === 'decks' || d === 'games' || d === 'wishlist'
+      || (d === 'collection' && !collectionSendable);
+    const blocked = list.filter(isBlobDomain);
     if (blocked.length) {
       console.warn('[db] Skipping save for unsynced domains:', blocked.join(', '));
+      // The local snapshot still holds this work, and hydrateAppData replays it
+      // once the server answers — but the user gets told either way.
+      _noteUnsavedLocalWork();
     }
-    list.forEach(d => {
-      if (d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist') return;
-      _dirty.add(d);
-    });
+    list.forEach(d => { if (!isBlobDomain(d)) _dirty.add(d); });
     return;
   }
   list.forEach(d => _dirty.add(d));
@@ -770,10 +974,7 @@ async function _flushSave() {
   try {
     const ops = [];
     if (toSave.has('collection')) {
-      const allow = _allowEmptyCollectionPut;
-      _allowEmptyCollectionPut = false;
-      const path = allow ? '/collection?allowEmpty=1' : '/collection';
-      ops.push(apiPut(path, collection));
+      ops.push(_saveCollectionViaOps());
     }
     // Decks go through the op layer — per-deck granular diffs, no snapshot PUT.
     // _flushDeckOps swallows its own errors (it owns retries), so track failures
