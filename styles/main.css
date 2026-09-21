@@ -13029,10 +13029,15 @@ details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { 
 .arch-panel--strategy .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--green) 65%, var(--purple)); }
 .arch-panel--strategy .arch-strategy-band--primary { --arch-sub-accent: var(--green); }
 .arch-panel--strategy .arch-strategy-band--secondary { --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2)); }
+.arch-panel--strategy .arch-strategy-band--promoted { --arch-sub-accent: color-mix(in srgb, var(--green) 60%, var(--gold)); }
 .arch-panel--strategy .arch-strategy-band--other { --arch-sub-accent: color-mix(in srgb, var(--green) 70%, var(--text)); }
 .arch-panel--strategy .arch-strategy-band--secondary .arch-sub,
 .arch-panel--strategy .arch-strategy-band--secondary .arch-chip {
   --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2));
+}
+.arch-panel--strategy .arch-strategy-band--promoted .arch-sub,
+.arch-panel--strategy .arch-strategy-band--promoted .arch-chip {
+  --arch-sub-accent: color-mix(in srgb, var(--green) 60%, var(--gold));
 }
 /* Payoffs — hashed 5-step purple palette */
 .arch-panel--payoffs .arch-sub-tint-0,

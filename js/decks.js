@@ -5500,9 +5500,10 @@ function architectureSetSecondaryStrategy(strategyId) {
 }
 
 /**
- * Promote a detected (off-identity) theme into the Strategy header row —
- * primary if that slot is empty, otherwise secondary (overwriting whatever
- * was there, which falls back to a detected theme itself on the next render).
+ * Promote a detected (off-identity) theme into the Strategy header row.
+ * Fills primary, then secondary, if either slot is empty; once both are
+ * taken it's additive — the theme gets its own strategy band alongside
+ * them rather than displacing whatever is already there.
  */
 function architecturePromoteDetectedTheme(strategyId) {
   const deck = getActiveDeck();
@@ -5515,8 +5516,63 @@ function architecturePromoteDetectedTheme(strategyId) {
   }
   if (!identity || !identity.primaryStrategyId) {
     architectureSetStrategy(strategyId);
-  } else {
+    return;
+  }
+  if (!identity.secondaryStrategyId) {
     architectureSetSecondaryStrategy(strategyId);
+    return;
+  }
+  architectureAddPromotedStrategy(strategyId);
+}
+
+/** Add a detected theme as its own additional Strategy band, without touching primary/secondary. */
+function architectureAddPromotedStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!strategyId) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  const id = String(strategyId);
+  if (id === ov.primaryStrategyId || id === ov.secondaryStrategyId) return;
+  const list = Array.isArray(ov.promotedStrategyIds) ? ov.promotedStrategyIds.slice() : [];
+  if (list.includes(id)) {
+    if (typeof showNotif === 'function') showNotif(_archIdentityLabel(id) + ' is already promoted.');
+    return;
+  }
+  list.push(id);
+  ov.promotedStrategyIds = list;
+  _commitArchitectureOverrides(deck, ov);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Promoted ' + _archIdentityLabel(id) + ' to a strategy');
+  }
+}
+
+/** Demote a promoted Strategy band back into detected themes. */
+function architectureRemovePromotedStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  const id = strategyId ? String(strategyId) : '';
+  const list = Array.isArray(ov.promotedStrategyIds) ? ov.promotedStrategyIds.slice() : [];
+  const idx = list.indexOf(id);
+  if (idx === -1) {
+    if (typeof showNotif === 'function') showNotif('No such promoted strategy');
+    return;
+  }
+  list.splice(idx, 1);
+  ov.promotedStrategyIds = list;
+  _commitArchitectureOverrides(deck, ov);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Removed strategy ' + _archIdentityLabel(id));
   }
 }
 
@@ -5779,6 +5835,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
     if (view === 'remove-strategy') {
       const primary = model && model.architectureOverrides && model.architectureOverrides.primaryStrategyId;
       const secondary = model && model.architectureOverrides && model.architectureOverrides.secondaryStrategyId;
+      const promoted = (model && model.architectureOverrides && model.architectureOverrides.promotedStrategyIds) || [];
       const rows = [];
       if (primary) {
         const label = _archIdentityLabel(primary);
@@ -5787,6 +5844,10 @@ function _openArchitectureSectionMenu(category, anchor, model) {
       if (secondary) {
         const label = _archIdentityLabel(secondary);
         rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-secondary-strategy">Secondary · ${_archSectionMenuEsc(label)}</button>`);
+      }
+      for (const id of promoted) {
+        const label = _archIdentityLabel(id);
+        rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-promoted-strategy" data-id="${_archSectionMenuEsc(id)}">Promoted · ${_archSectionMenuEsc(label)}</button>`);
       }
       menu.innerHTML = `
         <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
@@ -5886,6 +5947,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
     else if (act === 'set-secondary') architectureSetSecondaryStrategy(id || null);
     else if (act === 'remove-primary-strategy') architectureRemovePrimaryStrategy();
     else if (act === 'remove-secondary-strategy') architectureRemoveSecondaryStrategy();
+    else if (act === 'remove-promoted-strategy') architectureRemovePromotedStrategy(id);
     else if (act === 'set-payoffs') architectureSetPayoffs(id);
     else if (act === 'add-sub') architectureAddSubsection(category, id);
     else if (act === 'remove-sub') architectureRemoveSubsection(category, id);

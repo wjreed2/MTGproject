@@ -215,6 +215,7 @@
       pinnedSubs: [],
       primaryStrategyId: null,
       secondaryStrategyId: null,
+      promotedStrategyIds: [],
       winConditionId: null,
     };
   }
@@ -228,12 +229,13 @@
       pinnedSubs: [],
       primaryStrategyId: null,
       secondaryStrategyId: null,
+      promotedStrategyIds: [],
       winConditionId: null,
     };
     for (const [k, v] of Object.entries(byKey || {})) {
       if (!k || !v || typeof v !== 'object') continue;
       // Legacy shapes stored memberships at the top level; skip list/identity keys.
-      if (k === 'hiddenSubs' || k === 'pinnedSubs'
+      if (k === 'hiddenSubs' || k === 'pinnedSubs' || k === 'promotedStrategyIds'
           || k === 'primaryStrategyId' || k === 'secondaryStrategyId' || k === 'winConditionId') {
         continue;
       }
@@ -250,6 +252,9 @@
     out.pinnedSubs = _dedupeMems(Array.isArray(src.pinnedSubs) ? src.pinnedSubs : []);
     out.primaryStrategyId = src.primaryStrategyId ? String(src.primaryStrategyId) : null;
     out.secondaryStrategyId = src.secondaryStrategyId ? String(src.secondaryStrategyId) : null;
+    out.promotedStrategyIds = Array.isArray(src.promotedStrategyIds)
+      ? [...new Set(src.promotedStrategyIds.map(String).filter(Boolean))]
+      : [];
     out.winConditionId = src.winConditionId ? String(src.winConditionId) : null;
     return out;
   }
@@ -1086,7 +1091,10 @@
       );
     const primaryId = identity.primaryStrategyId || null;
     const secondaryId = identity.secondaryStrategyId || null;
-    if (!primaryId && !secondaryId) return null;
+    const ov = normalizeArchitectureOverrides(model && model.architectureOverrides);
+    const promotedIds = (ov.promotedStrategyIds || [])
+      .filter(id => id && id !== primaryId && id !== secondaryId);
+    if (!primaryId && !secondaryId && !promotedIds.length) return null;
     const used = new Set();
     const take = (bandId) => {
       const subs = [];
@@ -1116,6 +1124,17 @@
         bandId: secondaryId,
         label: identity.secondaryLabel || _identityLabel(secondaryId, list),
         subs: take(secondaryId),
+      });
+    }
+    // Promoted via the "Detected themes" Promote button — additive: each gets
+    // its own strong header alongside primary/secondary, not swapped in for them.
+    for (const promotedId of promotedIds) {
+      bands.push({
+        role: 'promoted',
+        strategyId: promotedId,
+        bandId: promotedId,
+        label: _identityLabel(promotedId, list),
+        subs: take(promotedId),
       });
     }
     const rest = list.filter(s => !used.has(s.id));
@@ -1871,7 +1890,8 @@
       : '';
     const groupedCls = grouped ? 'arch-sub--grouped ' : '';
     const strongCls = (menuOpts && menuOpts.strong) ? 'arch-sub--strong ' : '';
-    return `<details class="arch-sub ${strongCls}${groupedCls}${c.classes}" ${c.dataAttrs} open>
+    const openAttr = (menuOpts && menuOpts.startOpen === false) ? '' : ' open';
+    return `<details class="arch-sub ${strongCls}${groupedCls}${c.classes}" ${c.dataAttrs}${openAttr}>
       <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-head-end"><span class="arch-sub-count">${count}</span>${promote}${menu}</span></summary>
       <div class="${bodyCls}">${cardsHtml || '<div class="arch-empty">None yet</div>'}</div>
     </details>`;
@@ -1917,9 +1937,9 @@
     }).join('');
 
     const strategyList = model.strategySubs || [];
-    const renderStratSub = (sub, nSubs, strong, promoteStrategyId) => {
+    const renderStratSub = (sub, nSubs, strong, promoteStrategyId, startOpen) => {
       const rows = byStrat(sub.id);
-      const menu = Object.assign(menuFor('strategy', sub.id), { strong: !!strong, promoteStrategyId: promoteStrategyId || null });
+      const menu = Object.assign(menuFor('strategy', sub.id), { strong: !!strong, promoteStrategyId: promoteStrategyId || null, startOpen: startOpen !== false });
       return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, placeOpts('strategy', sub.id, nSubs)), _subsectionChrome('strategy', sub.id), subBodyCls, menu);
     };
     const bands = architectureStrategyBands(model);
@@ -1943,24 +1963,22 @@
             || '<div class="arch-empty">None yet</div>';
         } else {
           const promoteBand = band.role === 'other';
-          kids = band.subs.map(sub => renderStratSub(sub, nSubs, false, promoteBand ? (_bandIdForSub(sub) || sub.strategyId) : null)).join('');
+          // Detected themes list collapsed (title only); the band head selects cards into view.
+          kids = band.subs.map(sub => renderStratSub(sub, nSubs, false, promoteBand ? (_bandIdForSub(sub) || sub.strategyId) : null, !promoteBand)).join('');
         }
         const headMenu = (flatten && canEdit && only)
           ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="strategy" data-arch-sub="${_esc(only.id)}" title="Subsection options" aria-label="Subsection options">⋮</button>`
           : `<span class="arch-sub-menu-slot" aria-hidden="true"></span>`;
         const head = `<span class="arch-sub-title">${_esc(band.label)}</span><span class="arch-sub-head-end"><span class="arch-sub-count">${qty}</span>${headMenu}</span>`;
         const attrs = `class="arch-strategy-band arch-strategy-band--${band.role}${flatten ? ' arch-strategy-band--flat' : ''} ${chrome.classes}" data-arch-strategy-band="${band.role}" ${band.strategyId ? `data-arch-strategy-id="${_esc(band.strategyId)}"` : ''}${flatten && only ? ` data-arch-sub="${_esc(only.id)}"` : ''}`;
-        // Detected (off-identity) themes start collapsed so primary strategies stay the focus.
-        if (band.collapsed) {
-          return `<details ${attrs}>
+        // Every band title is selectable to collapse its cards. Detected
+        // (off-identity) themes start collapsed so primary strategies stay
+        // the focus; primary/secondary/promoted bands start open.
+        const openAttr = band.collapsed ? '' : ' open';
+        return `<details ${attrs}${openAttr}>
           <summary class="arch-sub-head arch-strategy-band-head">${head}</summary>
           <div class="arch-strategy-band-body">${kids}</div>
         </details>`;
-        }
-        return `<div ${attrs}>
-          <div class="arch-sub-head arch-strategy-band-head">${head}</div>
-          <div class="arch-strategy-band-body">${kids}</div>
-        </div>`;
       }).join('');
     } else {
       // Flat list: top-level strategy piles get strong chrome (same as Foundation).
