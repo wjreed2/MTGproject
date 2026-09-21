@@ -137,6 +137,26 @@ function findRow(model, name) {
     removalTargets: { 'Doom Blade': ['creature'] },
   });
   assert.deepStrictEqual(findRow(model2, 'Doom Blade').interactionGroups, ['creature']);
+
+  // No CardIR anywhere (the common local-dev case — card_semantics is empty) but the
+  // deck's interaction is entirely Counterspells: still gets a labeled Counterspell
+  // group, with no "Other Interaction" group since nothing is left over.
+  const deck3 = {
+    cards: [
+      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'] }),
+      card('Negate', { type: 'Instant', roleTags: ['Counterspell'] }),
+    ],
+  };
+  const model3 = classifyDeckArchitecture(deck3, {}, { cards: deck3.cards });
+  const html3 = architectureViewHtml(model3, { canEdit: false });
+  assert.ok(html3.includes('>Counterspell<'), 'Counterspell-only deck still gets a labeled group');
+  assert.ok(!html3.includes('Other Interaction'), 'nothing left over — no Other Interaction group');
+
+  // Nothing recognized at all (no CardIR, no Counterspell/etc. tags) — flat, as before.
+  const deck4 = { cards: [card('Doom Blade', { ir: null, roleTags: ['Removal'] })] };
+  const model4 = classifyDeckArchitecture(deck4, {}, { cards: deck4.cards });
+  const html4 = architectureViewHtml(model4, { canEdit: false });
+  assert.ok(!html4.includes('Other Interaction'), 'nothing recognized — renders flat, no drill-down groups');
 }
 
 console.log('test-removal-roles: ok');

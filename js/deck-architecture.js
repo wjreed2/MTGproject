@@ -1982,9 +1982,15 @@
    * Removal), sourced from row.interactionGroups. A card answering more than
    * one type (Withering Torment: creature or enchantment) appears in each
    * group it matches. Cards matching none of these (bounce, burn, or CardIR
-   * coverage gaps) land in "Other Interaction". Returns null — meaning
-   * "render flat, no groups" — when there is nothing to split out, so a deck
-   * with no groupable interaction renders exactly as it did before this existed.
+   * coverage gaps) land in "Other Interaction".
+   *
+   * Renders grouped as soon as ANY card matches a recognized category — even
+   * a deck whose interaction is entirely Counterspells (nothing left over for
+   * "Other Interaction") still gets a labeled Counterspell group, since a
+   * label naming what's there is the point. Only returns null — "render
+   * flat, no groups" — when nothing at all was recognized (no CardIR removal
+   * data and no Counterspell/etc. tags), so a deck with no groupable
+   * interaction renders exactly as it did before this existed.
    */
   function _interactionGroupRows(rows) {
     const buckets = new Map();
@@ -1997,11 +2003,12 @@
         buckets.get(cat).push(r);
       }
     }
+    if (!buckets.size) return null;
     const groups = REMOVAL_GROUP_ORDER
       .filter(g => buckets.has(g.id))
       .map(g => ({ label: g.label, rows: buckets.get(g.id) }));
     if (other.length) groups.push({ label: 'Other Interaction', rows: other });
-    return groups.length > 1 ? groups : null;
+    return groups;
   }
 
   function architectureViewHtml(model, opts) {
