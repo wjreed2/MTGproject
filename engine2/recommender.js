@@ -808,14 +808,28 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       }
     }
     // its own needs are already fed here (card won't be dead)
-    let fedNeeds = 0, deadNeeds = 0;
+    let fedNeeds = 0, deadNeeds = 0, starvedWeight = 0;
+    const starvedAxes = [];
     for (const nd of cand.ir.needs || []) {
       const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
+      // A 'wants' need with NOTHING to feed it used to score exactly zero — neither
+      // bonus nor penalty — so a half-dead card kept its full on-axis credit while
+      // met needs paid +1.5 each. Greater Good asks for body.big and drew two cards
+      // in a deck with no power-4 creatures ("needs high power creatures. 4+ power.
+      // Bad rec." — feedback #19). One supplier is a coincidence, not support, so
+      // only a bare zero counts; the deduction mirrors the fed bonus, scaled by how
+      // hard the card leans on the need.
+      else if (have === 0) { starvedWeight += Math.min(4, nd.weight || 2) / 4; starvedAxes.push(nd.axis); }
     }
     if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds, pts: fedNeeds * 1.5 }); }
     if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds, pts: -deadNeeds * 6 }); }
+    if (starvedWeight > 0) {
+      const pts = -Math.round(starvedWeight * 1.5 * 100) / 100;
+      score += pts;
+      trace.push({ kind: 'needs_starved', axes: starvedAxes, weight: Math.round(starvedWeight * 100) / 100, pts });
+    }
 
     // role deficits (see candCats/catEarns above for the param-blindness guard)
     for (const cat of candCats) {
@@ -871,9 +885,15 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (cand.owned) { score += 1.5; trace.push({ kind: 'owned', pts: 1.5 }); }
     let priceFlag = null;
     if (cand.price != null) {
-      const pts = -Math.min(1, cand.price / 60) * 0.4; // prefer cheaper when scores are close
-      score += pts;
-      trace.push({ kind: 'price_soft', price: cand.price, pts });
+      // The cap IS the budget once the user sets one. Everything dearer is already
+      // gone, so docking what's left re-litigates the decision they just made on
+      // the slider ("This should be togglable" — feedback #5). With no cap set the
+      // nudge stays what it was written as: a cheaper-of-two-equivalents tiebreak.
+      if (maxPrice == null) {
+        const pts = -Math.min(1, cand.price / 60) * 0.4; // prefer cheaper when scores are close
+        score += pts;
+        trace.push({ kind: 'price_soft', price: cand.price, pts });
+      }
       if (flagAbove != null && cand.price > flagAbove) priceFlag = 'expensive';
     }
 
@@ -923,6 +943,17 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     const onTribe = (s.trace || []).some(t => t.kind === 'tribe_affinity');
     return citesTribal && !onTribe;
   };
+  // A curve hole is a FIXED number of slots, but every candidate was scored against
+  // the same frozen deck — so one 3-drop gap paid +1.5 to all sixteen suggestions,
+  // adding no ordering signal and compressing the list (feedback #5 "I do not know
+  // if the curve takes adds into consideration"; #12-#18 tied seven picks at 13.2).
+  // Deplete the gap as picks land: once a bucket's slots are spoken for, later cards
+  // in it stop being ORDERED as if they still filled a hole. Scores and traces are
+  // untouched here, same as the axis decay above — the breakdown invariant holds.
+  const curveSlots = idealW.map((w, b) => Math.max(0, Math.round((w - curveCounts[b] / curveTotal) * curveTotal)));
+  const curveTaken = Array(8).fill(0);
+  const curveCredit = (s) => (s.trace || []).find(t => t.kind === 'curve_fill') || null;
+
   const picks = {};
   let genericTribalPicks = 0;
   const ordered = [];
@@ -937,13 +968,17 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const key = primaryKey(pool[i]);
       if (unseenExists && key && (picks[key] || 0) >= 3) continue;
       if (isGenericTribal(pool[i]) && genericTribalPicks >= 3) continue;
-      const eff = pool[i].score * Math.pow(0.75, key ? (picks[key] || 0) : 0);
+      const cc = curveCredit(pool[i]);
+      const spentCurve = cc && curveTaken[cc.bucket] >= curveSlots[cc.bucket] ? (cc.pts || 0) : 0;
+      const eff = (pool[i].score - spentCurve) * Math.pow(0.75, key ? (picks[key] || 0) : 0);
       if (eff > bestEff + 1e-9) { bestEff = eff; bestI = i; }
     }
     if (bestI < 0) bestI = 0; // every candidate filtered — fall back to raw order
     const chosen = pool.splice(bestI, 1)[0];
     const key = primaryKey(chosen);
     if (key) picks[key] = (picks[key] || 0) + 1;
+    const chosenCurve = curveCredit(chosen);
+    if (chosenCurve) curveTaken[chosenCurve.bucket]++;
     if (isGenericTribal(chosen)) genericTribalPicks++;
     ordered.push(chosen);
   }

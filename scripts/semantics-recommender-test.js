@@ -873,5 +873,78 @@ console.log('adds — category focus');
   check('focus respects the tribe-bound role guard', ratFocus.length === 0, JSON.stringify(ratFocus.map(a => a.name)));
 }
 
+console.log('adds — starved wants and curve-gap depletion');
+{
+  // A 'wants' need with NOTHING feeding it used to score exactly zero, so a
+  // half-dead card kept full on-axis credit (Greater Good asking for body.big in
+  // a deck with no power-4 creatures — feedback #19).
+  const baseIR = [['sac.fodder', 4, 'per_turn'], ['token.creature', 3, 'per_turn']];
+  const candidates = [
+    { name: 'Clean Fodder', ir: synIR(baseIR), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Starved Fodder', ir: synIR(baseIR, [['body.big', 3]]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ];
+  const adds = rec.scoreAdds({ ...ctxBase, candidates, budget: {} });
+  const clean = adds.find(a => a.name === 'Clean Fodder');
+  const starved = adds.find(a => a.name === 'Starved Fodder');
+  check('unfed want costs points', clean && starved && starved.score < clean.score,
+    JSON.stringify(adds.map(a => a.name + '@' + a.score)));
+  const t = (starved?.trace || []).find(x => x.kind === 'needs_starved');
+  check('starved need carries the axis it is missing', !!t && t.axes.includes('body.big'), JSON.stringify(t));
+  check('starved need renders in English, no axis tokens', (() => {
+    const lines = explain.addBreakdown(starved).concat(explain.addReasons(starved));
+    const line = lines.map(l => (typeof l === 'string' ? l : l.text)).find(x => /Nothing here feeds/.test(x));
+    return !!line && /big creatures/.test(line) && !/body\.big/.test(line);
+  })(), JSON.stringify(explain.addReasons(starved)));
+  // A need with ONE supplier is a coincidence, not support — but not a strike either.
+  const lone = rec.scoreAdds({ ...ctxBase, budget: {}, candidates: [
+    { name: 'Lone Need', ir: synIR(baseIR, [['sac.outlet_free', 3]]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ] });
+  check('single-supplier need is neither fed nor starved',
+    !(lone[0]?.trace || []).some(x => x.kind === 'needs_starved'), JSON.stringify(lone[0]?.trace));
+
+  // One curve hole is a fixed number of slots, but every candidate was scored
+  // against the same frozen deck, so a single MV-3 gap paid every MV-3 suggestion
+  // and compressed the list (feedback #5; #12-#18 tied seven picks at 13.2). All
+  // three below score identically — the SECOND claim on the one open slot is the
+  // one that must yield.
+  const tied = [
+    { name: 'ThreeA', ir: synIR(baseIR), cmc: 3, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'ThreeB', ir: synIR(baseIR), cmc: 3, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'TwoSaturated', ir: synIR([['sac.fodder', 5, 'per_turn'], ['token.creature', 5, 'per_turn']]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ];
+  const order = rec.scoreAdds({ ...ctxBase, candidates: tied, budget: {} });
+  check('same-bucket candidates all score the same (guards the case below)',
+    new Set(order.map(a => a.score)).size === 1, JSON.stringify(order.map(a => a.name + '@' + a.score)));
+  check('a satisfied curve gap stops paying later cards in its bucket',
+    order.map(a => a.name).indexOf('TwoSaturated') < order.map(a => a.name).indexOf('ThreeB'),
+    JSON.stringify(order.map(a => a.name)));
+  check('curve credit itself is untouched in the trace (breakdown invariant)',
+    order.filter(a => a.name.startsWith('Three'))
+      .every(a => (a.trace || []).some(t => t.kind === 'curve_fill' && t.pts > 0)),
+    JSON.stringify(order.map(a => a.trace)));
+}
+
+console.log('adds — the cap is the budget');
+{
+  const fod = [['sac.fodder', 4, 'per_turn'], ['token.creature', 3, 'per_turn']];
+  const cands = [
+    { name: 'Cheap', ir: synIR(fod), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'NearCap', ir: synIR(fod), cmc: 2, price: 18, owned: false, edhrecRank: 500 },
+  ];
+  // No cap: the nudge is a cheaper-of-two-equivalents tiebreak and still applies.
+  const any = rec.scoreAdds({ ...ctxBase, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  check('with no cap, cheaper still wins a tie',
+    any.find(a => a.name === 'Cheap').score > any.find(a => a.name === 'NearCap').score,
+    JSON.stringify(any.map(a => a.name + '@' + a.score)));
+  // Cap set: the user already stated the budget, so price stops steering inside it.
+  const capped = rec.scoreAdds({ ...ctxBase, candidates: cands, budget: { maxCardPrice: 20, flagAbove: 5 } });
+  check('under a cap, price no longer steers inside the budget',
+    capped.find(a => a.name === 'Cheap').score === capped.find(a => a.name === 'NearCap').score,
+    JSON.stringify(capped.map(a => a.name + '@' + a.score)));
+  check('under a cap, no price line appears in the breakdown',
+    capped.every(a => !(a.trace || []).some(t => t.kind === 'price_soft')),
+    JSON.stringify(capped.map(a => a.trace)));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

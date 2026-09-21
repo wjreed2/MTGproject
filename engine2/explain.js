@@ -60,6 +60,13 @@ function listNames(names, max) {
   return l.join(', ') + (extra > 0 ? ` +${extra} more` : '');
 }
 
+// Axis keys are engine tokens and must never reach the user — always via axisLabel.
+function listAxes(axes) {
+  const l = (axes || []).map(axisLabel);
+  if (l.length <= 1) return l[0] || 'needs';
+  return l.slice(0, -1).join(', ') + ' or ' + l[l.length - 1];
+}
+
 function cutReasons(cut) {
   const out = [];
   for (const t of cut.trace || []) {
@@ -131,6 +138,9 @@ function addReasons(add) {
   }
   // fallback BEFORE the price note — "Pricier pick at $32.80" must never stand alone
   if (!out.length) out.push('Strong general fit for the deck plan');
+  // caveats land after the positives — a reason list must open with why it's here
+  const starved = (add.trace || []).find(t => t.kind === 'needs_starved');
+  if (starved) out.push(`Nothing here feeds its own ${listAxes(starved.axes)}`);
   const cast = (add.trace || []).find(t => t.kind === 'castability');
   if (cast) out.push(`Tough cast here — MV ${cast.mv} vs the ~${cast.ceiling} this mana base supports`);
   if (add.priceFlag === 'expensive' && add.price != null) out.push(`Pricier pick at $${Number(add.price).toFixed(2)}`);
@@ -166,6 +176,9 @@ function addBreakdown(add) {
         break;
       case 'needs_fed':
         out.push({ text: `Own needs met in this deck (${t.count})`, val });
+        break;
+      case 'needs_starved':
+        out.push({ text: `Nothing here feeds its own ${listAxes(t.axes)}`, val });
         break;
       case 'would_be_dead':
         out.push({ text: `Hard requirement unmet here (${t.count})`, val });
