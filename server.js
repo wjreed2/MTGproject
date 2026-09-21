@@ -2466,6 +2466,7 @@ const {
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
 const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
+const removalRoles = require('./js/removal-roles.js'); // CardIR removal-target classifier (client + server)
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -6353,6 +6354,15 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
+    // Architecture view's Interaction/Removal subsections (creature/artifact/
+    // enchantment/… removal) — derived target-type labels only, same rule as
+    // the strip below: never ship the raw effect AST or axis tokens.
+    const removalTargets = {};
+    for (const c of deckCards) {
+      const cats = removalRoles.classifyRemovalTargets(c.ir);
+      if (cats.length) removalTargets[c.name] = cats;
+    }
+
     // Strip internal reasoning tokens before they leave the server. The client
     // renders only `reasons`/`breakdown` (English) + goal label/summary — it never
     // reads raw `trace` (axis/param/weight tokens) or goal `evidence` (axes/clusters).
@@ -6365,6 +6375,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       adds: adds.map(({ trace, ...a }) => a),
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
       coverage: { semantics: coverage },
+      removalTargets,
     });
   } catch (e) {
     console.error('[analyze]', e);

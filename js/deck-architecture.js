@@ -20,10 +20,12 @@
   let planApi = root && root.getDeckPlan ? root : null;
   let themesApi = root && root.analyzeDeckThemes ? root : null;
   let burnApi = root && root.burnIndicatesInteraction ? root : null;
+  let removalApi = root && root.classifyRemovalTargets ? root : null;
   if (typeof require === 'function') {
     try { if (!planApi || !planApi.getDeckPlan) planApi = require('./deck-plan.js'); } catch (_) { /* bundled */ }
     try { if (!themesApi || !themesApi.analyzeDeckThemes) themesApi = require('./deck-themes.js'); } catch (_) { /* bundled */ }
     try { if (!burnApi || !burnApi.burnIndicatesInteraction) burnApi = require('./burn-roles.js'); } catch (_) { /* bundled */ }
+    try { if (!removalApi || !removalApi.classifyRemovalTargets) removalApi = require('./removal-roles.js'); } catch (_) { /* bundled */ }
   }
 
   const ARCH_CATEGORIES = Object.freeze(['foundation', 'strategy', 'payoffs', 'manabase']);
@@ -76,6 +78,20 @@
   const STAPLE_ONLY = Object.freeze(['Ramp', 'Card Draw', 'Removal', 'Board Wipe', 'Land', 'Commander', 'Wheel']);
   // Plain `Burn` is NOT interaction — only Burn.Any / Burn.Creature (see burn-roles.js).
   const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn.Any', 'Burn.Creature']);
+  // Interaction / Removal drill-down groups, in display order. 'counterspell' comes
+  // from the existing Counterspell project tag; the rest are CardIR target-type
+  // categories from removal-roles.js. Cards matching none of these (bounce, burn,
+  // or CardIR coverage gaps) fall into "Other Interaction".
+  const REMOVAL_GROUP_ORDER = Object.freeze([
+    Object.freeze({ id: 'counterspell', label: 'Counterspell' }),
+    Object.freeze({ id: 'creature', label: 'Creature Removal' }),
+    Object.freeze({ id: 'artifact', label: 'Artifact Removal' }),
+    Object.freeze({ id: 'enchantment', label: 'Enchantment Removal' }),
+    Object.freeze({ id: 'planeswalker', label: 'Planeswalker Removal' }),
+    Object.freeze({ id: 'battle', label: 'Battle Removal' }),
+    Object.freeze({ id: 'land', label: 'Land Removal' }),
+    Object.freeze({ id: 'permanent', label: 'Permanent Removal' }),
+  ]);
   const DRAW_TAGS = Object.freeze(['Card Draw', 'Wheel']);
   const LIGHT_MIN = 5;
   // Below this the engine is guessing; fall back to detected themes instead.
@@ -201,6 +217,36 @@
 
   function _ir(card) {
     return (card && (card.ir || card.cardIR)) || null;
+  }
+
+  /**
+   * CardIR removal-target categories only (creature/artifact/enchantment/…).
+   * The server-computed map (from /api/decks/analyze, keyed by card name) is
+   * preferred — it's derived from the full CardIR corpus without shipping raw
+   * effect data to the client. Falls back to classifying card.ir directly when
+   * present (Foundation Lab, tests).
+   */
+  function _removalTargetsForCard(card, ctx) {
+    const map = ctx && ctx.removalTargets;
+    const name = card && card.name;
+    if (map && name && Array.isArray(map[name])) return map[name];
+    const ir = _ir(card);
+    if (ir && removalApi && typeof removalApi.classifyRemovalTargets === 'function') {
+      return removalApi.classifyRemovalTargets(ir);
+    }
+    return [];
+  }
+
+  /**
+   * Full set of Interaction/Removal drill-down groups for one card: CardIR
+   * removal targets plus tag-driven groups that CardIR doesn't cover
+   * (Counterspell — countering a spell has no permanent-type target to read
+   * from the effect AST).
+   */
+  function _interactionGroupsForCard(card, ctx, tags) {
+    const cats = _removalTargetsForCard(card, ctx).slice();
+    if ((tags || []).includes('Counterspell')) cats.push('counterspell');
+    return cats;
   }
 
   function _cmc(card) {
@@ -1380,6 +1426,7 @@
       strategySubs: _uniqIds(s.hit),
       payoffSubs: _uniqIds(p.hit),
       manabaseSubs: _uniqIds(manabaseSubs),
+      interactionGroups: f.fns.includes('interaction') ? _uniqIds(_interactionGroupsForCard(card, ctx, tags)) : [],
       reasons: _uniqIds(reasons),
       ambiguous,
       primary: null,
@@ -1681,7 +1728,7 @@
     strategySubs = merged.strategySubs;
     payoffSubsAll = merged.payoffSubs;
 
-    const ctx = { deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals };
+    const ctx = { deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals, removalTargets: (opts && opts.removalTargets) || null };
     let rows = cards.map(c => classifyCardArchitecture(c, ctx));
     rows = applyArchitectureOverrides(rows, overrides);
     rows = _mergeArchitectureRowsByKey(rows);
@@ -1929,6 +1976,34 @@
     </details>`;
   }
 
+  /**
+   * groupRows for the Interaction/Removal foundation subsection — drill-down
+   * groups by interaction type (Counterspell, Creature/Artifact/Enchantment/…
+   * Removal), sourced from row.interactionGroups. A card answering more than
+   * one type (Withering Torment: creature or enchantment) appears in each
+   * group it matches. Cards matching none of these (bounce, burn, or CardIR
+   * coverage gaps) land in "Other Interaction". Returns null — meaning
+   * "render flat, no groups" — when there is nothing to split out, so a deck
+   * with no groupable interaction renders exactly as it did before this existed.
+   */
+  function _interactionGroupRows(rows) {
+    const buckets = new Map();
+    const other = [];
+    for (const r of rows || []) {
+      const cats = r.interactionGroups || [];
+      if (!cats.length) { other.push(r); continue; }
+      for (const cat of cats) {
+        if (!buckets.has(cat)) buckets.set(cat, []);
+        buckets.get(cat).push(r);
+      }
+    }
+    const groups = REMOVAL_GROUP_ORDER
+      .filter(g => buckets.has(g.id))
+      .map(g => ({ label: g.label, rows: buckets.get(g.id) }));
+    if (other.length) groups.push({ label: 'Other Interaction', rows: other });
+    return groups.length > 1 ? groups : null;
+  }
+
   function architectureViewHtml(model, opts) {
     const o = opts || {};
     const panelLayout = o.panelLayout === 'vertical' ? 'vertical' : 'horizontal';
@@ -1965,7 +2040,9 @@
       const label = fn.id === 'win_condition'
         ? `${fn.label} (${model.winConditionLabel || 'Not set'})`
         : fn.label;
-      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', _cardsBodyHtml(rows, placeOpts('foundation', fn.id, foundationList.length || 1)), _subsectionChrome('foundation', fn.id), subBodyCls, menuFor('foundation', fn.id));
+      const fnOpts = placeOpts('foundation', fn.id, foundationList.length || 1);
+      if (fn.id === 'interaction') fnOpts.groupRows = _interactionGroupRows;
+      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', _cardsBodyHtml(rows, fnOpts), _subsectionChrome('foundation', fn.id), subBodyCls, menuFor('foundation', fn.id));
     }).join('');
 
     const strategyList = model.strategySubs || [];
