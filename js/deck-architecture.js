@@ -1866,10 +1866,13 @@
     const menu = (menuOpts && menuOpts.canEdit && menuOpts.category && menuOpts.subId)
       ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="${_esc(menuOpts.category)}" data-arch-sub="${_esc(menuOpts.subId)}" title="Subsection options" aria-label="Subsection options">⋮</button>`
       : '';
+    const promote = (menuOpts && menuOpts.canEdit && menuOpts.promoteStrategyId)
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-promote" data-arch-promote-strategy="${_esc(menuOpts.promoteStrategyId)}" title="Promote to a strategy" aria-label="Promote ${_esc(title)} to a strategy">Promote</button>`
+      : '';
     const groupedCls = grouped ? 'arch-sub--grouped ' : '';
     const strongCls = (menuOpts && menuOpts.strong) ? 'arch-sub--strong ' : '';
     return `<details class="arch-sub ${strongCls}${groupedCls}${c.classes}" ${c.dataAttrs} open>
-      <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-head-end"><span class="arch-sub-count">${count}</span>${menu}</span></summary>
+      <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-head-end"><span class="arch-sub-count">${count}</span>${promote}${menu}</span></summary>
       <div class="${bodyCls}">${cardsHtml || '<div class="arch-empty">None yet</div>'}</div>
     </details>`;
   }
@@ -1914,9 +1917,9 @@
     }).join('');
 
     const strategyList = model.strategySubs || [];
-    const renderStratSub = (sub, nSubs, strong) => {
+    const renderStratSub = (sub, nSubs, strong, promoteStrategyId) => {
       const rows = byStrat(sub.id);
-      const menu = Object.assign(menuFor('strategy', sub.id), { strong: !!strong });
+      const menu = Object.assign(menuFor('strategy', sub.id), { strong: !!strong, promoteStrategyId: promoteStrategyId || null });
       return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, placeOpts('strategy', sub.id, nSubs)), _subsectionChrome('strategy', sub.id), subBodyCls, menu);
     };
     const bands = architectureStrategyBands(model);
@@ -1939,7 +1942,8 @@
           kids = _cardsBodyHtml(byStrat(only.id), placeOpts('strategy', only.id, 1)).html
             || '<div class="arch-empty">None yet</div>';
         } else {
-          kids = band.subs.map(sub => renderStratSub(sub, nSubs, false)).join('');
+          const promoteBand = band.role === 'other';
+          kids = band.subs.map(sub => renderStratSub(sub, nSubs, false, promoteBand ? (_bandIdForSub(sub) || sub.strategyId) : null)).join('');
         }
         const headMenu = (flatten && canEdit && only)
           ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="strategy" data-arch-sub="${_esc(only.id)}" title="Subsection options" aria-label="Subsection options">⋮</button>`

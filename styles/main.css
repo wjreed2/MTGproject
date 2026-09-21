@@ -12887,7 +12887,7 @@ details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { 
 .arch-sub-head-end {
   margin-left: auto;
   display: inline-grid;
-  grid-template-columns: minmax(1.25em, auto) 1.05em;
+  grid-template-columns: minmax(1.25em, auto) auto 1.05em;
   align-items: center;
   justify-items: end;
   column-gap: 2px;
@@ -12901,9 +12901,32 @@ details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { 
   color: var(--text3);
   text-align: right;
 }
+.arch-sub-promote {
+  grid-column: 2;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  padding: 1px 6px !important;
+  line-height: 1.4;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text3);
+  border: 1px solid var(--border) !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.arch-sub-promote:hover,
+.arch-sub-promote:focus-visible {
+  color: var(--text);
+  border-color: var(--arch-sub-accent, var(--border));
+}
 .arch-sub-menu,
 .arch-sub-menu-slot {
-  grid-column: 2;
+  grid-column: 3;
   width: 1.05em;
   min-width: 1.05em;
   box-sizing: border-box;

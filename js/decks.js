@@ -5499,6 +5499,27 @@ function architectureSetSecondaryStrategy(strategyId) {
   }
 }
 
+/**
+ * Promote a detected (off-identity) theme into the Strategy header row —
+ * primary if that slot is empty, otherwise secondary (overwriting whatever
+ * was there, which falls back to a detected theme itself on the next render).
+ */
+function architecturePromoteDetectedTheme(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!strategyId) return;
+  const model = typeof _archModelOrNull === 'function' ? _archModelOrNull(deck, deck.cards) : null;
+  const identity = model && model.architectureIdentity;
+  if (identity && (identity.primaryStrategyId === strategyId || identity.secondaryStrategyId === strategyId)) {
+    return;
+  }
+  if (!identity || !identity.primaryStrategyId) {
+    architectureSetStrategy(strategyId);
+  } else {
+    architectureSetSecondaryStrategy(strategyId);
+  }
+}
+
 /** Clear Architecture primary strategy override (falls back to inferred goals). */
 function architectureRemovePrimaryStrategy() {
   const deck = getActiveDeck();
@@ -12170,6 +12191,15 @@ function renderDeckList(deck) {
           panelMenuBtn,
           model,
         );
+        return;
+      }
+      const promoteBtn = e.target.closest('[data-arch-promote-strategy]');
+      if (promoteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof architecturePromoteDetectedTheme === 'function') {
+          architecturePromoteDetectedTheme(promoteBtn.getAttribute('data-arch-promote-strategy'));
+        }
         return;
       }
       const subMenuBtn = e.target.closest('[data-arch-sub-menu]');
