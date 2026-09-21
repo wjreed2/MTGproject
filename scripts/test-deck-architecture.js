@@ -3,11 +3,16 @@
  */
 const assert = require('assert');
 const arch = require('../js/deck-architecture.js');
+const planApi = require('../js/deck-plan.js');
+// Many fixtures declare Plan strategy/wincon; enable Plan so getDeckPlan keeps them.
+if (typeof planApi.setPlanFeatureEnabled === 'function') planApi.setPlanFeatureEnabled(true);
 
 const {
   classifyDeckArchitecture,
   architectureCardKey,
+  architectureViewHtml,
   setArchitecturePrimary,
+  moveArchitectureMembership,
   addArchitectureExtra,
   removeArchitectureMembership,
   resetArchitectureCard,
@@ -29,6 +34,8 @@ function card(name, opts = {}) {
     cmc: opts.cmc != null ? opts.cmc : 3,
     customTagTiers: opts.customTagTiers || {},
     uid: opts.uid || name.replace(/\s+/g, '-').toLowerCase(),
+    oracleId: opts.oracleId,
+    scryfallId: opts.scryfallId,
   };
 }
 
@@ -336,6 +343,74 @@ function findRow(model, name) {
   assert.deepStrictEqual(findRow(m, 'Sol Ring').categories, []);
 }
 
+// Drag move: leave source pile only; keep other panels; set destination primary
+{
+  const deck = {
+    cards: [card('The Meathook Massacre', {
+      type: 'Enchantment',
+      roleTags: ['Board Wipe'],
+      oracleText: 'When a creature dies, each opponent loses 1 life.',
+    })],
+    plan: vrenPlan({ winConditionId: 'wincon.life_drain' }),
+  };
+  const key = architectureCardKey(deck.cards[0]);
+  const before = classifyDeckArchitecture(deck);
+  const row = findRow(before, 'The Meathook Massacre');
+  assert.ok(row.foundationFns.includes('board_wipes'), 'starts as wipe');
+
+  // Also place in a strategy pile, then drag the foundation instance to payoffs.
+  let ov = addArchitectureExtra({}, key, 'strategy', 'theme:strategy.sacrifice');
+  ov = moveArchitectureMembership(ov, key, 'foundation', 'board_wipes', 'payoffs', 'threats');
+  const after = classifyDeckArchitecture(deck, deck.plan, { overrides: ov });
+  const r2 = findRow(after, 'The Meathook Massacre');
+  assert.ok(r2.primary && r2.primary.category === 'payoffs' && r2.primary.subsection === 'threats');
+  assert.ok(!r2.foundationFns.includes('board_wipes'), 'left the source foundation pile');
+  assert.ok(r2.payoffSubs.includes('threats'), 'landed in payoffs');
+  assert.ok(r2.strategySubs.includes('theme:strategy.sacrifice'), 'other panel membership kept');
+
+  // Same-pile drag is a no-op on overrides identity of primary.
+  const same = moveArchitectureMembership(ov, key, 'payoffs', 'threats', 'payoffs', 'threats');
+  assert.strictEqual(same.byKey[key].primary.subsection, 'threats');
+}
+
+// Same oracle must not appear twice in one Architecture pile (e.g. Win Condition).
+{
+  const oid = 'oracle-treebeard-test';
+  const deck = {
+    cards: [
+      card('Treebeard, Gracious Host', {
+        uid: 'tb-cmd',
+        oracleId: oid,
+        isCommander: true,
+        type: 'Legendary Creature — Treefolk',
+        roleTags: ['Commander', 'Token Maker'],
+        oracleText: 'Trample, ward {2}.',
+      }),
+      card('Treebeard, Gracious Host', {
+        uid: 'tb-copy',
+        oracleId: oid,
+        isCommander: false,
+        type: 'Legendary Creature — Treefolk',
+        roleTags: ['Anthem', 'Token Maker'],
+        oracleText: 'Trample, ward {2}.',
+      }),
+    ],
+    plan: vrenPlan({
+      winConditionId: 'wincon.combat',
+      primaryStrategyId: 'strategy.tokens',
+    }),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  const winRows = m.rows.filter(r => r.payoffSubs.includes('win_condition'));
+  assert.strictEqual(winRows.length, 1, `one Win Condition row, got ${winRows.length}`);
+  assert.strictEqual(winRows[0].qty, 2, 'qty merges both copies');
+  assert.ok(winRows[0].card.isCommander, 'prefer commander face on merged row');
+  const html = architectureViewHtml(m, { canEdit: false });
+  const winChunk = (html.split('data-arch-sub="win_condition"')[1] || '').split('data-arch-sub="')[0] || '';
+  const inWin = (winChunk.match(/Treebeard/g) || []).length;
+  assert.strictEqual(inWin, 1, `Treebeard once under Win Condition, got ${inWin}`);
+}
+
 // Non-land mapped role for manabase lands is Land; ramp maps to Ramp; wincon maps to null
 {
   assert.strictEqual(mappedRoleForPlacement('manabase', 'basics'), 'Land');
@@ -393,7 +468,16 @@ function findRow(model, name) {
   const rampBody = html => {
     const i = html.indexOf('data-arch-sub="ramp"');
     assert.ok(i >= 0, 'ramp subsection rendered');
-    return html.slice(i, html.indexOf('</details>', i));
+    const start = html.lastIndexOf('<details', i);
+    let depth = 0;
+    const re = /<\/?details\b/g;
+    re.lastIndex = start;
+    let m;
+    while ((m = re.exec(html))) {
+      depth += m[0] === '<details' ? 1 : -1;
+      if (depth === 0) return html.slice(start, m.index + '</details>'.length);
+    }
+    return html.slice(start);
   };
   const byName = dir => (rows) => rows.slice()
     .sort((a, b) => dir * String(a.name).localeCompare(String(b.name)));
@@ -409,13 +493,16 @@ function findRow(model, name) {
       { label: 'Artifacts', rows: rows.filter(r => /Artifact/.test(r.card.type)) },
     ].filter(g => g.rows.length),
   }));
-  assert.ok(grouped.includes('arch-sub-group-label'), 'group header rendered');
+  assert.ok(grouped.includes('arch-sub--grouped'), 'subsection uses grouping-header chrome');
+  assert.ok(grouped.includes('arch-sub--drill'), 'group buckets are nested drills');
+  assert.ok(!grouped.includes('arch-sub-group-label'), 'legacy inline group labels unused');
   assert.ok(grouped.indexOf('Creatures') < grouped.indexOf('>Llanowar Elves<'), 'group header precedes its cards');
   assert.ok(grouped.indexOf('>Llanowar Elves<') < grouped.indexOf('Artifacts'), 'groups render in callback order');
 
   // No callbacks: rows stay in deck order with no headers.
   const plain = rampBody(arch.architectureViewHtml(m, {}));
-  assert.ok(!plain.includes('arch-sub-group-label'), 'no group headers without groupRows');
+  assert.ok(!plain.includes('arch-sub--drill'), 'no group drills without groupRows');
+  assert.ok(!plain.includes('arch-sub--grouped'), 'accent subsection chrome without groupRows');
   assert.ok(plain.indexOf('>Sol Ring<') < plain.indexOf('>Llanowar Elves<'), 'deck order preserved');
 }
 
@@ -592,14 +679,14 @@ function findRow(model, name) {
   };
   const goals = [
     { goal: 'aristocrats', label: 'Aristocrats', confidence: 0.82 },
-    { goal: 'tokens', label: 'Tokens', confidence: 0.61 },
+    { goal: 'tokens-wide', label: 'Token swarm', confidence: 0.61 },
     { goal: 'lifegain', label: 'Lifegain', confidence: 0.44 },
   ];
   const m = classifyDeckArchitecture(deck, deck.plan, { cards: deck.cards, goals });
-  assert.deepStrictEqual(m.strategySubs.map(s => s.id), ['goal:aristocrats', 'goal:tokens'],
+  assert.deepStrictEqual(m.strategySubs.map(s => s.id), ['goal:aristocrats', 'goal:tokens-wide'],
     `lifegain only restates aristocrats, so its pile is dropped: ${m.strategySubs.map(s => s.id)}`);
   const maker = findRow(m, 'Bitterblossom');
-  assert.deepStrictEqual(maker.strategySubs, ['goal:aristocrats', 'goal:tokens'],
+  assert.deepStrictEqual(maker.strategySubs, ['goal:aristocrats', 'goal:tokens-wide'],
     'a token maker genuinely serves both goals, so it keeps both memberships');
   const artist = findRow(m, 'Blood Artist');
   assert.deepStrictEqual(artist.payoffSubs, ['win_condition'],
@@ -608,7 +695,7 @@ function findRow(model, name) {
   assert.deepStrictEqual(seer.strategySubs, ['goal:aristocrats'], 'sac outlet belongs to aristocrats');
   assert.strictEqual(m.unassigned.length, 0, `no scatter to Unassigned: ${m.unassigned.map(r => r.name)}`);
   const anthem = findRow(m, 'Intangible Virtue');
-  assert.deepStrictEqual(anthem.strategySubs, ['goal:tokens'], 'anthem is the tokens goal, not aristocrats');
+  assert.deepStrictEqual(anthem.strategySubs, ['goal:tokens-wide'], 'anthem is the tokens goal, not aristocrats');
   assert.deepStrictEqual(anthem.payoffSubs, ['token_swarm'], 'anthem pays off going wide, once');
   const teysa = findRow(m, 'Teysa Karlov');
   assert.ok(teysa.payoffSubs.includes('win_condition'), `teysa payoff ${teysa.payoffSubs}`);
@@ -706,6 +793,109 @@ function findRow(model, name) {
   const wipe = findRow(m, 'Damnation');
   assert.deepStrictEqual(wipe.payoffSubs, [], `wipe is not a payoff: ${wipe.payoffSubs}`);
   assert.ok(wipe.foundationFns.includes('board_wipes'), 'wipe lives in Foundation');
+}
+
+// Drag/Move sets primary as an object on the row. Only the home pile instance
+// may get is-arch-primary — a truthy row.primary used to purple every copy and
+// look like stuck same-card hover.
+{
+  const deck = {
+    cards: [
+      card('Crumb and Get It', {
+        type: 'Instant',
+        roleTags: ['Pump', 'Protection'],
+        oracleText: 'Target creature you control gets +2/+2 until end of turn.',
+        cmc: 1,
+      }),
+    ],
+    plan: vrenPlan({ winConditionId: 'wincon.combat' }),
+  };
+  const key = architectureCardKey(deck.cards[0]);
+  let ov = setArchitecturePrimary({}, key, 'foundation', 'interaction');
+  ov = addArchitectureExtra(ov, key, 'payoffs', 'threats');
+  const m = classifyDeckArchitecture(deck, deck.plan, { overrides: ov });
+  const html = architectureViewHtml(m, { canEdit: false });
+  const primaryHits = (html.match(/is-arch-primary/g) || []).length;
+  assert.strictEqual(primaryHits, 1, `primary mark once (home pile only), got ${primaryHits}`);
+  assert.ok(/arch-sub[^>]*data-arch-sub="interaction"[\s\S]*?is-arch-primary/.test(html)
+    || /data-arch-sub="interaction"[\s\S]{0,800}?is-arch-primary/.test(html),
+    'primary mark is on the foundation interaction pile');
+  const payoffsChunk = html.match(/arch-panel--payoffs[\s\S]*?arch-panel--manabase/);
+  assert.ok(payoffsChunk, 'payoffs panel present');
+  assert.ok(!/is-arch-primary/.test(payoffsChunk[0]), 'extra membership is not marked primary');
+}
+
+// Batch 1 — equipment goal maps to strategy.equipment (not Voltron)
+{
+  const deck = {
+    cards: [
+      card('Sword of Feast and Famine', {
+        type: 'Artifact — Equipment',
+        roleTags: ['Pump', 'Protection'],
+        oracleText: 'Equipped creature gets +2/+2. Equip {2}',
+        cmc: 3,
+      }),
+      ...Array.from({ length: 8 }, (_, i) => card(`Pad ${i}`, { type: 'Creature', cmc: 2 })),
+    ],
+    plan: vrenPlan({
+      primaryStrategyId: 'strategy.equipment',
+      winConditionId: 'wincon.commander_damage',
+    }),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan, {
+    goals: [
+      { goal: 'equipment', label: 'Equipment', confidence: 0.9 },
+    ],
+  });
+  const equipSub = (m.strategySubs || []).find(s => s.goalKey === 'equipment' || s.strategyId === 'strategy.equipment');
+  assert.ok(equipSub, `equipment goal should produce a strategy sub: ${JSON.stringify(m.strategySubs)}`);
+  assert.strictEqual(equipSub.strategyId, 'strategy.equipment');
+}
+
+/**
+ * Contract guard: every engine2 goal template key must resolve to a real plan
+ * strategy id AND to a non-empty project-tag list.
+ *
+ * Why this exists: deck-goals.js emits the raw template key ("tokens-wide"), the
+ * client maps it through GOAL_ROLE_TAGS and GOAL_KEY_STRATEGY, and for a long time
+ * 6 of 22 keys missed the first map and 8 of 22 missed the second. A goal with no
+ * tags builds an Architecture subsection no card can ever join; a goal with a bad
+ * id invents `strategy.tokens-wide`, which nothing downstream can look up. Both
+ * failed silently because the subsection heading reads the goal's own label.
+ * See Ready Prompts/strategy-gap-audit.md §2.4.
+ */
+{
+  const templates = require('../engine2/goal-templates.js');
+  const strategyIds = new Set(planApi.PLAN_STRATEGIES.map(s => s.id));
+  const roleLabels = require('../js/project-role-tags.js').PROJECT_ROLE_LABEL_SET;
+  const { GOAL_ROLE_TAGS, GOAL_KEY_STRATEGY } = arch;
+  assert.ok(GOAL_ROLE_TAGS && GOAL_KEY_STRATEGY,
+    'deck-architecture must export GOAL_ROLE_TAGS and GOAL_KEY_STRATEGY for this guard');
+
+  for (const tpl of templates) {
+    const key = tpl.key;
+    const tags = GOAL_ROLE_TAGS[key];
+    assert.ok(Array.isArray(tags) && tags.length,
+      `engine2 goal "${key}" has no GOAL_ROLE_TAGS entry — its Architecture subsection could never hold a card`);
+    for (const label of tags) {
+      assert.ok(roleLabels.has(label),
+        `GOAL_ROLE_TAGS.${key} references "${label}", which is not a project role tag`);
+    }
+    const sid = GOAL_KEY_STRATEGY[key] || ('strategy.' + key);
+    assert.ok(strategyIds.has(sid),
+      `engine2 goal "${key}" resolves to "${sid}", which is not a PLAN_STRATEGIES id`);
+  }
+
+  // Both maps may carry forward-compatible keys for templates engine2 has not shipped,
+  // but every LABEL and every TARGET they name must still be real.
+  for (const [key, tags] of Object.entries(GOAL_ROLE_TAGS)) {
+    for (const label of tags) {
+      assert.ok(roleLabels.has(label), `GOAL_ROLE_TAGS.${key} references unknown role tag "${label}"`);
+    }
+  }
+  for (const [key, sid] of Object.entries(GOAL_KEY_STRATEGY)) {
+    assert.ok(strategyIds.has(sid), `GOAL_KEY_STRATEGY.${key} points at unknown strategy "${sid}"`);
+  }
 }
 
 console.log('test-deck-architecture: ok');

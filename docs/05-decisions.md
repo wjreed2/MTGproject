@@ -20,6 +20,9 @@ Deck categories (not suggestion modes): Mana Base · Foundation · Strategy (pla
 ## DECIDED — Architecture visualization (2026-09-08)
 Open-deck **By Architecture** view is a third list mode. Visualization Foundation functions (Card Advantage, Interaction/Removal, Board Wipes, Win Condition) are not the five-capability evaluator. The Mana Sources panel (internal id `manabase`) is **lands plus Ramp**; rocks/rituals/dorks sit under Ramp, not Foundation. Also-running themes may appear as Strategy subsections marked inferred. User Set-primary writes category + Primary role; extras remain (7C). Classifier does not silently rewrite tags.
 
+## DECIDED — Plan feature off by default (2026-09-18)
+Saved Plan strategy/wincon identity is **off** unless Settings → Deck Plan is enabled (`mtg_deck_plan === '1'`). `getDeckPlan` clears identity on read while keeping Commander Gameplan numbers; stored `deck.plan` JSON is not wiped. Architecture strategy/wincon identity lives on `architectureOverrides` with auto-defaults from semantic goals/themes. `deck-plan.js` catalogs stay for labels and pickers. Wizard code remains for a later re-enable.
+
 ## DECIDED — Foundation is not a mandatory checklist
 Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
 

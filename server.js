@@ -8396,6 +8396,7 @@ let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to pre
 const {
   PROJECT_ROLE_TAGS: SCRYFALL_AUTO_TAGS,
   OTAG_TO_PROJECT_LABEL: _OTAG_TO_LABEL,
+  demoteRampTutorLabels,
 } = require('./js/project-role-tags.js');
 // Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
 // engine resolve `otag:removal` against the local tag table (which stores "Removal").
@@ -9296,15 +9297,17 @@ async function _fingerprintCardsFor(metas) {
   return cards;
 }
 
-async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
+async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
   const [rows] = await db().query(
     `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
     [String(oracleId || '').toLowerCase(), schemaVersion]
   );
   if (!rows.length) return null;
   try {
-    if (Array.isArray(rows[0].tags_json)) return rows[0].tags_json;
-    return JSON.parse(rows[0].tags_json || '[]');
+    let tags;
+    if (Array.isArray(rows[0].tags_json)) tags = rows[0].tags_json;
+    else tags = JSON.parse(rows[0].tags_json || '[]');
+    return typeof demoteRampTutorLabels === 'function' ? demoteRampTutorLabels(tags) : tags;
   } catch (_) {
     return [];
   }
@@ -9358,7 +9361,7 @@ function tagsFromBatchLogic(oracleIds, typeRows, tagRows) {
     }
     const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
     if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
-    fromDb.set(oid, arr.filter(Boolean));
+    fromDb.set(oid, demoteRampTutorLabels(arr.filter(Boolean)));
   }
   const out = new Map();
   for (const oid of oracleIds) {
@@ -9397,7 +9400,7 @@ function computeCollectionStoredRoleTags(card, oid, typeByOid, tagsByOidMap, ovB
   if (tlMerged.includes('land') || landPayload) tags.push('Land');
   if (card?.isCommander) tags.push('Commander');
   if (oid && tagsByOidMap.has(oid)) tags.push(...(tagsByOidMap.get(oid) || []));
-  const uniq = [...new Set(tags)];
+  const uniq = demoteRampTutorLabels([...new Set(tags)]);
   const ov = oid ? ovByOid.get(oid) : null;
   return applyAccountTagOverridesToTags(uniq, ov || { add: [], remove: [] });
 }
@@ -9808,6 +9811,13 @@ async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, re
   });
   await Promise.all(workers);
   if (cacheWriteMap.size) await saveTagQueryCache(schemaVersion, cacheWriteMap);
+  // Ramp land-searches must not also carry Tutor (see demoteRampTutorLabels).
+  if (typeof demoteRampTutorLabels === 'function') {
+    for (const [oid, labelSet] of tagMap) {
+      const cleaned = demoteRampTutorLabels([...labelSet]);
+      tagMap.set(oid, new Set(cleaned));
+    }
+  }
   return { tagMap, totalQueries, completedQueries };
 }
 

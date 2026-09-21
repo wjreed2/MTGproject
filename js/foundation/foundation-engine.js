@@ -99,7 +99,9 @@
     if (win === 'wincon.combo' || sid === 'strategy.stax' || sid === 'strategy.goodstuff') {
       return { value: 'High', note: 'Suggested from combo / stax / high-power strategy. cEDH is only set if you pick it.' };
     }
-    if (sid === 'strategy.tokens' || sid === 'strategy.tribal' || sid === 'strategy.enchantress') {
+    if (sid === 'strategy.tokens' || String(sid).startsWith('strategy.tokens.')
+        || sid === 'strategy.tribal' || sid === 'strategy.auras'
+        || (sid && String(sid).startsWith('strategy.typal.'))) {
       return { value: 'Casual', note: 'Suggested from a typically casual strategy. Change it if this deck is Focused or higher.' };
     }
     return { value: 'Focused', note: 'Default recommendation when Undecided. Not a confirmed choice.' };
@@ -541,7 +543,8 @@
       }
       if (sid === 'strategy.reanimator' && (row.tags || []).some(t => t === 'Reanimate' || t === 'Recursion')) overlap += 1;
       if (sid === 'strategy.voltron' && (row.tags || []).some(t => t === 'Protection' || t === 'Pump' || t === 'Evasion')) overlap += 1;
-      if (sid === 'strategy.tokens' && (row.tags || []).includes('Token Maker')) overlap += 1;
+      if ((sid === 'strategy.tokens' || String(sid).startsWith('strategy.tokens.'))
+          && (row.tags || []).includes('Token Maker')) overlap += 1;
       if (sid === 'strategy.spellslinger' && /\binstant\b|\bsorcery\b/i.test(typeFromName(row.name, input))) overlap += 0.4;
     }
     const irCoverage = mechanisms.length ? irSeen / mechanisms.length : 0;

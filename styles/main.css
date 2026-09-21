@@ -12457,6 +12457,42 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 .arch-panel--payoffs { border-top: 3px solid var(--purple); }
 .arch-panel--manabase { border-top: 3px solid var(--gold); }
 .arch-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.arch-panel-head-end {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.arch-panel-menu {
+  min-width: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  padding: 0 2px !important;
+  line-height: 1;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  color: var(--text3);
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+@media (hover: hover) {
+  .arch-panel:hover > .arch-panel-head .arch-panel-menu { visibility: visible; opacity: 1; }
+}
+@media (hover: none) {
+  .arch-panel-menu { visibility: visible; opacity: 1; }
+}
+.arch-panel.arch-panel--menu-open > .arch-panel-head .arch-panel-menu,
+.arch-panel-menu:focus-visible { visibility: visible; opacity: 1; color: var(--text); }
+.arch-panel-menu:hover { color: var(--text); }
 .arch-panel-title {
   margin: 0;
   font-family: Cinzel, serif;
@@ -12471,6 +12507,65 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 .arch-panel-count { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.72rem; color: var(--text3); }
 .arch-panel-blurb { margin: 6px 0 8px; font-size: 0.72rem; color: var(--text3); line-height: 1.35; }
 .arch-panel-body { display: flex; flex-direction: column; gap: 2px; }
+.arch-strategy-band { min-width: 0; }
+/* Strategy names keep the strong accent chrome; engine piles underneath are quiet. */
+.arch-strategy-band-head {
+  cursor: default;
+  font-family: inherit;
+  font-size: 0.78rem;
+  letter-spacing: normal;
+  text-transform: none;
+  border-left: 3px solid var(--arch-sub-accent);
+  border-bottom: none;
+  padding: 6px 0 4px 8px;
+  color: inherit;
+}
+details.arch-strategy-band > .arch-strategy-band-head {
+  cursor: pointer;
+  list-style: none;
+}
+details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { display: none; }
+.arch-strategy-band-head .arch-sub-title {
+  font-weight: 600;
+  color: var(--arch-sub-accent);
+}
+/* Indent hierarchy on the left only — heads stay full-width so counts share one column. */
+.arch-strategy-band-body {
+  padding-left: 0;
+  margin-left: 0;
+  border-left: none;
+}
+.arch-strategy-band-body > .arch-sub:first-child { border-top: none; }
+.arch-strategy-band-body > .arch-sub > .arch-sub-head {
+  padding-left: 16px;
+}
+.arch-strategy-band-body > .arch-sub > .arch-sub-body {
+  padding-left: 16px;
+  margin-left: 0;
+  border-left: none;
+}
+.arch-view--layout-vertical .arch-panel-body > .arch-strategy-band {
+  flex: 1 1 100%;
+  width: 100%;
+}
+.arch-view--layout-vertical .arch-strategy-band-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: start;
+  gap: 8px 14px;
+}
+.arch-view--layout-vertical .arch-strategy-band-body > .arch-sub {
+  border-top: none;
+  flex: 0 0 auto;
+  width: min(100%, var(--arch-text-col-w, 14rem));
+  min-width: 0;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-strategy-band-body > .arch-sub {
+  width: max-content;
+  max-width: 100%;
+}
 /* Stacked panels: text-row subsections pack as equal-width columns (shared
    --arch-text-col-w from densest panel). Card-image mode packs subcategory
    columns (no stretch) with Visual-view overlapping stacks. */
@@ -12525,7 +12620,8 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   flex: 0 0 auto;
   min-width: 0;
 }
-.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual .arch-sub-group-label {
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual .arch-sub-group-label,
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--grouped > .arch-sub--drill {
   grid-column: auto;
   width: 100%;
 }
@@ -12586,9 +12682,118 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   border-left: 3px solid var(--arch-sub-accent);
 }
 .arch-sub-head::-webkit-details-marker { display: none; }
-.arch-sub-title { font-weight: 600; color: var(--arch-sub-accent); }
-.arch-sub-count { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.7rem; color: var(--text3); }
+.arch-sub-title { font-weight: 600; color: var(--arch-sub-accent); min-width: 0; }
+/* Quiet grouping-header chrome only for nested Strategy engine piles (under a
+   multi-pile band) and Group By drills. Top-level / strong strategy piles and
+   Foundation / Payoffs / Mana Sources keep the bold accent title style. */
+.arch-panel--strategy .arch-sub:not(.arch-sub--strong) > .arch-sub-head,
+.arch-sub--drill > .arch-sub-head {
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  border-left: none;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0 3px 8px;
+  color: var(--text3);
+}
+.arch-panel--strategy .arch-sub:not(.arch-sub--strong) > .arch-sub-head .arch-sub-title,
+.arch-sub--drill > .arch-sub-head .arch-sub-title {
+  color: var(--text3);
+  font-weight: 400;
+}
+.arch-panel--strategy .arch-sub.arch-sub--strong > .arch-sub-head {
+  font-family: inherit;
+  font-size: 0.78rem;
+  letter-spacing: normal;
+  text-transform: none;
+  border-left: 3px solid var(--arch-sub-accent);
+  border-bottom: none;
+  padding: 6px 0 4px 8px;
+  color: inherit;
+}
+.arch-panel--strategy .arch-sub.arch-sub--strong > .arch-sub-head .arch-sub-title {
+  font-weight: 600;
+  color: var(--arch-sub-accent);
+}
+.arch-sub-head-end {
+  margin-left: auto;
+  display: inline-grid;
+  grid-template-columns: minmax(1.25em, auto) 1.05em;
+  align-items: center;
+  justify-items: end;
+  column-gap: 2px;
+  flex-shrink: 0;
+}
+.arch-sub-count {
+  grid-column: 1;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text3);
+  text-align: right;
+}
+.arch-sub-menu,
+.arch-sub-menu-slot {
+  grid-column: 2;
+  width: 1.05em;
+  min-width: 1.05em;
+  box-sizing: border-box;
+}
+.arch-sub-menu-slot {
+  display: inline-block;
+  height: 1em;
+}
+.arch-sub-menu {
+  min-width: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  padding: 0 2px !important;
+  line-height: 1;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  color: var(--text3);
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+@media (hover: hover) {
+  .arch-sub:hover > .arch-sub-head .arch-sub-menu { visibility: visible; opacity: 1; }
+}
+@media (hover: none) {
+  .arch-sub-menu { visibility: visible; opacity: 1; }
+}
+.arch-sub.arch-sub--menu-open > .arch-sub-head .arch-sub-menu,
+.arch-sub-menu:focus-visible { visibility: visible; opacity: 1; color: var(--text); }
+.arch-sub-menu:hover { color: var(--text); }
 .arch-sub-body { padding: 2px 0 6px 11px; }
+.arch-sub-body--grouped {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 0 6px;
+}
+.arch-sub--drill { border-top: none; }
+.arch-sub--drill > .arch-sub-body { padding-left: 8px; }
+.arch-sub--drill > .arch-sub-head { padding-left: 8px; }
+.arch-strategy-band-body > .arch-sub--drill > .arch-sub-head,
+.arch-strategy-band-body > .arch-sub.arch-sub--grouped > .arch-sub-body > .arch-sub--drill > .arch-sub-head {
+  padding-left: 16px;
+}
+.arch-view--layout-vertical .arch-sub--drill,
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub--drill {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  border-top: none;
+}
 .arch-sub-body--visual,
 .arch-view--cards-visual .arch-compact-tops {
   display: grid;
@@ -12596,8 +12801,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   gap: 8px;
   align-items: start;
 }
-/* Group By headers inside a subsection — a plain row in the text body, a full-width
-   band in the visual grid so the tiles below it keep their columns */
+/* Legacy Group By labels — drills replaced these; keep the class for older HTML. */
 .arch-sub-group-label {
   font-family: 'Cinzel', serif; font-size: 0.62rem; color: var(--text3);
   text-transform: uppercase; letter-spacing: 0.09em;
@@ -12632,6 +12836,13 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 .arch-panel--strategy .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--green) 80%, var(--gold)); }
 .arch-panel--strategy .arch-sub-tint-4,
 .arch-panel--strategy .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--green) 65%, var(--purple)); }
+.arch-panel--strategy .arch-strategy-band--primary { --arch-sub-accent: var(--green); }
+.arch-panel--strategy .arch-strategy-band--secondary { --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2)); }
+.arch-panel--strategy .arch-strategy-band--other { --arch-sub-accent: color-mix(in srgb, var(--green) 70%, var(--text)); }
+.arch-panel--strategy .arch-strategy-band--secondary .arch-sub,
+.arch-panel--strategy .arch-strategy-band--secondary .arch-chip {
+  --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2));
+}
 /* Payoffs — hashed 5-step purple palette */
 .arch-panel--payoffs .arch-sub-tint-0,
 .arch-panel--payoffs .arch-chip-tint-0 { --arch-sub-accent: color-mix(in srgb, var(--purple) 55%, var(--blue2)); }
@@ -12653,7 +12864,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 .arch-empty { font-size: 0.72rem; color: var(--text3); padding: 6px 2px; }
 .arch-card-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
 .arch-card-row .deck-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.arch-card-row.is-arch-primary { box-shadow: inset 2px 0 0 var(--gold); }
+/* Primary home is data + ⋯ menu only — no row chrome (inset rails read as a crescent). */
 /* Same-card hover: fill every copy with a gold wash. No outline. */
 .arch-view .arch-card-row.tag-group-linked,
 .arch-view .arch-card-row.tag-group-source {
@@ -12699,7 +12910,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   font-weight: 600;
 }
 .arch-card-tile .stack-wrap { position: relative; }
-.arch-card-tile.is-arch-primary .stack-wrap { box-shadow: inset 0 0 0 2px var(--gold); border-radius: var(--radius); }
+/* Primary home: no tile chrome either — same reason as text rows. */
 .arch-card-tile .arch-card-menu {
   position: absolute;
   top: 4px;
@@ -12788,17 +12999,6 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   box-shadow: 0 1px 2px rgba(0,0,0,0.45);
 }
 .arch-mana-sep { font-size: 0.62rem; color: var(--text3); }
-.arch-pill {
-  font-size: 0.62rem;
-  border: 1px solid var(--border2);
-  border-radius: 999px;
-  padding: 0 6px;
-  line-height: 1.5;
-  color: var(--text3);
-}
-.arch-pill--declared { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--border2)); }
-.arch-pill--inferred { color: var(--text3); }
-.arch-pill--override { color: var(--gold); }
 .arch-chip {
   display: inline-flex;
   gap: 4px;
@@ -12831,22 +13031,140 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 }
 .arch-legend-multi { border: 1px dashed var(--border2); padding: 0 6px; border-radius: 999px; }
 .arch-menu {
-  position: fixed; z-index: 80; width: min(280px, calc(100vw - 16px));
+  position: fixed; z-index: 80; width: min(300px, calc(100vw - 16px));
   max-height: min(70vh, 420px); overflow: auto;
   background: var(--bg2); border: 1px solid var(--border2);
   border-radius: var(--radius2); box-shadow: 0 8px 28px rgba(0,0,0,0.35);
   padding: 6px;
 }
+.arch-menu--section { width: min(320px, calc(100vw - 16px)); }
 .arch-menu-title { font-size: 0.8rem; font-weight: 600; padding: 4px 8px 6px; }
+.arch-menu-subtitle {
+  font-size: 0.68rem; font-weight: 600; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 8px 8px 4px;
+}
+.arch-menu-search {
+  display: block; width: 100%; box-sizing: border-box;
+  margin: 0 0 6px; padding: 6px 8px;
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  background: var(--bg3); color: var(--text); font-size: 0.75rem;
+}
 .arch-menu-scroll { display: flex; flex-direction: column; max-height: 280px; overflow: auto; }
 .arch-menu-item {
-  display: block; width: 100%; text-align: left;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  width: 100%; text-align: left;
   background: none; border: none; color: var(--text2);
   padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: 0.75rem;
+}
+.arch-menu-item-label { flex: 1; min-width: 0; }
+.arch-menu-item-hint { flex-shrink: 0; font-size: 0.65rem; color: var(--text3); }
+/* File-explorer › on parent Move-to / Also-place-in rows */
+.arch-menu-item > .arch-menu-item-hint[aria-hidden="true"] {
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.75;
 }
 .arch-menu-item:hover { background: var(--bg3); color: var(--text); }
 .arch-menu-item--quiet { color: var(--text3); }
 .arch-menu-item--danger { color: var(--red); }
+.arch-menu-item--active {
+  color: var(--text);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, rgb(var(--lgx1)) 70%, rgb(var(--lgx2)));
+  background: color-mix(in srgb, rgb(var(--lgx1)) 10%, transparent);
+}
+
+/* Architecture drag-to-move between piles */
+@media (hover: hover) and (pointer: fine) {
+  .arch-view--can-edit .arch-card-row,
+  .arch-view--can-edit .arch-card-tile { cursor: grab; }
+}
+#deckCardList.is-arch-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+#deckCardList.is-arch-dragging .arch-card-row.dragging,
+#deckCardList.is-arch-dragging .arch-card-tile.dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+#deckCardList.is-arch-dragging .arch-sub[data-arch-sub].drag-over,
+#deckCardList.is-arch-dragging .arch-unassigned.drag-over {
+  outline: 2px solid color-mix(in srgb, rgb(var(--lgx1)) 70%, rgb(var(--lgx2)));
+  outline-offset: 2px;
+  background: color-mix(in srgb, rgb(var(--lgx1)) 8%, transparent);
+}
+/* Pointer capture glues :hover / gold wash to the dragged card. Quiet that
+   chrome during the gesture and until the pointer leaves cards after drop. */
+#deckCardList.is-arch-dragging .arch-card-row:hover,
+#deckCardList.is-arch-hover-locked .arch-card-row:hover,
+#deckCardList.is-arch-dragging .arch-card-row.tag-group-linked,
+#deckCardList.is-arch-hover-locked .arch-card-row.tag-group-linked,
+#deckCardList.is-arch-dragging .arch-card-row.tag-group-source,
+#deckCardList.is-arch-hover-locked .arch-card-row.tag-group-source {
+  background: transparent;
+}
+#deckCardList.is-arch-dragging .arch-card-row.tag-group-linked .deck-card-name,
+#deckCardList.is-arch-hover-locked .arch-card-row.tag-group-linked .deck-card-name,
+#deckCardList.is-arch-dragging .arch-card-row.tag-group-source .deck-card-name,
+#deckCardList.is-arch-hover-locked .arch-card-row.tag-group-source .deck-card-name {
+  color: inherit;
+}
+#deckCardList.is-arch-dragging .arch-card-row:hover .arch-card-menu,
+#deckCardList.is-arch-hover-locked .arch-card-row:hover .arch-card-menu,
+#deckCardList.is-arch-dragging .arch-card-tile:hover .arch-card-menu,
+#deckCardList.is-arch-hover-locked .arch-card-tile:hover .arch-card-menu {
+  visibility: hidden;
+  opacity: 0;
+}
+#deckCardList.is-arch-dragging .arch-card-row:hover .arch-row-mana,
+#deckCardList.is-arch-hover-locked .arch-card-row:hover .arch-row-mana {
+  visibility: visible;
+}
+#deckCardList.is-arch-dragging .arch-card-tile:hover,
+#deckCardList.is-arch-hover-locked .arch-card-tile:hover,
+#deckCardList.is-arch-dragging .arch-card-tile:focus-within,
+#deckCardList.is-arch-hover-locked .arch-card-tile:focus-within,
+#deckCardList.is-arch-dragging .arch-card-tile.is-stack-peek,
+#deckCardList.is-arch-hover-locked .arch-card-tile.is-stack-peek,
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-linked,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-linked,
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-source,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-source,
+#deckCardList.is-arch-dragging .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover,
+#deckCardList.is-arch-hover-locked .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover,
+#deckCardList.is-arch-dragging .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within,
+#deckCardList.is-arch-hover-locked .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within,
+#deckCardList.is-arch-dragging .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek,
+#deckCardList.is-arch-hover-locked .arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek {
+  transform: none;
+  z-index: 1;
+}
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-linked .stack-wrap::after,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-linked .stack-wrap::after,
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-source .stack-wrap::after,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-source .stack-wrap::after {
+  opacity: 0;
+}
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-linked .stack-name,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-linked .stack-name,
+#deckCardList.is-arch-dragging .arch-card-tile.tag-group-source .stack-name,
+#deckCardList.is-arch-hover-locked .arch-card-tile.tag-group-source .stack-name {
+  color: inherit;
+}
+.arch-drag-ghost-label {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+  color: var(--text);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: app chrome — body base, topbar, sidebar, nav, dropdowns, toasts
@@ -14009,8 +14327,20 @@ body.glass-mode .arch-panel--manabase { border-top-width: 1px; }
 #tab-decks .arch-card-row .arch-row-mana .mana-pip { width: 12px !important; height: 12px !important; }
 #tab-decks .arch-card-row .arch-row-badges .mana-pip { width: 12px; height: 12px; }
 #tab-decks .arch-card-row { padding: 2px 6px; }
-#tab-decks .arch-sub-title { font-size: calc(0.8rem + var(--dl-fs)); }
-#tab-decks .arch-sub-group-label { font-size: calc(0.62rem + var(--dl-fs)); }
+#tab-decks .arch-strategy-band-head .arch-sub-title,
+#tab-decks .arch-panel--foundation .arch-sub > .arch-sub-head .arch-sub-title,
+#tab-decks .arch-panel--payoffs .arch-sub > .arch-sub-head .arch-sub-title,
+#tab-decks .arch-panel--manabase .arch-sub > .arch-sub-head .arch-sub-title {
+  font-size: calc(0.8rem + var(--dl-fs));
+}
+#tab-decks .arch-panel--strategy .arch-sub:not(.arch-sub--strong) > .arch-sub-head .arch-sub-title,
+#tab-decks .arch-sub--drill > .arch-sub-head .arch-sub-title,
+#tab-decks .arch-sub-group-label {
+  font-size: calc(0.62rem + var(--dl-fs));
+}
+#tab-decks .arch-panel--strategy .arch-sub.arch-sub--strong > .arch-sub-head .arch-sub-title {
+  font-size: calc(0.8rem + var(--dl-fs));
+}
 
 /* The extra zones are a deck-list concept; Architecture already places every
    card into a panel, so MB / adds / cuts / sideboard would just duplicate it. */
@@ -14020,16 +14350,17 @@ body.glass-mode .arch-panel--manabase { border-top-width: 1px; }
 .is-arch-view .deck-sideboard-section { display: none !important; }
 
 
-/* ── Architecture: no gold, and a usable placement button ─────────────────── */
-/* The primary placement marked the whole row with a gold inset bar. Colour the
-   name instead — the row keeps its own background for hover/selection. */
+/* ── Architecture: primary home ≠ same-card hover ─────────────────────────── */
+/* Hover / same-card uses the glass purple name. Primary home has no row/tile
+   chrome — an inset rail on rounded rows read as a crescent and looked like a
+   stuck highlight after drag. Home is still tracked for the ⋯ menu. */
 .arch-card-row.is-arch-primary { box-shadow: none; }
 .arch-card-row.is-arch-primary .deck-card-name {
-  color: rgb(var(--lgx2));
-  font-weight: 600;
+  color: inherit;
+  font-weight: inherit;
 }
 .arch-card-tile.is-arch-primary .stack-wrap {
-  box-shadow: inset 0 0 0 2px rgb(var(--lgx2));
+  box-shadow: none;
 }
 /* Mana Sources and its subsections were the last gold in the view. */
 .arch-panel--manabase { border-top-color: var(--teal); }
@@ -14042,7 +14373,6 @@ body.glass-mode .arch-panel--manabase { border-top-width: 1px; }
 .arch-panel--manabase .arch-chip--nonbasics { --arch-sub-accent: color-mix(in srgb, var(--teal) 60%, rgb(var(--lgx1))); }
 .arch-panel--strategy .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--green) 80%, rgb(var(--lgx1))); }
 .arch-panel--payoffs .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--purple) 75%, rgb(var(--lgx1))); }
-.arch-pill--override { color: rgb(var(--lgx1)); }
 .arch-expand { color: rgb(var(--lgx1)); }
 
 
@@ -14108,7 +14438,9 @@ body.glass-mode .arch-unassigned {
 }
 
 /* The subsection accent was a border-left, so it always ran the full height of
-   the header and crowded the title. A centred pseudo-element can be shorter. */
+   the header and crowded the title. A centred pseudo-element can be shorter.
+   Strategy band titles + Foundation / Payoffs / Mana Sources keep this tick;
+   Strategy engine piles and Group By drills stay quiet (no tick). */
 :is(#deckTabPane-list, #tab-decks) .arch-sub-head {
   position: relative;
   border-left: none;
@@ -14125,9 +14457,31 @@ body.glass-mode .arch-unassigned {
   border-radius: 2px;
   background: var(--arch-sub-accent);
 }
+:is(#deckTabPane-list, #tab-decks) .arch-panel--strategy .arch-sub:not(.arch-sub--strong) > .arch-sub-head::before,
+:is(#deckTabPane-list, #tab-decks) .arch-sub--drill > .arch-sub-head::before {
+  content: none;
+}
+:is(#deckTabPane-list, #tab-decks) .arch-strategy-band-body > .arch-sub > .arch-sub-head {
+  padding-left: 16px;
+}
+:is(#deckTabPane-list, #tab-decks) .arch-panel--strategy .arch-sub:not(.arch-sub--strong) > .arch-sub-head .arch-sub-title,
+:is(#deckTabPane-list, #tab-decks) .arch-sub--drill > .arch-sub-head .arch-sub-title {
+  font-weight: 400;
+  color: var(--text3);
+}
+:is(#deckTabPane-list, #tab-decks) .arch-panel--strategy .arch-sub.arch-sub--strong > .arch-sub-head::before {
+  content: '';
+}
+:is(#deckTabPane-list, #tab-decks) .arch-panel--strategy .arch-sub.arch-sub--strong > .arch-sub-head .arch-sub-title {
+  font-weight: 600;
+  color: var(--arch-sub-accent);
+}
+:is(#deckTabPane-list, #tab-decks) .arch-strategy-band--flat > .arch-strategy-band-body {
+  padding-left: 11px;
+}
 
 /* The ⋯ placement button: a real circle carrying the same glass chrome and
-   blue->purple hover as every other button. */
+   blue->purple hover as every other button. Subsection/panel ⋮ stay plain text. */
 :is(#deckTabPane-list, #tab-decks) .arch-card-menu {
   width: 22px;
   height: 22px;
@@ -14165,6 +14519,33 @@ body.glass-mode :is(#deckTabPane-list, #tab-decks) .arch-card-menu:hover,
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+/* Keep subsection/panel ⋮ uncircled even under .btn / glass chrome. */
+:is(#deckTabPane-list, #tab-decks) .arch-sub-menu,
+:is(#deckTabPane-list, #tab-decks) .arch-panel-menu {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  padding: 0 2px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text3);
+}
+:is(#deckTabPane-list, #tab-decks) .arch-sub-menu {
+  width: 1.05em;
+  min-width: 1.05em;
+}
+:is(#deckTabPane-list, #tab-decks) .arch-panel-menu {
+  width: auto;
+  min-width: 0;
+}
+:is(#deckTabPane-list, #tab-decks) .arch-sub-menu:hover,
+:is(#deckTabPane-list, #tab-decks) .arch-panel-menu:hover {
+  color: var(--text);
+  border: none !important;
+  background: transparent !important;
 }
 
 
