@@ -856,11 +856,14 @@
     return out;
   }
 
-  function _buildStrategySubs(plan, themeAnalysis, declaredIds, goals) {
-    // The semantic engine's goal is a better statement of what the deck is
-    // trying to do than the generic theme vocabulary, so it wins when present.
-    const goalSubs = _buildGoalSubs(goals);
-    if (goalSubs.length) return goalSubs;
+  function _isCombatStrategyId(id) {
+    return id === 'strategy.combat' || String(id || '').startsWith('strategy.combat.');
+  }
+
+  // Declared sub-tag rows + theme-vocabulary rows for a plan. This is the
+  // generic (non-engine2) source of Architecture strategy subthemes — see
+  // _buildStrategySubs for how it composes with engine2 goals.
+  function _themeVocabStrategySubs(plan, themeAnalysis, declaredIds) {
     const api = _plan();
     const winId = plan && plan.winConditionId;
     const subs = [];
@@ -915,6 +918,33 @@
     return subs;
   }
 
+  function _buildStrategySubs(plan, themeAnalysis, declaredIds, goals) {
+    // The semantic engine's goal is a better statement of what the deck is
+    // trying to do than the generic theme vocabulary, so it wins when present.
+    const goalSubs = _buildGoalSubs(goals);
+    if (goalSubs.length) {
+      // ── COMBAT SUBTHEME WORKAROUND ── TEMPORARY. See docs/23-semantics-holes.md,
+      // "engine2 has no `combat` goal template". engine2 never emits a `combat` goal
+      // key (GOAL_KEY_STRATEGY.combat is inert — nothing calls it), so _buildGoalSubs
+      // above never produces a strategy.combat.* sub, and because this function used
+      // to return goalSubs outright whenever ANY engine2 goal existed (true for
+      // nearly every deck), the theme-vocabulary rows that carry Combat's drilldown
+      // children (Attack triggers / Saboteur / Extra combats) never got a chance to
+      // run either. Splice those rows in by hand, scoped to the combat family only,
+      // so engine2's goal read still wins everywhere else.
+      //
+      // DELETE this block (and _isCombatStrategyId's use here) the day engine2 ships
+      // a `combat` goal template: at that point GOAL_KEY_STRATEGY.combat stops being
+      // inert, _buildGoalSubs supplies combat subs on its own, and this splice would
+      // just duplicate them.
+      const seen = new Set(goalSubs.map(s => s.id));
+      const combatSubs = _themeVocabStrategySubs(plan, themeAnalysis, declaredIds)
+        .filter(s => _isCombatStrategyId(s.strategyId) && !seen.has(s.id));
+      return combatSubs.length ? goalSubs.concat(combatSubs) : goalSubs;
+    }
+    return _themeVocabStrategySubs(plan, themeAnalysis, declaredIds);
+  }
+
   /**
    * engine2 goal key → plan strategy id. Same contract as GOAL_ROLE_TAGS: the keys are
    * `engine2/goal-templates.js` keys, verbatim. A missing key used to fall through to
@@ -957,7 +987,9 @@
     lifegain: 'strategy.lifegain',
     combo: 'strategy.combo',
     // Inert until engine2 ships a 'combat' goal template (that change needs partner sign-off
-    // — strategy-combat-research.md §6); harmless and forward-compatible meanwhile.
+    // — strategy-combat-research.md §6); harmless and forward-compatible meanwhile. Because
+    // this never fires, _buildStrategySubs' COMBAT SUBTHEME WORKAROUND block carries Combat's
+    // subthemes client-side in the meantime — see that comment for the deletion contract.
     combat: 'strategy.combat',
   });
 
