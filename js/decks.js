@@ -12072,82 +12072,108 @@ function renderManaCostProfile(deck) {
   _renderManaPie('manaCostProfile', 'cost', demand, 'No colored mana symbols in current deck.');
 }
 
+const _BASIC_LAND_TYPE_COLORS = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' };
+
+/**
+ * Colors a land taps for because of the basic land types printed on it.
+ * Duals, shocks, triomes, snow duals and Dryad Arbor spell their production out only in
+ * reminder text (or not at all) — the type line is the reliable statement of it.
+ */
+function _basicLandTypeColors(typeLine) {
+  const out = new Set();
+  String(typeLine || '').split('//').forEach(seg => {
+    if (!/\bland\b/i.test(seg)) return;
+    const sub = seg.includes('—') ? seg.split('—')[1] : '';
+    Object.keys(_BASIC_LAND_TYPE_COLORS).forEach(t => {
+      if (new RegExp(`\\b${t}\\b`, 'i').test(sub)) out.add(_BASIC_LAND_TYPE_COLORS[t]);
+    });
+  });
+  return out;
+}
+
+/**
+ * Colors a fetch land reaches. Only counts searches that put the land onto the battlefield
+ * for YOU — "reveal it, put it into your hand" (Ash Barrens' landcycling) and an opponent's
+ * forced search (Demolition Field's first clause) are not mana the deck can tap.
+ */
+function _fetchedLandColors(txt) {
+  const colors = new Set();
+  let anyBasic = false;
+  (txt.match(/search your library[^.;]*/g) || []).forEach(clause => {
+    if (!clause.includes('onto the battlefield')) return;
+    let named = false;
+    Object.keys(_BASIC_LAND_TYPE_COLORS).forEach(t => {
+      if (new RegExp(`\\b${t}\\b`).test(clause)) { colors.add(_BASIC_LAND_TYPE_COLORS[t]); named = true; }
+    });
+    if (!named && /\bbasic land\b/.test(clause)) anyBasic = true;
+  });
+  return { colors, anyBasic };
+}
+
+/**
+ * Which mana an "add …" clause makes. Scoped to the clause so activation costs
+ * ({1}{U}, {T}: …) are never read as production, and de-duplicated per color: a filter
+ * land reading "Add {U}{U}, {U}{R}, or {R}{R}" is one blue source and one red source.
+ */
+function _addedManaColors(txt) {
+  const colors = new Set();
+  let colorless = false;
+  let anyColor = false;
+  (txt.match(/\badds?\b[^.;\n]*/g) || []).forEach(clause => {
+    let sym = false;
+    (clause.match(/\{[wubrgc](?:\/[wubrgc])?\}/g) || []).forEach(s => {
+      sym = true;
+      s.replace(/[{}]/g, '').split('/').forEach(p => {
+        if (p === 'c') colorless = true;
+        else if (p) colors.add(p.toUpperCase());
+      });
+    });
+    // "any color", "any one color", "any type that a land you control could produce",
+    // "the chosen color", "two mana of different colors" — all colorful, none of them symbols.
+    if (/any colou?rs?|any one colou?r|any type|combination of colou?rs|chosen colou?r|that colou?r|different colou?rs|circled colou?rs/.test(clause)) anyColor = true;
+    else if (!sym && /\bmana\b/.test(clause) && /\bcolou?rs?\b|\btype\b/.test(clause)) anyColor = true;
+  });
+  return { colors, colorless, anyColor };
+}
+
+/**
+ * Colors this card can produce. sourceMode=true answers "is this a source of color X?" —
+ * one per copy, never more, which is what the generation pie and the hypergeometric
+ * color-screw math both count. sourceMode=false spreads an any-color producer across its
+ * colors so the card totals 1.
+ */
 function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
-  const t = String(card.type || '').toLowerCase();
-  const txt = String(card.oracleText || '').toLowerCase();
   const sources = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   const allowed = Array.isArray(allowedColors) && allowedColors.length
     ? new Set(allowedColors)
     : null;
-  if (t.includes('land')) {
-    const basics = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
-    if (basics[card.name]) {
-      if (!allowed || allowed.has(basics[card.name])) sources[basics[card.name]] += 1;
-      return sources;
-    }
-    if (card.name === 'Wastes') { sources.C += 1; return sources; }
-    // Fetch lands: tutor for specific or any basic land type
-    if (txt.includes('search your library for a')) {
-      const fetchMap = { forest: 'G', plains: 'W', island: 'U', swamp: 'B', mountain: 'R' };
-      let found = false;
-      Object.entries(fetchMap).forEach(([type, col]) => {
-        if (txt.includes(type) && sources[col] != null && (!allowed || allowed.has(col))) {
-          sources[col] = 1; found = true;
-        }
-      });
-      if (!found && txt.includes('basic land')) {
-        const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-        spread.forEach(col => { if (sources[col] != null) sources[col] = sourceMode ? 1 : 0.8; });
-        found = true;
-      }
-      if (found) return sources;
-    }
-    // Scan oracle text for mana symbols — {C} for colorless, {W}/{U}/{B}/{R}/{G} for colors.
-    // Use "add" sentences only to avoid counting activation costs as production.
-    const addSentences = txt.match(/add [^.;]+/gi) || [];
-    const scanTarget = addSentences.length ? addSentences.join(' ') : txt;
-    (scanTarget.match(/\{[wubrgc]\}/gi) || []).forEach(s => {
-      const col = s.replace(/[{}]/g, '').toUpperCase();
-      if (col === 'C') { sources.C += 1; return; }
-      if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += 1;
-    });
-    // Any-color lands spell it out in words, not symbols (Command Tower, Exotic Orchard,
-    // Mana Confluence) — the symbol scan alone counted them as zero sources.
-    if (txt.includes('mana of any color') || txt.includes('any combination of colors') ||
-        txt.includes('mana of the chosen color')) {
-      const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-      spread.forEach(col => { if (sources[col] != null) sources[col] = Math.max(sources[col], 1); });
-    }
-    return sources;
+  const isLand = String(card.type || '').toLowerCase().includes('land');
+  // Reminder text is stripped: the Treasure reminder ("{T}, Sacrifice this token: Add one
+  // mana of any color") would otherwise make every Treasure maker a five-color source, and
+  // a token you have to build first is not a color source the deck taps.
+  const txt = String(card.oracleText || '').toLowerCase().replace(/\([^)]*\)/g, ' ');
+  const colors = new Set();
+  let colorless = false;
+  let anyColor = false;
+  if (isLand) {
+    _basicLandTypeColors(card.type).forEach(c => colors.add(c));
+    if (card.name === 'Wastes') colorless = true;
+    const fetched = _fetchedLandColors(txt);
+    fetched.colors.forEach(c => colors.add(c));
+    // A land that fetches any basic finds the color you are missing.
+    if (fetched.anyBasic) anyColor = true;
   }
-  // Only count explicit mana-production: "add {X}" patterns or "mana of any color".
-  // Deliberately excludes "create a treasure" — treasure tokens are colorless/conditional and
-  // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
-  // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
-  // "Chosen color" producers (Utopia Sprawl, Caged Sun) pick the color on ETB,
-  // so they behave like any-color sources — you choose the color you need.
-  const chosenColor = txt.includes('mana of the chosen color');
-  if (!(txt.includes('add {') || txt.includes('mana of any') || chosenColor)) return sources;
-  // Scan "add …" sentences (up to period/semicolon) for mana symbols to handle
-  // both contiguous "{W}{U}" and "or"-separated "{W} or {U}" patterns.
-  const addPhrases = txt.match(/add [^.;]+/gi) || [];
-  let hasColorSym = false;
-  addPhrases.forEach(phrase => {
-    (phrase.match(/\{[wubrg]\}/gi) || []).forEach(s => {
-      const col = s.replace(/[{}]/g, '').toUpperCase();
-      if (sources[col] != null && (!allowed || allowed.has(col))) { sources[col] += 1; hasColorSym = true; }
-    });
-    // Colorless pips (Sol Ring, Mana Crypt, Mind Stone, etc.)
-    const cCount = (phrase.match(/\{c\}/gi) || []).length;
-    if (cCount) { sources.C += cCount; hasColorSym = true; }
-  });
-  if (!hasColorSym && (txt.includes('mana of any') || chosenColor)) {
+  const added = _addedManaColors(txt);
+  added.colors.forEach(c => colors.add(c));
+  if (added.colorless) colorless = true;
+  if (added.anyColor) anyColor = true;
+  colors.forEach(c => { if (!allowed || allowed.has(c)) sources[c] = 1; });
+  if (anyColor) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-    // sourceMode=true: 1.0 per color ("is this a source of X?", used by gameplan prob)
-    // sourceMode=false: 1/N per color so total sums to 1 (used by generation chart proportions)
     const perColor = spread.length ? (sourceMode ? 1 : 1 / spread.length) : 0;
-    spread.forEach(c => { if (sources[c] != null) sources[c] += perColor; });
+    spread.forEach(c => { if (sources[c] != null) sources[c] = Math.max(sources[c], perColor); });
   }
+  if (colorless) sources.C = 1;
   return sources;
 }
 
