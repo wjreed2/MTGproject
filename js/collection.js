@@ -1898,21 +1898,73 @@ function _deckRowMatchesInspectorNavId(row, navId) {
   return false;
 }
 
+// Every deck view — list, visual stacks, architecture — paints into #deckCardList
+// and tags each card row with the card's inventory key.
+const _DECK_NAV_ROW_SEL = '.deck-card-row[data-uid], .deck-stack-card[data-uid], '
+  + '.arch-card-row[data-uid], .arch-card-tile[data-uid]';
+
+/**
+ * The deck walked in the order it is ON SCREEN — whatever sort, grouping, filter
+ * and view the user has set — rather than re-derived alphabetically. Replaying the
+ * rendered rows is the one order that cannot drift from what they are looking at,
+ * and it comes free for views this function knows nothing about: a collapsed zone
+ * paints no rows, so the arrows skip exactly what the eye can't see.
+ *
+ * Returns null when the list isn't on screen (the inspector can be opened in deck
+ * mode from elsewhere), so the caller keeps its by-name fallback.
+ */
+function _deckListRenderedOrder(deck) {
+  const el = typeof document !== 'undefined' ? document.getElementById('deckCardList') : null;
+  const nodes = el ? el.querySelectorAll(_DECK_NAV_ROW_SEL) : null;
+  if (!nodes || !nodes.length) return null;
+  // Rows carry the inventory key; the rest of the nav speaks card objects.
+  const byKey = new Map();
+  const remember = (c) => {
+    const k = c && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : null;
+    if (k && !byKey.has(String(k))) byKey.set(String(k), c);
+  };
+  (deck.cards || []).forEach(remember);
+  (typeof _deckExtraPoolsForAlloc === 'function'
+    ? _deckExtraPoolsForAlloc(deck)
+    : [...(deck.maybeboard || deck.sideboard || [])]).forEach(remember);
+  const rows = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const k = String(n.dataset.uid || '');
+    // One card can paint twice — a planned-add ghost beside its own row, or a card
+    // carrying two tags under Group By → Tag. First appearance is its place.
+    if (!k || seen.has(k) || !byKey.has(k)) continue;
+    seen.add(k);
+    rows.push(byKey.get(k));
+  }
+  return rows.length ? rows : null;
+}
+
 function _getCardDetailDeckNavState(currentUid) {
   if (!currentUid) return { prevUid: null, nextUid: null, index: -1, total: 0 };
   if (typeof getActiveDeck !== 'function') return { prevUid: null, nextUid: null, index: -1, total: 0 };
   const deck = getActiveDeck();
   if (!deck) return { prevUid: null, nextUid: null, index: -1, total: 0 };
   const searchQ = String(typeof deckListSearchQ !== 'undefined' ? deckListSearchQ : '').trim().toLowerCase();
-  const main = (deck.cards || [])
-    .filter(c => !searchQ || String(c.name || '').toLowerCase().includes(searchQ))
-    .slice()
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const extra = typeof _deckExtraPoolsForAlloc === 'function'
-    ? _deckExtraPoolsForAlloc(deck)
-    : [...(deck.maybeboard || deck.sideboard || [])];
-  const rows = [...main, ...extra.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))];
-  const index = rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid));
+  const byName = () => {
+    const main = (deck.cards || [])
+      .filter(c => !searchQ || String(c.name || '').toLowerCase().includes(searchQ))
+      .slice()
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const extra = typeof _deckExtraPoolsForAlloc === 'function'
+      ? _deckExtraPoolsForAlloc(deck)
+      : [...(deck.maybeboard || deck.sideboard || [])];
+    return [...main, ...extra.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))];
+  };
+  // The inspector can be opened in deck mode on a card the list isn't showing —
+  // from a cut-suggestion row, say — so a card the render order doesn't know about
+  // falls back to the by-name walk rather than losing its arrows entirely.
+  let rows = _deckListRenderedOrder(deck);
+  let index = rows ? rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid)) : -1;
+  if (index === -1) {
+    rows = byName();
+    index = rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid));
+  }
   if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: rows.length };
   const prevRow = index > 0 ? rows[index - 1] : null;
   const nextRow = index < rows.length - 1 ? rows[index + 1] : null;

@@ -248,8 +248,17 @@ const AXES = {
 
   // tribal
   'tribal.lord':           'boosts a specific creature type (param: type)',
-  'tribal.synergy':        'cares about controlling/casting creatures of a type (param: type)',
+  'tribal.synergy':        'cares about controlling/casting creatures of a type (param: type; provides use "chosen type" for choose-a-creature-type payoffs — Cavern of Souls, Shared Animosity — and null ONLY for type-CHANGERS that make things the tribe, like Maskwood Nexus)',
   'tribal.body':           'is a creature of a commonly-supported type (param: type) — filled from type line',
+
+  // Synthesized identity axes: PROVIDES on these are derived from the type line and
+  // faces at scoring time (recommender.js synthesizedProvides) and MUST NOT be
+  // model-authored — the validator flags them and the recommender ignores stored
+  // ones. NEEDS are legitimate model output: commanders and payoffs whose engines
+  // key on legendary bodies (Thranduil's draw) or activated abilities (yard-ability
+  // grants) express their appetite here.
+  'body.legendary':        'is a legendary creature (param: creature type) — NEEDS only; provides are synthesized from the type line, never written',
+  'ability.activated':     'creature with an activated or mana ability (param: creature type) — NEEDS only; provides are synthesized from faces, never written',
 
   // hate / anti (used in `anti` and matched against opposing provides/needs for nonbos)
   'hate.graveyard':        'exiles or shuts off graveyards',
@@ -316,6 +325,16 @@ function inVocab(listName, token) {
   return s ? s.has(token) : false;
 }
 
+// Axes whose PROVIDES are synthesized from the type line / faces at scoring time.
+// Model-authored provides on these are flagged by the validator and ignored by the
+// recommender; needs remain legitimate model output.
+const SYNTHESIZED_PROVIDE_AXES = new Set(['body.legendary', 'ability.activated']);
+
+// "chosen type" / "chosen color" params mean the card ADAPTS to whatever the deck
+// wants (Cavern of Souls, Heraldic Banner) — they serve any concrete param and are
+// never tribal-bound to a foreign tribe.
+function isWildcardParam(param) { return param != null && /^chosen\b/i.test(String(param)); }
+
 module.exports = {
   VOCAB_VERSION,
   EFFECT_OPS, TRIGGER_EVENTS, TRIGGER_CONTROLLER_SCOPES,
@@ -323,6 +342,6 @@ module.exports = {
   ABILITY_KINDS, ACTIVATION_LIMITS, RESTRICTION_KINDS,
   ALT_COST_NAMES, ADDITIONAL_COST_KINDS, ACTIVATED_COST_KINDS,
   WINCON_KINDS, N_KINDS, TARGET_WHO, EXCLUDED_LAYOUTS, ROLES,
-  AXES, AXIS_TOKENS,
-  isAxis, isOp, isTriggerEvent, isRole, inVocab,
+  AXES, AXIS_TOKENS, SYNTHESIZED_PROVIDE_AXES,
+  isAxis, isOp, isTriggerEvent, isRole, inVocab, isWildcardParam,
 };

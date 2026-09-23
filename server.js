@@ -6277,8 +6277,17 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
     const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
       const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
+    // Category focus: the pool is normally gated by the deck's ~12 wanted axes, so
+    // filtering it down to one category returns whatever happened to be in there —
+    // usually nothing for Tutor/Counterspell/Protection. A focused run retrieves by
+    // IR role instead, which is exactly what the category is derived from.
+    const ROLE_TO_CAT = engine2.thresholds.ROLE_TO_CATEGORY;
+    const focusCategory = Object.values(ROLE_TO_CAT).includes(body.focusCategory) ? body.focusCategory : null;
+    const focusRoles = focusCategory
+      ? Object.keys(ROLE_TO_CAT).filter(r => ROLE_TO_CAT[r] === focusCategory)
+      : [];
     let adds = [];
-    if (wanted.length) {
+    if (wanted.length || focusRoles.length) {
       let ciColors = [];
       if (commanderName) {
         const [[cRow]] = await db().query(
@@ -6304,23 +6313,49 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       const cmdrSlug = engine2SlugifyCommander(commanderName);
       const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
-      const candSub = wanted.map(() =>
-        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
-                 st.inclusion_pct AS cmdr_pct
-          FROM card_semantics_axes x
-          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
-          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
-          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
-          WHERE x.kind = 'provides' AND x.axis = ?
-            AND c.legal_commander = 1
-            ${ciSql}
-          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
-          LIMIT 60)`).join(' UNION ALL ');
-      const [candRows] = await db().query(
-        `SELECT DISTINCT * FROM (${candSub}) u`,
-        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
+      // A hard price cap filters AFTER retrieval, so the per-axis window has to be
+      // wider when one is set — otherwise the cheap cards never survive the ranking.
+      const axisWindow = Number(body.budget?.maxCardPrice) > 0 ? 160 : 60;
+      let candSql, candParams;
+      if (focusRoles.length) {
+        // Retrieve by IR role — the same field the category is derived from — so a
+        // focused list is complete rather than whatever the wanted axes happened to pull.
+        candSql =
+          `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                  st.inclusion_pct AS cmdr_pct
+           FROM card_semantics s
+           JOIN scryfall_oracle_cards c ON c.oracle_id = s.oracle_id
+           LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+           WHERE s.status IN ('valid','flagged','manual')
+             AND (${focusRoles.map(() => `JSON_CONTAINS(s.roles_json, ?)`).join(' OR ')})
+             AND c.legal_commander = 1
+             ${ciSql}
+           ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, (c.edhrec_rank IS NULL), c.edhrec_rank
+           LIMIT 400`;
+        candParams = [cmdrSlug, ...focusRoles.map(r => JSON.stringify(r)), ...disallowed.map(d => JSON.stringify(d))];
+      } else {
+        const candSub = wanted.map(() =>
+          `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                   st.inclusion_pct AS cmdr_pct
+            FROM card_semantics_axes x
+            JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+            JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+            LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+            WHERE x.kind = 'provides' AND x.axis = ?
+              AND c.legal_commander = 1
+              ${ciSql}
+            ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
+            LIMIT ${axisWindow})`).join(' UNION ALL ');
+        candSql = `SELECT DISTINCT * FROM (${candSub}) u`;
+        candParams = wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]);
+      }
+      const [candRows] = await db().query(candSql, candParams);
 
-      // prices (best normal finish across printings at the latest snapshot) — optional
+      // prices (best normal finish across printings at the latest snapshot) — optional.
+      // Vendor follows the client's displayed price, so a budget cap is measured in
+      // the same currency the user reads on the row. Column name is whitelisted here,
+      // never interpolated from the request.
+      const priceCol = body.priceVendor === 'ck' ? 'ck_normal' : 'tcg_normal';
       const prices = new Map();
       try {
         const candNames = candRows.map(r => r.name);
@@ -6330,9 +6365,9 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
             for (let i = 0; i < candNames.length; i += 300) {
               const chunk = candNames.slice(i, i + 300);
               const [priceRows] = await db().query(
-                `SELECT pr.name, MIN(cpd.tcg_normal) price
+                `SELECT pr.name, MIN(cpd.${priceCol}) price
                  FROM mtgjson_printing pr JOIN card_price_daily cpd ON cpd.uuid = pr.uuid AND cpd.snapshot_date = ?
-                 WHERE pr.name IN (${chunk.map(() => '?').join(',')}) AND cpd.tcg_normal IS NOT NULL
+                 WHERE pr.name IN (${chunk.map(() => '?').join(',')}) AND cpd.${priceCol} IS NOT NULL
                  GROUP BY pr.name`, [d, ...chunk]);
               for (const p of priceRows) prices.set(p.name, Number(p.price));
             }
@@ -6350,7 +6385,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       }));
       adds = engine2.recommender.scoreAdds({
         candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
-        hist: goalsRes.histogram, budget: body.budget, templates,
+        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory,
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 

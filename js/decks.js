@@ -10314,11 +10314,15 @@ function _e2CachedAnalysis(deck) {
 function _e2AnalysisKey(deck) {
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
   const cards = list.map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
-  // Custom category targets change the answer for the same list, so they are
-  // part of the key — otherwise a slider edit would keep serving stale results.
+  // Targets, focus and the price cap all change the answer for the same list, so
+  // they are part of the key — otherwise an edit would keep serving stale results.
   const ov = _semanticThresholdOverrides(deck, list);
   const ovSig = ov ? Object.keys(ov).sort().map(k => `${k}=${ov[k]}`).join(',') : '';
-  return `${deck.id}::${_analyzeProjected(deck) ? 'proj' : 'now'}::${cards}::${ovSig}`;
+  const focus = _semanticFocusCat(deck) || '';
+  const cap = _semanticMaxPrice(deck);
+  const vendor = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  return `${deck.id}::${_analyzeProjected(deck) ? 'proj' : 'now'}::${cards}::${ovSig}`
+    + `::${focus}::${cap == null ? 'any' : cap}::${vendor}`;
 }
 
 async function _e2Analyze(deck) {
@@ -10346,12 +10350,20 @@ async function _e2Analyze(deck) {
         // mode) — a saved slider position must not invisibly shift the targets.
         playstyleStep: 0,
         ownedNames,
-        budget: { maxCardPrice: null, flagAbove: 5 },
+        // maxCardPrice is a hard cap; flagAbove only marks a pick as pricey. The
+        // vendor is the one the app displays, so the cap is measured in the same
+        // number the row shows.
+        budget: { maxCardPrice: _semanticMaxPrice(deck), flagAbove: 5 },
+        priceVendor: typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg',
       };
       // Per-deck category targets from the sliders dropdown; the server applies
       // them after its own goal/playstyle adjustments (engine2/thresholds.js).
       const overrides = _semanticThresholdOverrides(deck, list);
       if (overrides) payload.thresholdOverrides = overrides;
+      // Focus retrieves by role instead of by the deck's wanted axes, so the list
+      // is every card in the category rather than the few the plan already wanted.
+      const focusCat = _semanticFocusCat(deck);
+      if (focusCat) payload.focusCategory = focusCat;
       const reqInit = {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -10439,15 +10451,38 @@ const _SEM_TARGET_BASE = {
   Ramp: 10, 'Card Draw': 10, Removal: 10, Counterspell: 3, Protection: 3,
   'Board Wipe': 3, Tutor: 2, Recursion: 3,
 };
-// Core quotas every deck gets a slider for…
-const _SEM_CORE_CATS = ['Ramp', 'Card Draw', 'Removal', 'Counterspell', 'Protection'];
-// …plus up to two of these, picked from the deck's wants and needs.
-const _SEM_EXTRA_CATS = ['Board Wipe', 'Tutor', 'Recursion'];
+// Every category is steerable — nothing is reserved. Order = slider order.
+const _SEM_ALL_CATS = [
+  'Ramp', 'Card Draw', 'Removal', 'Counterspell', 'Protection',
+  'Board Wipe', 'Tutor', 'Recursion',
+];
 const _SEM_CAT_LABELS = { Counterspell: 'Counterspells', 'Board Wipe': 'Board Wipes', Tutor: 'Tutors' };
 const _SEM_SLIDER_MAX = {
   Ramp: 20, 'Card Draw': 20, Removal: 20, Counterspell: 15, Protection: 15,
   'Board Wipe': 10, Tutor: 10, Recursion: 12,
 };
+// Max-price stops: tight where cheap cards live, coarse up top. Past the last
+// stop the cap is off ("Any").
+const _SEM_PRICE_LADDER = [
+  0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 75, 100,
+];
+
+function _semPriceFromStep(step) {
+  const i = Math.max(0, Math.min(_SEM_PRICE_LADDER.length, Math.round(Number(step) || 0)));
+  return i >= _SEM_PRICE_LADDER.length ? null : _SEM_PRICE_LADDER[i];
+}
+
+function _semPriceToStep(price) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return _SEM_PRICE_LADDER.length; // "Any"
+  // Nearest stop at or above the saved number, so a restored cap never loosens.
+  const i = _SEM_PRICE_LADDER.findIndex(v => v >= p - 1e-9);
+  return i === -1 ? _SEM_PRICE_LADDER.length : i;
+}
+
+function _semPriceLabel(price) {
+  return price == null ? 'Any' : `$${Number(price).toFixed(2)}`;
+}
 
 function _readAllSemanticTargets() {
   try {
@@ -10457,11 +10492,28 @@ function _readAllSemanticTargets() {
   } catch (_) { return {}; }
 }
 
-/** {targets:{cat:n}, shown:[extra cats]} for this deck, or null when untouched. */
+/** {targets:{cat:n}, focus:cat|null, maxPrice:number|null} for this deck, or
+ * null when the user has never touched the panel. Any of the three may be
+ * absent — a focus alone is a valid saved state. */
 function _semanticTargetsForDeck(deckId) {
   if (deckId == null) return null;
   const e = _readAllSemanticTargets()[String(deckId)];
-  return (e && typeof e === 'object' && e.targets && typeof e.targets === 'object') ? e : null;
+  if (!e || typeof e !== 'object') return null;
+  const targets = (e.targets && typeof e.targets === 'object') ? e.targets : {};
+  const focus = _SEM_ALL_CATS.includes(e.focus) ? e.focus : null;
+  const maxPrice = Number.isFinite(Number(e.maxPrice)) && Number(e.maxPrice) > 0 ? Number(e.maxPrice) : null;
+  if (!Object.keys(targets).length && !focus && maxPrice == null) return null;
+  return { targets, focus, maxPrice };
+}
+
+function _semanticFocusCat(deck) {
+  const saved = deck ? _semanticTargetsForDeck(deck.id) : null;
+  return saved ? saved.focus : null;
+}
+
+function _semanticMaxPrice(deck) {
+  const saved = deck ? _semanticTargetsForDeck(deck.id) : null;
+  return saved ? saved.maxPrice : null;
 }
 
 function _saveSemanticTargetsForDeck(deckId, entry) {
@@ -10494,29 +10546,28 @@ function _semanticThresholdOverrides(deck, list) {
   return out;
 }
 
-/** Up to two extra sliders: categories the deck's goals raised the target for,
- * the list already leans into, or that still run short of their target. */
-function _semanticExtraSliderCats(e2) {
-  if (!e2 || !e2.thresholds) return [];
-  return _SEM_EXTRA_CATS
-    .map(cat => {
-      const base = _SEM_TARGET_BASE[cat];
-      const want = Number(e2.thresholds[cat]);
-      const target = Number.isFinite(want) ? want : base;
-      const has = Number((e2.roleCounts || {})[cat]) || 0;
-      const s = Math.max(target - base, (has - base) / 2, (target - has) / 2);
-      return { cat, s };
-    })
-    .filter(x => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, 2)
-    .map(x => x.cat);
-}
-
 // ── the dropdown itself ──────────────────────────────────────────────────────
 let _suggTargetsCommitTimer = null;
 
 function _suggTargetsPop() { return document.getElementById('deckAddTargetsPop'); }
+
+/** Light the header button while a focus or a price cap is narrowing the list —
+ * a filtered panel must never look like an unfiltered one. */
+function _syncSuggestTargetsBtn(deck) {
+  const btn = document.getElementById('deckAddTargetsBtn');
+  if (!btn) return;
+  const d = deck || (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  const focus = d ? _semanticFocusCat(d) : null;
+  const cap = d ? _semanticMaxPrice(d) : null;
+  const on = !!focus || cap != null;
+  btn.classList.toggle('has-filters', on);
+  const bits = [];
+  if (focus) bits.push(`focused on ${_SEM_CAT_LABELS[focus] || focus}`);
+  if (cap != null) bits.push(`max ${_semPriceLabel(cap)}`);
+  btn.title = on
+    ? `Suggestion targets — ${bits.join(', ')}`
+    : 'Suggestion targets — how many cards to aim for in each category';
+}
 
 function _toggleSuggestTargetsPop(ev) {
   if (ev) ev.stopPropagation();
@@ -10542,6 +10593,17 @@ function _openSuggestTargetsPop() {
   pop.classList.add('open');
   btn.classList.add('active');
   btn.setAttribute('aria-expanded', 'true');
+  _positionSuggestTargetsPop();
+}
+
+/** Anchor the fixed-position panel under its trigger, flipping above when the
+ * room below is tight. Re-run on scroll/resize: a slider edit re-renders the
+ * suggestion list underneath, and a panel that closed on that would shut itself
+ * every time the list it controls got shorter. */
+function _positionSuggestTargetsPop() {
+  const pop = _suggTargetsPop();
+  const btn = document.getElementById('deckAddTargetsBtn');
+  if (!pop || !btn) return;
   const r = btn.getBoundingClientRect();
   const margin = 12;
   pop.style.right = Math.max(10, Math.round(window.innerWidth - r.right)) + 'px';
@@ -10581,45 +10643,62 @@ function _renderSuggestTargetsPop() {
   }
   const thr = (e2 && e2.thresholds) || {};
   const have = (e2 && e2.roleCounts) || {};
+  const focus = saved ? saved.focus : null;
   const cur = cat => {
     if (saved && Number.isFinite(Number(saved.targets[cat]))) return Math.max(0, Math.round(Number(saved.targets[cat])));
     if (Number.isFinite(Number(thr[cat]))) return Math.max(0, Math.round(Number(thr[cat])));
     return _SEM_TARGET_BASE[cat];
   };
-  // A customized deck keeps the slider set it was customized with — the extras
-  // must not swap out from under saved values when the analysis shifts.
-  const extras = saved && Array.isArray(saved.shown)
-    ? _SEM_EXTRA_CATS.filter(c => saved.shown.includes(c))
-    : _semanticExtraSliderCats(e2);
-  const hidden = _SEM_EXTRA_CATS.filter(c => !extras.includes(c));
-  const rows = [..._SEM_CORE_CATS, ...extras].map(cat => {
+  // Focus crosshair: one category at a time, so the suggestions can fill it
+  // exclusively. Clicking the lit one clears it.
+  const focusIcon = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="5.2"/><circle cx="8" cy="8" r="1.6"/><path d="M8 .9v2.2M8 12.9v2.2M.9 8h2.2M12.9 8h2.2"/></svg>`;
+  const rows = _SEM_ALL_CATS.map(cat => {
     const v = cur(cat);
     const max = _SEM_SLIDER_MAX[cat] || 20;
     const label = _SEM_CAT_LABELS[cat] || cat;
     const h = Number(have[cat]);
     const haveBit = Number.isFinite(h) ? `<span class="suggest-target-have">${h} in deck</span>` : '';
-    return `<div class="suggest-target-row">
+    const on = focus === cat;
+    return `<div class="suggest-target-row${on ? ' is-focused' : ''}">
       <div class="suggest-target-top">
+        <button type="button" class="suggest-target-focus${on ? ' active' : ''}" data-focus-cat="${escapeHtml(cat)}"
+          aria-pressed="${on}" title="${on ? 'Stop focusing on' : 'Focus suggestions on'} ${escapeHtml(label)}"
+          aria-label="${on ? 'Stop focusing on' : 'Focus suggestions on'} ${escapeHtml(label)}"
+          onclick="_toggleSuggestFocus('${escapeHtml(cat).replace(/'/g, "\\'")}')">${focusIcon}</button>
         <span class="suggest-target-name">${label}</span>
         ${haveBit}
-        <span class="suggest-target-val" data-val-cat="${cat}">${v}</span>
+        <span class="suggest-target-val" data-val-cat="${escapeHtml(cat)}">${v}</span>
       </div>
-      <input type="range" min="0" max="${max}" step="1" value="${v}" data-cat="${cat}"
+      <input type="range" min="0" max="${max}" step="1" value="${v}" data-cat="${escapeHtml(cat)}"
         style="--range-fill:${Math.round(Math.min(1, v / max) * 100)}%" aria-label="${label} target"
         oninput="_onSuggestTargetInput(this)" onchange="_onSuggestTargetChanged()">
     </div>`;
   }).join('');
-  const reserved = hidden.map(cat => `${_SEM_CAT_LABELS[cat] || cat} ${cur(cat)}`).join(' · ');
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
   pop.dataset.lands = String(_semanticLandCount(list));
-  pop.dataset.reserved = String(hidden.reduce((s, cat) => s + cur(cat), 0));
+  const maxPrice = saved ? saved.maxPrice : null;
+  const pStep = _semPriceToStep(maxPrice);
+  const pMax = _SEM_PRICE_LADDER.length;
+  const focusNote = focus
+    ? `<div class="suggest-target-note suggest-target-note-focus">Focused on ${escapeHtml(_SEM_CAT_LABELS[focus] || focus)} — suggestions fill that category only.</div>`
+    : '';
   pop.innerHTML = `
     <div class="suggest-target-head">
       <span class="suggest-target-title">Suggestion targets</span>
       <button type="button" class="btn btn-ghost btn-sm suggest-target-reset" onclick="_resetSuggestTargets()">Reset</button>
     </div>
+    <div class="suggest-target-row suggest-target-price">
+      <div class="suggest-target-top">
+        <span class="suggest-target-name">Max price</span>
+        <span class="suggest-target-have">per card</span>
+        <span class="suggest-target-val" id="suggestTargetPriceVal">${_semPriceLabel(maxPrice)}</span>
+      </div>
+      <input type="range" min="0" max="${pMax}" step="1" value="${pStep}" id="suggestTargetPriceSlider"
+        style="--range-fill:${Math.round((pStep / pMax) * 100)}%" aria-label="Maximum price per suggested card"
+        oninput="_onSuggestPriceInput(this)" onchange="_onSuggestPriceChanged()">
+    </div>
     ${rows}
-    ${reserved ? `<div class="suggest-target-note">Also reserved: ${reserved}</div>` : ''}
+    ${focusNote}
     <div class="suggest-target-plan">
       <span class="suggest-target-name">Plan — theme &amp; win conditions</span>
       <span class="suggest-target-val" id="suggestTargetPlanVal"></span>
@@ -10633,7 +10712,7 @@ function _syncSuggestTargetPlan() {
   const pop = _suggTargetsPop();
   if (!pop) return;
   const lands = Number(pop.dataset.lands) || 0;
-  let total = Number(pop.dataset.reserved) || 0;
+  let total = 0;
   pop.querySelectorAll('input[type="range"][data-cat]').forEach(inp => { total += Number(inp.value) || 0; });
   const slots = Math.max(0, 100 - lands);
   const plan = slots - total;
@@ -10657,32 +10736,69 @@ function _onSuggestTargetInput(inp) {
   _syncSuggestTargetPlan();
 }
 
-/** Slider released — persist every slider position (plus the unshown categories
- * at their current effective targets, so the Plan arithmetic covers all of
- * them) and re-run the analysis after a beat of quiet (endpoint: 1 req/sec). */
-function _onSuggestTargetChanged() {
+/** Current panel state → the saved entry, keeping whatever `patch` doesn't set. */
+function _commitSuggestTargets(deck, patch) {
   const pop = _suggTargetsPop();
-  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (!pop || !deck || deck.id == null) return;
-  const prev = _semanticTargetsForDeck(deck.id);
+  const prev = _semanticTargetsForDeck(deck.id) || { targets: {}, focus: null, maxPrice: null };
   const thr = (_e2CachedAnalysis(deck) || {}).thresholds || {};
   const targets = {};
-  const shown = [];
   pop.querySelectorAll('input[type="range"][data-cat]').forEach(inp => {
     const cat = inp.dataset.cat;
     if (!(cat in _SEM_TARGET_BASE)) return;
     targets[cat] = Math.max(0, Math.round(Number(inp.value) || 0));
-    if (_SEM_EXTRA_CATS.includes(cat)) shown.push(cat);
   });
-  if (!Object.keys(targets).length) return;
+  // The panel may not be rendered yet (a focus set from elsewhere) — fall back
+  // to what was saved, then to the engine's own target for the category.
   for (const cat of Object.keys(_SEM_TARGET_BASE)) {
     if (targets[cat] != null) continue;
-    const carried = prev ? Number(prev.targets[cat]) : NaN;
+    const carried = Number(prev.targets[cat]);
     const fallback = Number.isFinite(Number(thr[cat])) ? Number(thr[cat]) : _SEM_TARGET_BASE[cat];
     targets[cat] = Math.max(0, Math.round(Number.isFinite(carried) ? carried : fallback));
   }
-  _saveSemanticTargetsForDeck(deck.id, { targets, shown });
+  const entry = {
+    targets,
+    focus: prev.focus,
+    maxPrice: prev.maxPrice,
+    ...(patch || {}),
+  };
+  _saveSemanticTargetsForDeck(deck.id, entry);
+  _syncSuggestTargetsBtn(deck);
+}
+
+/** Slider released — persist the positions and re-run the analysis after a beat
+ * of quiet (the endpoint allows 1 req/sec). */
+function _onSuggestTargetChanged() {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck) return;
+  _commitSuggestTargets(deck);
   _scheduleSuggestTargetRefresh(700);
+}
+
+function _onSuggestPriceInput(inp) {
+  const max = Number(inp.max) || _SEM_PRICE_LADDER.length;
+  const step = Math.max(0, Math.round(Number(inp.value) || 0));
+  inp.style.setProperty('--range-fill', Math.round((step / max) * 100) + '%');
+  const val = document.getElementById('suggestTargetPriceVal');
+  if (val) val.textContent = _semPriceLabel(_semPriceFromStep(step));
+}
+
+function _onSuggestPriceChanged() {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  const inp = document.getElementById('suggestTargetPriceSlider');
+  if (!deck || !inp) return;
+  _commitSuggestTargets(deck, { maxPrice: _semPriceFromStep(inp.value) });
+  _scheduleSuggestTargetRefresh(700);
+}
+
+/** Focus is exclusive: at most one category, and the lit one toggles off. */
+function _toggleSuggestFocus(cat) {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck || !_SEM_ALL_CATS.includes(cat)) return;
+  const next = _semanticFocusCat(deck) === cat ? null : cat;
+  _commitSuggestTargets(deck, { focus: next });
+  _renderSuggestTargetsPop();
+  _scheduleSuggestTargetRefresh(250);
 }
 
 function _resetSuggestTargets() {
@@ -10690,6 +10806,7 @@ function _resetSuggestTargets() {
   if (!deck) return;
   _saveSemanticTargetsForDeck(deck.id, null);
   _renderSuggestTargetsPop();
+  _syncSuggestTargetsBtn(deck);
   _scheduleSuggestTargetRefresh(250);
 }
 
@@ -10704,22 +10821,33 @@ function _scheduleSuggestTargetRefresh(delay) {
   }, delay);
 }
 
-// Outside click closes; so does scrolling the page under a fixed-position panel
-// (mirrors the hoisted glass menus — dragging inside the panel stays open).
+// Outside click closes. Capture phase on purpose: a focus button re-renders the
+// panel from its own onclick, so by the bubble phase e.target is detached and an
+// inside click would read as an outside one — the panel shut itself on every
+// focus toggle. Capture runs before that re-render, while the node is still in it.
 document.addEventListener('click', e => {
   const pop = _suggTargetsPop();
   if (!pop || !pop.classList.contains('open')) return;
   const btn = document.getElementById('deckAddTargetsBtn');
   if ((btn && btn.contains(e.target)) || pop.contains(e.target)) return;
   _closeSuggestTargetsPop();
-});
+}, true);
 document.addEventListener('scroll', e => {
   const pop = _suggTargetsPop();
   if (!pop || !pop.classList.contains('open')) return;
   const t = e.target;
   if (t && t.nodeType === 1 && t.closest && t.closest('#deckAddTargetsPop')) return;
-  _closeSuggestTargetsPop();
+  // Follow the trigger rather than closing — only give up once it has scrolled
+  // out of view, where there is nothing left to anchor to.
+  const btn = document.getElementById('deckAddTargetsBtn');
+  const r = btn && btn.getBoundingClientRect();
+  if (!r || r.bottom < 0 || r.top > window.innerHeight) _closeSuggestTargetsPop();
+  else _positionSuggestTargetsPop();
 }, true);
+window.addEventListener('resize', () => {
+  const pop = _suggTargetsPop();
+  if (pop && pop.classList.contains('open')) _positionSuggestTargetsPop();
+});
 
 async function _renderCutSuggestions(deck) {
   const panel = document.getElementById('deckCutSuggestionsPanel');
@@ -11599,15 +11727,25 @@ async function _renderAddSuggestions(deck) {
     _renderDeckGoalReadout(deck, e2);
     // Fresh thresholds/roleCounts → keep an open targets dropdown in step.
     if (_suggTargetsPop()?.classList.contains('open')) _renderSuggestTargetsPop();
+    _syncSuggestTargetsBtn(deck);
     // hygiene: never re-suggest a card already on the planned-adds board (in projected
     // mode planned adds are part of the analyzed list, so the server excludes them)
     const _plannedNow = _analyzeProjected(deck) ? new Set() : _plannedAddNames(deck);
     const e2AddList = (e2 && Array.isArray(e2.adds) ? e2.adds : [])
       .filter(a => !_plannedNow.has(String(a.name || '').toLowerCase()));
     if (!e2 || !e2AddList.length) {
-      body.innerHTML = e2
-        ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine has no adds to suggest for this deck.</div>'
-        : _SUGGEST_E2_UNAVAILABLE_HTML;
+      // An empty list under a focus or a price cap is the filter talking, not the
+      // engine — say which one, so the fix is obvious.
+      const fCat = _semanticFocusCat(deck);
+      const cap = _semanticMaxPrice(deck);
+      const why = [];
+      if (fCat) why.push(`the ${escapeHtml(_SEM_CAT_LABELS[fCat] || fCat)} focus`);
+      if (cap != null) why.push(`the ${_semPriceLabel(cap)} price cap`);
+      body.innerHTML = !e2
+        ? _SUGGEST_E2_UNAVAILABLE_HTML
+        : why.length
+          ? `<div class="deck-tab-muted" style="padding:.75rem 1rem">No suggestions match ${why.join(' and ')} — loosen it in the targets panel.</div>`
+          : '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine has no adds to suggest for this deck.</div>';
       return;
     }
     {
@@ -13013,82 +13151,108 @@ function renderManaCostProfile(deck) {
   _renderManaPie('manaCostProfile', 'cost', demand, 'No colored mana symbols in current deck.');
 }
 
+const _BASIC_LAND_TYPE_COLORS = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' };
+
+/**
+ * Colors a land taps for because of the basic land types printed on it.
+ * Duals, shocks, triomes, snow duals and Dryad Arbor spell their production out only in
+ * reminder text (or not at all) — the type line is the reliable statement of it.
+ */
+function _basicLandTypeColors(typeLine) {
+  const out = new Set();
+  String(typeLine || '').split('//').forEach(seg => {
+    if (!/\bland\b/i.test(seg)) return;
+    const sub = seg.includes('—') ? seg.split('—')[1] : '';
+    Object.keys(_BASIC_LAND_TYPE_COLORS).forEach(t => {
+      if (new RegExp(`\\b${t}\\b`, 'i').test(sub)) out.add(_BASIC_LAND_TYPE_COLORS[t]);
+    });
+  });
+  return out;
+}
+
+/**
+ * Colors a fetch land reaches. Only counts searches that put the land onto the battlefield
+ * for YOU — "reveal it, put it into your hand" (Ash Barrens' landcycling) and an opponent's
+ * forced search (Demolition Field's first clause) are not mana the deck can tap.
+ */
+function _fetchedLandColors(txt) {
+  const colors = new Set();
+  let anyBasic = false;
+  (txt.match(/search your library[^.;]*/g) || []).forEach(clause => {
+    if (!clause.includes('onto the battlefield')) return;
+    let named = false;
+    Object.keys(_BASIC_LAND_TYPE_COLORS).forEach(t => {
+      if (new RegExp(`\\b${t}\\b`).test(clause)) { colors.add(_BASIC_LAND_TYPE_COLORS[t]); named = true; }
+    });
+    if (!named && /\bbasic land\b/.test(clause)) anyBasic = true;
+  });
+  return { colors, anyBasic };
+}
+
+/**
+ * Which mana an "add …" clause makes. Scoped to the clause so activation costs
+ * ({1}{U}, {T}: …) are never read as production, and de-duplicated per color: a filter
+ * land reading "Add {U}{U}, {U}{R}, or {R}{R}" is one blue source and one red source.
+ */
+function _addedManaColors(txt) {
+  const colors = new Set();
+  let colorless = false;
+  let anyColor = false;
+  (txt.match(/\badds?\b[^.;\n]*/g) || []).forEach(clause => {
+    let sym = false;
+    (clause.match(/\{[wubrgc](?:\/[wubrgc])?\}/g) || []).forEach(s => {
+      sym = true;
+      s.replace(/[{}]/g, '').split('/').forEach(p => {
+        if (p === 'c') colorless = true;
+        else if (p) colors.add(p.toUpperCase());
+      });
+    });
+    // "any color", "any one color", "any type that a land you control could produce",
+    // "the chosen color", "two mana of different colors" — all colorful, none of them symbols.
+    if (/any colou?rs?|any one colou?r|any type|combination of colou?rs|chosen colou?r|that colou?r|different colou?rs|circled colou?rs/.test(clause)) anyColor = true;
+    else if (!sym && /\bmana\b/.test(clause) && /\bcolou?rs?\b|\btype\b/.test(clause)) anyColor = true;
+  });
+  return { colors, colorless, anyColor };
+}
+
+/**
+ * Colors this card can produce. sourceMode=true answers "is this a source of color X?" —
+ * one per copy, never more, which is what the generation pie and the hypergeometric
+ * color-screw math both count. sourceMode=false spreads an any-color producer across its
+ * colors so the card totals 1.
+ */
 function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
-  const t = String(card.type || '').toLowerCase();
-  const txt = String(card.oracleText || '').toLowerCase();
   const sources = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   const allowed = Array.isArray(allowedColors) && allowedColors.length
     ? new Set(allowedColors)
     : null;
-  if (t.includes('land')) {
-    const basics = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
-    if (basics[card.name]) {
-      if (!allowed || allowed.has(basics[card.name])) sources[basics[card.name]] += 1;
-      return sources;
-    }
-    if (card.name === 'Wastes') { sources.C += 1; return sources; }
-    // Fetch lands: tutor for specific or any basic land type
-    if (txt.includes('search your library for a')) {
-      const fetchMap = { forest: 'G', plains: 'W', island: 'U', swamp: 'B', mountain: 'R' };
-      let found = false;
-      Object.entries(fetchMap).forEach(([type, col]) => {
-        if (txt.includes(type) && sources[col] != null && (!allowed || allowed.has(col))) {
-          sources[col] = 1; found = true;
-        }
-      });
-      if (!found && txt.includes('basic land')) {
-        const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-        spread.forEach(col => { if (sources[col] != null) sources[col] = sourceMode ? 1 : 0.8; });
-        found = true;
-      }
-      if (found) return sources;
-    }
-    // Scan oracle text for mana symbols — {C} for colorless, {W}/{U}/{B}/{R}/{G} for colors.
-    // Use "add" sentences only to avoid counting activation costs as production.
-    const addSentences = txt.match(/add [^.;]+/gi) || [];
-    const scanTarget = addSentences.length ? addSentences.join(' ') : txt;
-    (scanTarget.match(/\{[wubrgc]\}/gi) || []).forEach(s => {
-      const col = s.replace(/[{}]/g, '').toUpperCase();
-      if (col === 'C') { sources.C += 1; return; }
-      if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += 1;
-    });
-    // Any-color lands spell it out in words, not symbols (Command Tower, Exotic Orchard,
-    // Mana Confluence) — the symbol scan alone counted them as zero sources.
-    if (txt.includes('mana of any color') || txt.includes('any combination of colors') ||
-        txt.includes('mana of the chosen color')) {
-      const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-      spread.forEach(col => { if (sources[col] != null) sources[col] = Math.max(sources[col], 1); });
-    }
-    return sources;
+  const isLand = String(card.type || '').toLowerCase().includes('land');
+  // Reminder text is stripped: the Treasure reminder ("{T}, Sacrifice this token: Add one
+  // mana of any color") would otherwise make every Treasure maker a five-color source, and
+  // a token you have to build first is not a color source the deck taps.
+  const txt = String(card.oracleText || '').toLowerCase().replace(/\([^)]*\)/g, ' ');
+  const colors = new Set();
+  let colorless = false;
+  let anyColor = false;
+  if (isLand) {
+    _basicLandTypeColors(card.type).forEach(c => colors.add(c));
+    if (card.name === 'Wastes') colorless = true;
+    const fetched = _fetchedLandColors(txt);
+    fetched.colors.forEach(c => colors.add(c));
+    // A land that fetches any basic finds the color you are missing.
+    if (fetched.anyBasic) anyColor = true;
   }
-  // Only count explicit mana-production: "add {X}" patterns or "mana of any color".
-  // Deliberately excludes "create a treasure" — treasure tokens are colorless/conditional and
-  // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
-  // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
-  // "Chosen color" producers (Utopia Sprawl, Caged Sun) pick the color on ETB,
-  // so they behave like any-color sources — you choose the color you need.
-  const chosenColor = txt.includes('mana of the chosen color');
-  if (!(txt.includes('add {') || txt.includes('mana of any') || chosenColor)) return sources;
-  // Scan "add …" sentences (up to period/semicolon) for mana symbols to handle
-  // both contiguous "{W}{U}" and "or"-separated "{W} or {U}" patterns.
-  const addPhrases = txt.match(/add [^.;]+/gi) || [];
-  let hasColorSym = false;
-  addPhrases.forEach(phrase => {
-    (phrase.match(/\{[wubrg]\}/gi) || []).forEach(s => {
-      const col = s.replace(/[{}]/g, '').toUpperCase();
-      if (sources[col] != null && (!allowed || allowed.has(col))) { sources[col] += 1; hasColorSym = true; }
-    });
-    // Colorless pips (Sol Ring, Mana Crypt, Mind Stone, etc.)
-    const cCount = (phrase.match(/\{c\}/gi) || []).length;
-    if (cCount) { sources.C += cCount; hasColorSym = true; }
-  });
-  if (!hasColorSym && (txt.includes('mana of any') || chosenColor)) {
+  const added = _addedManaColors(txt);
+  added.colors.forEach(c => colors.add(c));
+  if (added.colorless) colorless = true;
+  if (added.anyColor) anyColor = true;
+  colors.forEach(c => { if (!allowed || allowed.has(c)) sources[c] = 1; });
+  if (anyColor) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-    // sourceMode=true: 1.0 per color ("is this a source of X?", used by gameplan prob)
-    // sourceMode=false: 1/N per color so total sums to 1 (used by generation chart proportions)
     const perColor = spread.length ? (sourceMode ? 1 : 1 / spread.length) : 0;
-    spread.forEach(c => { if (sources[c] != null) sources[c] += perColor; });
+    spread.forEach(c => { if (sources[c] != null) sources[c] = Math.max(sources[c], perColor); });
   }
+  if (colorless) sources.C = 1;
   return sources;
 }
 

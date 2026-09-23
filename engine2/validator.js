@@ -11,6 +11,7 @@
 
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
+const irLints = require('./ir-lints');
 
 const HARD = 'hard';
 const SOFT = 'soft';
@@ -417,6 +418,48 @@ function validateCardIR(ir, cardRow) {
   for (const s of sanity) {
     if (provided.has(s.axis) && !s.ops.some(op => ctx.opCount[op])) {
       ctx.soft('cross_layer', `provides ${s.axis} but no ${s.ops.join('/')} effect found`);
+    }
+  }
+
+  // 12. capability-vs-faces lints (soft) — classes the 2026-09 suggestion feedback
+  // surfaced, kept here so future extractions can't quietly reintroduce them. The
+  // detectors live in ir-lints.js, shared with the one-time corrections in
+  // scripts/semantics-backfill-feedback.js so the two can never drift apart.
+  {
+    const needsList = Array.isArray(ir.needs) ? ir.needs : [];
+    // a) death appetite whose every 'dies' scope is opponent-only (Vren): the card
+    //    is fed by killing THEIR creatures — the need should be removal wants.
+    if (needsList.some(n => n?.axis === 'creatures_dying') && irLints.opponentOnlyDeathScope(ir)) {
+      ctx.soft('need_scope', 'needs creatures_dying but every dies scope is opponent-only — removal wants instead');
+    }
+    // b) sac-outlet appetite on a card whose own tokens sac themselves (Lannery):
+    //    Treasure/Food/Clue are their own outlets.
+    if (needsList.some(n => /^sac\.outlet/.test(String(n?.axis || '')))
+      && ['token.treasure', 'token.food', 'token.clue'].some(ax => provided.has(ax))) {
+      ctx.soft('need_self_fed', 'needs a sac outlet while making self-sacrificing tokens (Treasure/Food/Clue)');
+    }
+    // c) draw claimed on an additional-cost-discard cast (Unexpected Windfall):
+    //    filtering, not card advantage — the loot axis exists for exactly this.
+    if (provided.has('card_advantage.draw') && /Instant|Sorcery/.test(String(cardRow?.type_line || ''))
+      && irLints.isAdditionalCostDiscard(rowText)) {
+      ctx.soft('draw_vs_loot', 'additional-cost-discard cast provides card_advantage.draw — should be card_advantage.loot');
+    }
+    // d) strong lifegain want on a card that pays the life itself (M.O.D.O.K.,
+    //    Necrodominance): an offset, not a build-around — unless lifegain also
+    //    PAYS the card off (Amalia's trigger, Licia's "life you gained").
+    if (needsList.some(n => n?.axis === 'lifegain.source'
+      && n.criticality === 'wants' && (n.weight || 0) >= 3)
+      && irLints.paysLifeItself(ir) && !irLints.paidOffByLifegain(ir, rowText)) {
+      ctx.soft('need_compensatory', 'strong lifegain.source want on a card that pays the life itself — helps-level offset');
+    }
+    // e) synthesized identity axes are NEEDS-only: provides on them come from the
+    //    type line / faces at scoring time (recommender.synthesizedProvides), and a
+    //    model-authored copy would double-count there — the recommender ignores
+    //    stored ones, this flag keeps them out of the store in the first place.
+    for (const p of ir.provides || []) {
+      if (vocab.SYNTHESIZED_PROVIDE_AXES.has(p?.axis)) {
+        ctx.soft('synth_axis_provide', `provides ${p.axis} — synthesized axis, engine derives it from the type line/faces; drop the provide`);
+      }
     }
   }
 
