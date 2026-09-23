@@ -251,6 +251,12 @@ const AXES = {
   'tribal.synergy':        'cares about controlling/casting creatures of a type (param: type)',
   'tribal.body':           'is a creature of a commonly-supported type (param: type) — filled from type line',
 
+  // synthesized from type line / faces at index time (never model-authored; see
+  // recommender.js synthesizedProvides): needed by commanders whose engines key on
+  // legendary bodies (Thranduil's draw) or on activated abilities (yard-ability grants)
+  'body.legendary':        'is a legendary creature (param: creature type) — filled from type line',
+  'ability.activated':     'creature with an activated or mana ability (param: creature type) — filled from faces',
+
   // hate / anti (used in `anti` and matched against opposing provides/needs for nonbos)
   'hate.graveyard':        'exiles or shuts off graveyards',
   'hate.lifegain':         'prevents or punishes lifegain',

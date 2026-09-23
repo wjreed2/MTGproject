@@ -16,6 +16,8 @@ const AXIS_LABELS = {
   'protection.mass': 'mass protection',
   'body.big': 'big creatures (power 4+)',
   'body.evasive': 'evasive bodies',
+  'body.legendary': 'legendary bodies',
+  'ability.activated': 'activated abilities',
   'card_advantage.draw': 'card draw',
   'card_advantage.draw_engine': 'draw engines',
   'card_advantage.wheel': 'wheels',
@@ -139,6 +141,7 @@ function addReasons(add) {
   // fallback BEFORE the price note — "Pricier pick at $32.80" must never stand alone
   if (!out.length) out.push('Strong general fit for the deck plan');
   // caveats land after the positives — a reason list must open with why it's here
+  if (add.offTribe) out.push(`Not ${/^[AEIOU]/i.test(String(add.offTribe)) ? 'an' : 'a'} ${add.offTribe} itself`);
   const starved = (add.trace || []).find(t => t.kind === 'needs_starved');
   if (starved) out.push(`Nothing here feeds its own ${listAxes(starved.axes)}`);
   const cast = (add.trace || []).find(t => t.kind === 'castability');

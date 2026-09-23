@@ -69,6 +69,29 @@ function strongNeed(criticality, weight) {
   return criticality === 'requires' || (criticality === 'wants' && (weight || 1) >= 3);
 }
 
+// Facts a card states about itself that the extraction never wrote as axes: being a
+// legendary creature (body.legendary) and carrying an activated or mana ability
+// (ability.activated), one provide per creature type so param joins work — Thranduil
+// wants body.legendary(Elf); Lathril supplies it by existing. Derived from the type
+// line and the faces the validator already checks, never model-authored (the same
+// contract as the F7 type-line sources in deckAxisIndex). The Creature gate keeps
+// equip/crew activations on noncreature artifacts from counting.
+function synthesizedProvides(card) {
+  const front = String(card.typeLine || '').split('//')[0];
+  if (!/\bCreature\b/.test(front)) return [];
+  const types = (card.ir?.tribal?.types || []).slice(0, 3);
+  const out = [];
+  const push = (axis) => {
+    if (!types.length) { out.push({ axis, param: null }); return; }
+    for (const t of types) out.push({ axis, param: t });
+  };
+  if (/\bLegendary\b/.test(front)) push('body.legendary');
+  if ((card.ir?.faces || []).some(f => (f.abilities || []).some(a => a.kind === 'activated' || a.kind === 'mana'))) {
+    push('ability.activated');
+  }
+  return out;
+}
+
 // Index the deck's capability layer once for candidate joins. Keeps per-param
 // sub-entries so joins can respect param compatibility — a Goblin token maker must not
 // read as feeding Vampire-tribal payoffs (the interaction engine already enforces this
@@ -142,6 +165,7 @@ function deckAxisIndex(deckCards, commander) {
     if (/\bEnchantment\b/.test(tl) && !(c.ir?.provides || []).some(p => p.axis === 'enchantments.source')) {
       addSynth('enchantments.source', /\bAura\b/.test(tl) ? 'Aura' : null);
     }
+    for (const sp of synthesizedProvides(c)) addSynth(sp.axis, sp.param);
   }
   // Repeatable commander output — axes the command zone itself keeps supplying.
   // Secondary-goal wants must not shop for parallel engines of these (Xyris makes
@@ -444,6 +468,15 @@ function wantedAxes(goal, hist, index, templates, goals) {
       .slice(0, 2);
     for (const [ax] of dominant) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
   }
+  // When the command zone itself is the graveyard CONSUMER (Thranduil plays Elf
+  // abilities straight from the yard; Muldrotha casts from it), the deck never needs
+  // to shop for more consumers — the goal template can't know that, and it read the
+  // Entomb/Buried Alive package as reanimator-in-waiting, wanting gy.reanimate and
+  // suggesting cards that pull the commander's fuel OUT of the yard. Fillers
+  // (gy.self_fill) stay wanted; consumers leave the list.
+  if (_GY_CONSUMER_AXES.some(ax => index.commanderProvides?.has(ax))) {
+    for (const ax of _GY_CONSUMER_AXES) wanted.delete(ax);
+  }
   return wanted;
 }
 
@@ -678,6 +711,30 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   else if (confidentGoals.includes('stompy')) mvCeiling += 1.5;
   mvCeiling = Math.round(mvCeiling * 10) / 10;
 
+  // Whether this deck values loot (see roleQuality): strong demand for discards.
+  const lootWanted = (index.needs.get('gy.self_fill')?.strong || 0) >= 1
+    || (index.needs.get('discard.outlet')?.strong || 0) >= 1;
+
+  // Deck-composition substrates consulted per candidate:
+  // — offTribeShare: a type-CHANGER's tribal.synergy (param-less "is every creature
+  //   type") only helps creatures that AREN'T the tribe yet; in a 96%-Warrior deck
+  //   it changes nothing (feedback #28: Runed Stalactite, "does not help me. 1/10").
+  // — artifactCount: cast-from-top artifact engines (Mystic Forge) are draw only in
+  //   a deck dense enough to hit (feedback #55: "not enough colorless spells").
+  let offTribeShare = 1;
+  if (topTribe) {
+    let bodies = 0, onTribe = 0;
+    for (const c of deckCards) {
+      if (!/\bCreature\b/.test(String(c.typeLine || '').split('//')[0])) continue;
+      bodies += c.qty || 1;
+      if ((c.ir?.tribal?.types || []).some(x => String(x).toLowerCase() === topTribe.toLowerCase())) onTribe += c.qty || 1;
+    }
+    if (bodies > 0) offTribeShare = Math.max(0.15, Math.round((1 - onTribe / bodies) * 100) / 100);
+  }
+  const artifactCount = deckCards.reduce((s, c) =>
+    s + (/\bArtifact\b/.test(String(c.typeLine || '')) ? (c.qty || 1) : 0), 0);
+  const artifactSubstrate = Math.min(1, artifactCount / 15);
+
   const scored = [];
   for (const cand of candidates) {
     if (!cand.ir || deckNames.has(cand.name)) continue;
@@ -692,13 +749,49 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const inFamily = (cand.ir.provides || []).filter(p => String(p.axis).startsWith(family));
       return !(inFamily.length && inFamily.every(p => tribalBound(tribes, p.axis, p.param)));
     };
-    if (focusCat && !(candCats.has(focusCat) && catEarns(focusCat))) continue;
+    // A role is a boolean but the provides behind it are graded: a w1 coin-flip
+    // engine and a w4 wheel both carried `card_draw` and drew the same flat deficit
+    // credit, so the Card Draw focus ranked trinkets beside real engines (feedback
+    // #32/#36/#47/#50). Quality = the strongest backing axis, weight/3, one-shots
+    // ×0.7. Loot is card QUALITY, not card advantage — "This card is NOT card draw.
+    // It is card FILTERING." (#47) — so it backs the Card Draw role only in a deck
+    // that wants the discards (strong gy.self_fill / discard.outlet demand), at
+    // half strength. A family role with no surviving backing earns nothing; a role
+    // with no axis family at all keeps full credit.
+    const roleQuality = (cat) => {
+      const family = _ROLE_AXIS_FAMILY[cat];
+      if (!family) return 1;
+      let best = 0, sawAny = false;
+      for (const p of cand.ir.provides || []) {
+        if (!String(p.axis).startsWith(family)) continue;
+        if (tribalBound(tribes, p.axis, p.param)) continue;
+        sawAny = true;
+        let q = Math.min(1, (p.weight || 1) / 3) * (p.rate === 'once' ? 0.7 : 1);
+        if (cat === 'Card Draw' && p.axis === 'card_advantage.loot') q = lootWanted ? q * 0.5 : 0;
+        if (q > best) best = q;
+      }
+      if (sawAny) return best;
+      // Role claimed with no family axis behind it: thin extraction — partial
+      // credit. A cast-from-top engine's "card draw" additionally scales with the
+      // deck's artifact density (Mystic Forge in a Rat deck draws nothing — #55).
+      const castTop = (cand.ir.provides || []).find(p => p.axis === 'cast.from_anywhere' && /artifact/i.test(String(p.param || '')));
+      if (cat === 'Card Draw' && castTop) return 0.6 * Math.max(0.1, artifactSubstrate);
+      return 0.6;
+    };
+    if (focusCat && !(candCats.has(focusCat) && catEarns(focusCat) && roleQuality(focusCat) > 0)) continue;
     const trace = [];
     const offPlanFeeds = [];
     let score = 0;
 
-    // capability fill: provides an axis the deck wants
-    for (const p of cand.ir.provides || []) {
+    // capability fill: provides an axis the deck wants. Synthesized identity facts
+    // (legendary body, activated ability — see synthesizedProvides) join the stored
+    // provides so a commander whose engine keys on them can be fed; w3 static puts
+    // them in the same class as a solid stored provide without outranking one.
+    const candProvides = [
+      ...(cand.ir.provides || []),
+      ...synthesizedProvides(cand).map(sp => ({ ...sp, rate: 'static', weight: 3 })),
+    ];
+    for (const p of candProvides) {
       const bound = tribalBound(tribes, p.axis, p.param);
       // In tribal-primary decks, off-tribe token OUTPUT is worth half: Gnome/Zombie
       // tokens still tap for Cryptolith Rite, but they don't tap for Lathril, take no
@@ -724,7 +817,14 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         // cards FLOWING into the graveyard). One-shots keep partial credit: they do
         // advance the plan, once.
         const rateFactor = p.rate === 'once' ? 0.7 : 1;
-        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor * rateFactor;
+        // Composition-conditional providers earn what the deck can actually use:
+        // a type-changer's tribal.synergy scales with the off-tribe remainder, a
+        // cast-from-top artifact engine with the deck's artifact density.
+        const substrateFactor =
+          (p.axis === 'tribal.synergy' && p.param == null && topTribe) ? offTribeShare
+            : (p.axis === 'cast.from_anywhere' && /artifact/i.test(String(p.param || ''))) ? Math.max(0.1, artifactSubstrate)
+              : 1;
+        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor * rateFactor * substrateFactor;
         score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
         // hard (requires) dependency, or ≥2 strong needers among the groups served.
@@ -732,8 +832,11 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         const served = (w.neederGroups || []).filter(g => paramServes(p.param, g.param));
         const servedHard = served.reduce((s, g) => s + g.hard, 0);
         const servedStrong = served.reduce((s, g) => s + g.strong, 0);
+        // A commander's own want cites the commander even as a lone needer — "Feeds
+        // Thranduil — legendary bodies" IS the explanation, not a fringe claim.
+        const cmdrWant = (index.needs.get(p.axis)?.commanderWeight || 0) >= 3;
         const citeOk = served.length &&
-          (planAxes.has(p.axis) || servedHard >= 1 || servedStrong >= 2);
+          (planAxes.has(p.axis) || servedHard >= 1 || servedStrong >= 2 || (cmdrWant && servedStrong >= 1));
         const names = citeOk ? [...new Set(served.flatMap(g => g.names))].slice(0, 6) : null;
         trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: names, pts, offTribe: offTribeOut || undefined });
       }
@@ -745,7 +848,12 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       // (real aggregate demand); a lone off-plan payoff still scores but is not cited —
       // and when it is cited, it queues behind the on-plan reasons.
       const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
-      if (needers && !w) {
+      // Entomb "wants" a reanimator only in a deck without one — with a permanent GY
+      // consumer in the command zone that appetite is already fed forever, and more
+      // consumers pull the commander's fuel out of the yard. Same rule as wantedAxes.
+      const gyConsumerRedundant = _GY_CONSUMER_SET.has(p.axis)
+        && _GY_CONSUMER_AXES.some(ax => index.commanderProvides?.has(ax));
+      if (needers && !w && !gyConsumerRedundant) {
         if (needers.strong) {
           // An off-plan cluster of soft wants (no hard needer, axis in no
           // confident goal) is upside, not dependency — the needers all function
@@ -754,8 +862,20 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
           // candidate, and the whole Helga adds list became land drops. Cap it
           // one class below plan credit: the "more of what feeds what I have"
           // signal stays real, but never outranks filling the plan itself.
-          const onPlan = planAxes.has(p.axis) || (needers.hard || 0) >= 1;
-          const pts = Math.min(onPlan ? 4 : 3, needers.strong) * outFactor;
+          // The commander's own strong want IS the plan (same contract as wantedAxes'
+          // cmdrDemand): one needer in the command zone outweighs a cluster in the 99 —
+          // feeding Thranduil's legendary-Elf draw engine is worth the wanted-axis
+          // class even though he is a single card.
+          const cmdrFed = (index.needs.get(p.axis)?.commanderWeight || 0) >= 3;
+          const onPlan = planAxes.has(p.axis) || (needers.hard || 0) >= 1 || cmdrFed;
+          // Two cards are a pair, not a theme: with exactly 2 strong needers every
+          // artifact in a 93-card deck headlined "Feeds Knuckles the Echidna,
+          // Adaptive Omnitool" and lifted trinkets over the deck's real picks
+          // (feedback #30/#32/#42 — "I don't care about those cards being fed").
+          // An off-plan cluster needs ≥3 strong needers for the multi-point class;
+          // below that it is a +1 curiosity. On-plan feeds are untouched.
+          const offPlanCap = needers.strong >= 3 ? 3 : 1;
+          const pts = Math.min(onPlan ? 4 : offPlanCap, needers.strong + (cmdrFed ? 3 : 0)) * outFactor;
           score += pts;
           if (onPlan) {
             trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts, offTribe: offTribeOut || undefined });
@@ -820,8 +940,11 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       // in a deck with no power-4 creatures ("needs high power creatures. 4+ power.
       // Bad rec." — feedback #19). One supplier is a coincidence, not support, so
       // only a bare zero counts; the deduction mirrors the fed bonus, scaled by how
-      // hard the card leans on the need.
-      else if (have === 0) { starvedWeight += Math.min(4, nd.weight || 2) / 4; starvedAxes.push(nd.axis); }
+      // hard the card leans on the need. `wants` only: a `helps` appetite is mild
+      // upside whose absence is not a flaw — Captain Lannery Storm was docked for
+      // "needing" free sac outlets when she sacs the Treasures she herself makes
+      // (feedback #38; her need is helps w2).
+      else if (nd.criticality === 'wants' && have === 0) { starvedWeight += Math.min(4, nd.weight || 2) / 4; starvedAxes.push(nd.axis); }
     }
     if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds, pts: fedNeeds * 1.5 }); }
     if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds, pts: -deadNeeds * 6 }); }
@@ -831,11 +954,19 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       trace.push({ kind: 'needs_starved', axes: starvedAxes, weight: Math.round(starvedWeight * 100) / 100, pts });
     }
 
-    // role deficits (see candCats/catEarns above for the param-blindness guard)
+    // role deficits (see candCats/catEarns for the param guard, roleQuality for grading)
     for (const cat of candCats) {
       if (!catEarns(cat)) continue;
+      // A gy.matters commander uses the yard IN PLACE — recursion pulls his fuel out
+      // of it, so its role deficit is no gap at all ("He does not care about getting
+      // things back from the graveyard"). No penalty either: recursion cards can
+      // still earn their place on other axes.
+      if (cat === 'Recursion' && index.commanderProvides?.has('gy.matters')) continue;
       const deficit = (thresholds[cat] || 0) - (roleCounts[cat] || 0);
-      if (deficit > 0) { const pts = Math.min(deficit, 5); score += pts; trace.push({ kind: 'role_deficit', cat, deficit, pts }); }
+      if (deficit > 0) {
+        const pts = Math.round(Math.min(deficit, 5) * roleQuality(cat) * 100) / 100;
+        if (pts > 0.05) { score += pts; trace.push({ kind: 'role_deficit', cat, deficit, pts }); }
+      }
     }
     // Focused category: a standing appetite worth the same to every survivor, so
     // ordering inside the focused pool is still decided by real signal.
@@ -908,6 +1039,12 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       name: cand.name, score: Math.round(score * 100) / 100, fit,
       owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
       scryfallId: cand.scryfallId || null, trace,
+      // Display caveat only (no score effect): a good off-tribe creature is still a
+      // good card, but the reader deserves the same note they keep writing back to
+      // us — "Not a warrior so -1" (#41), "not a warrior so I don't want it" (#22).
+      offTribe: (topTribe && /\bCreature\b/.test(String(cand.typeLine || '').split('//')[0])
+        && !(cand.ir.tribal?.types || []).some(x => String(x).toLowerCase() === topTribe.toLowerCase()))
+        ? topTribe : undefined,
     });
   }
 
