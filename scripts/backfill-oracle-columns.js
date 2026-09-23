@@ -20,6 +20,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // (same workaround as server.js:22).
 const { withParserAsStream: streamJsonArray } = require(
   path.join(__dirname, '..', 'node_modules/stream-json/src/streamers/stream-array.js'));
+const { asStream: streamJsonl } = require(
+  path.join(__dirname, '..', 'node_modules/stream-json/src/jsonl/parser.js'));
 
 function pool() {
   return mysql.createPool({
@@ -40,9 +42,14 @@ async function main() {
     if (!idxRes.ok) throw new Error(`bulk-data index HTTP ${idxRes.status}`);
     const idx = await idxRes.json();
     const feed = (idx?.data || []).find(r => r?.type === 'oracle_cards');
-    if (!feed?.download_uri) throw new Error('oracle_cards feed missing');
-    console.log(`streaming ${feed.download_uri} (updated ${feed.updated_at})`);
-    const dataRes = await fetch(feed.download_uri, { headers: { 'User-Agent': 'MTGproject-engine2/1.0' } });
+    // The bulk feed moved from a plain .json array (download_uri) to gzip-compressed
+    // JSONL (jsonl_download_uri) — same dual-format handling as the server import.
+    const bulkUri = feed?.jsonl_download_uri || feed?.download_uri;
+    if (!bulkUri) throw new Error('oracle_cards feed missing');
+    const bulkIsGz = /\.gz(\?|$)/i.test(bulkUri);
+    const bulkIsJsonl = /\.jsonl(\.gz)?(\?|$)/i.test(bulkUri);
+    console.log(`streaming ${bulkUri} (updated ${feed.updated_at})`);
+    const dataRes = await fetch(bulkUri, { headers: { 'User-Agent': 'MTGproject-engine2/1.0' } });
     if (!dataRes.ok) throw new Error(`bulk download HTTP ${dataRes.status}`);
 
     const conn = await db.getConnection();
@@ -79,7 +86,9 @@ async function main() {
 
     await new Promise((resolve, reject) => {
       const nodeStream = require('stream').Readable.fromWeb(dataRes.body);
-      const arr = nodeStream.pipe(streamJsonArray());
+      const decoded = bulkIsGz ? nodeStream.pipe(require('zlib').createGunzip()) : nodeStream;
+      const arr = decoded.pipe(bulkIsJsonl ? streamJsonl() : streamJsonArray());
+      if (decoded !== nodeStream) decoded.on('error', reject);
       arr.on('data', ({ value: c }) => {
         seen++;
         const oid = String(c?.oracle_id || '').toLowerCase();

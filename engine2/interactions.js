@@ -12,13 +12,15 @@
 // A 100-card deck is ~5k pairs — sub-100ms. No DB access here.
 
 const COMBO_RULES = require('./combo-rules');
+const { isWildcardParam } = require('./vocab');
 
 const RATE_MULT = { repeatable: 1.5, per_turn: 1.25, static: 1.25, once: 1.0 };
 const CRIT_MULT = { requires: 1.5, wants: 1.2, helps: 1.0 };
 
-// Param compatibility: equal, or either side unparameterized.
+// Param compatibility: equal, either side unparameterized, or a "chosen type"-class
+// wildcard (Cavern of Souls picks whatever tribe the deck plays).
 function paramOk(a, b) {
-  if (a == null || b == null) return true;
+  if (a == null || b == null || isWildcardParam(a) || isWildcardParam(b)) return true;
   return String(a).toLowerCase() === String(b).toLowerCase();
 }
 

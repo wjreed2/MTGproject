@@ -710,6 +710,9 @@
   #tab-decks .deck-suggest-header .cut-playstyle-wrap    { order: 6; margin: 0; }
   #tab-decks .deck-suggest-header .deck-select           { order: 7; }
   #tab-decks .deck-suggest-header .deck-cut-threshold-btn { order: 8; }
+  /* Category-targets button rides row 1 at the far right, before the ▾. */
+  #tab-decks .deck-suggest-header .suggest-targets-btn   { order: 4; margin-left: auto; }
+  #tab-decks .deck-suggest-header .suggest-targets-btn ~ .decklist-collapse-btn { margin-left: 0; }
 
   /* ── Suggestion rows — one line per pick ───────────────────────────────
      At 430px the row has 367px to spend and the fixed parts (rank, score,

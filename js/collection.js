@@ -1898,21 +1898,73 @@ function _deckRowMatchesInspectorNavId(row, navId) {
   return false;
 }
 
+// Every deck view — list, visual stacks, architecture — paints into #deckCardList
+// and tags each card row with the card's inventory key.
+const _DECK_NAV_ROW_SEL = '.deck-card-row[data-uid], .deck-stack-card[data-uid], '
+  + '.arch-card-row[data-uid], .arch-card-tile[data-uid]';
+
+/**
+ * The deck walked in the order it is ON SCREEN — whatever sort, grouping, filter
+ * and view the user has set — rather than re-derived alphabetically. Replaying the
+ * rendered rows is the one order that cannot drift from what they are looking at,
+ * and it comes free for views this function knows nothing about: a collapsed zone
+ * paints no rows, so the arrows skip exactly what the eye can't see.
+ *
+ * Returns null when the list isn't on screen (the inspector can be opened in deck
+ * mode from elsewhere), so the caller keeps its by-name fallback.
+ */
+function _deckListRenderedOrder(deck) {
+  const el = typeof document !== 'undefined' ? document.getElementById('deckCardList') : null;
+  const nodes = el ? el.querySelectorAll(_DECK_NAV_ROW_SEL) : null;
+  if (!nodes || !nodes.length) return null;
+  // Rows carry the inventory key; the rest of the nav speaks card objects.
+  const byKey = new Map();
+  const remember = (c) => {
+    const k = c && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : null;
+    if (k && !byKey.has(String(k))) byKey.set(String(k), c);
+  };
+  (deck.cards || []).forEach(remember);
+  (typeof _deckExtraPoolsForAlloc === 'function'
+    ? _deckExtraPoolsForAlloc(deck)
+    : [...(deck.maybeboard || deck.sideboard || [])]).forEach(remember);
+  const rows = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const k = String(n.dataset.uid || '');
+    // One card can paint twice — a planned-add ghost beside its own row, or a card
+    // carrying two tags under Group By → Tag. First appearance is its place.
+    if (!k || seen.has(k) || !byKey.has(k)) continue;
+    seen.add(k);
+    rows.push(byKey.get(k));
+  }
+  return rows.length ? rows : null;
+}
+
 function _getCardDetailDeckNavState(currentUid) {
   if (!currentUid) return { prevUid: null, nextUid: null, index: -1, total: 0 };
   if (typeof getActiveDeck !== 'function') return { prevUid: null, nextUid: null, index: -1, total: 0 };
   const deck = getActiveDeck();
   if (!deck) return { prevUid: null, nextUid: null, index: -1, total: 0 };
   const searchQ = String(typeof deckListSearchQ !== 'undefined' ? deckListSearchQ : '').trim().toLowerCase();
-  const main = (deck.cards || [])
-    .filter(c => !searchQ || String(c.name || '').toLowerCase().includes(searchQ))
-    .slice()
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const extra = typeof _deckExtraPoolsForAlloc === 'function'
-    ? _deckExtraPoolsForAlloc(deck)
-    : [...(deck.maybeboard || deck.sideboard || [])];
-  const rows = [...main, ...extra.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))];
-  const index = rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid));
+  const byName = () => {
+    const main = (deck.cards || [])
+      .filter(c => !searchQ || String(c.name || '').toLowerCase().includes(searchQ))
+      .slice()
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const extra = typeof _deckExtraPoolsForAlloc === 'function'
+      ? _deckExtraPoolsForAlloc(deck)
+      : [...(deck.maybeboard || deck.sideboard || [])];
+    return [...main, ...extra.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))];
+  };
+  // The inspector can be opened in deck mode on a card the list isn't showing —
+  // from a cut-suggestion row, say — so a card the render order doesn't know about
+  // falls back to the by-name walk rather than losing its arrows entirely.
+  let rows = _deckListRenderedOrder(deck);
+  let index = rows ? rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid)) : -1;
+  if (index === -1) {
+    rows = byName();
+    index = rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid));
+  }
   if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: rows.length };
   const prevRow = index > 0 ? rows[index - 1] : null;
   const nextRow = index < rows.length - 1 ? rows[index + 1] : null;
@@ -3267,7 +3319,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
 // pane is expanded. Renders with Chart.js (loaded from CDN in index.html).
 
 let _priceChart = null;
-let _priceChartState = { sid: null, points: null, finish: null, source: null };
+let _priceChartState = { sid: null, points: null, finish: null, source: null, range: null };
 
 const _PRICE_SOURCES = [
   { key: 'tcg', label: 'TCGplayer', cur: '$' },
@@ -3283,6 +3335,79 @@ const _PRICE_COL = {
 };
 const _priceCol = (finish, source) => _PRICE_COL[finish]?.[source] || null;
 const _colHasData = (points, col) => !!col && points.some(p => p[col] != null);
+
+// Chart windows are the SAME set the price badges offer, resolved through the same
+// helper (_cardCompareDateForTimeframe) — so "1 month" on the chart and the "+17.8%"
+// beside the price always describe the same span. Before this the chart always drew
+// the full history against a 30-day badge, which read as the badge being wrong.
+const _PRICE_RANGES = [
+  { key: 'day', label: '1D' },
+  { key: 'week', label: '1W' },
+  { key: 'month', label: '1M' },
+  { key: 'year', label: '1Y' },
+  { key: 'all', label: 'All' },
+];
+
+/** The inspector card, but only when it is the printing the chart actually loaded. */
+function _priceChartCard(sid) {
+  const want = String(sid || _priceChartState.sid || '');
+  return (_cardDetailCurrentCard && String(_cardDetailCurrentCard.scryfallId) === want)
+    ? _cardDetailCurrentCard
+    : null;
+}
+
+/**
+ * A foil copy has to open on the foil line. The % badge beside the price reads
+ * `*_foil` for a foil card, so defaulting to Normal put a falling normal series next
+ * to a rising foil delta and the two looked contradictory (HOB #244 Bard, King of
+ * Dale: normal -8.7% against foil +17.8% over the very same 30 days).
+ */
+function _defaultPriceChartFinish(points, card) {
+  const has = key => _PRICE_SOURCES.some(s => _colHasData(points, _priceCol(key, s.key)));
+  if (card?.foil && has('foil')) return 'foil';
+  return _PRICE_FINISHES.find(f => has(f.key))?.key || 'normal';
+}
+
+/** Badge timeframes are user prefs; keep whichever is active selectable on the chart. */
+function _priceChartRangeOptions(prefs) {
+  const tf = prefs?.timeframe;
+  const opts = _PRICE_RANGES.slice();
+  if (tf === 'since_added' || tf === 'custom') {
+    opts.splice(opts.length - 1, 0, {
+      key: tf,
+      label: tf === 'since_added' ? 'Since added' : (prefs.customDate || 'Custom'),
+    });
+  }
+  return opts;
+}
+
+/** Cutoff date for a chart range — null means "no cutoff" (all history). */
+function _priceChartCutoff(range, prefs, sid) {
+  if (!range || range === 'all') return null;
+  if (typeof _cardCompareDateForTimeframe !== 'function') return null;
+  const card = _priceChartCard(sid);
+  return _cardCompareDateForTimeframe(card || {}, range, prefs?.customDate) || null;
+}
+
+/** Plottable points for one column inside one range. Dates are YYYY-MM-DD, so string compare is fine. */
+function _pointsInRange(points, col, range, prefs, sid) {
+  if (!col) return [];
+  const cut = _priceChartCutoff(range, prefs, sid);
+  return (points || []).filter(p => p[col] != null && (!cut || p.d >= cut));
+}
+
+/**
+ * Keep `preferred` when this column actually has two points inside it, else fall back
+ * to the full history. Coverage is per-column: on HOB #244 the foil line starts two
+ * weeks after the normal one, so a range can be drawable on one finish and not the other.
+ */
+function _resolvePriceChartRange(preferred, prefs) {
+  const { points, finish, source, sid } = _priceChartState;
+  const col = _priceCol(finish, source);
+  const ok = _priceChartRangeOptions(prefs).some(r =>
+    r.key === preferred && (r.key === 'all' || _pointsInRange(points, col, r.key, prefs, sid).length >= 2));
+  return ok ? preferred : 'all';
+}
 
 function _destroyInspectorPriceChart() {
   if (_priceChart) { try { _priceChart.destroy(); } catch (_) {} _priceChart = null; }
@@ -3362,7 +3487,7 @@ async function _syncInspectorPriceChart(scryfallId) {
   if (!wrap) return;
   const sid = scryfallId || '';
   wrap.dataset.sid = sid;
-  if (_priceChartState.sid !== sid) { _destroyInspectorPriceChart(); _priceChartState = { sid: null, points: null, finish: null, source: null }; }
+  if (_priceChartState.sid !== sid) { _destroyInspectorPriceChart(); _priceChartState = { sid: null, points: null, finish: null, source: null, range: null }; }
   const details = document.getElementById('cardDetailAdvanced');
   if (details && details.open) {
     await _loadInspectorPriceChart();
@@ -3396,11 +3521,16 @@ async function _loadInspectorPriceChart() {
   try { data = await apiFetch('/cards/price-history/' + encodeURIComponent(sid)); }
   catch (e) { return showEmpty('Could not load price history.'); }
   const points = data.points || [];
-  if (!points.length) { _priceChartState = { sid, points: [], finish: null, source: null }; return showEmpty('No price history tracked for this printing yet.'); }
+  if (!points.length) { _priceChartState = { sid, points: [], finish: null, source: null, range: null }; return showEmpty('No price history tracked for this printing yet.'); }
 
-  const finish = _PRICE_FINISHES.find(f => _PRICE_SOURCES.some(s => _colHasData(points, _priceCol(f.key, s.key))))?.key || 'normal';
+  const finish = _defaultPriceChartFinish(points, _priceChartCard(sid));
   const source = _PRICE_SOURCES.find(s => _colHasData(points, _priceCol(finish, s.key)))?.key || 'tcg';
-  _priceChartState = { sid, points, finish, source };
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { timeframe: 'month', customDate: '' };
+  _priceChartState = { sid, points, finish, source, range: 'all' };
+  // Open on the badge's own window so the line and the percentage agree on sight.
+  _priceChartState.range = _resolvePriceChartRange(prefs.timeframe, prefs);
   canvas.style.display = '';
   if (canvasWrap) canvasWrap.style.display = '';
   if (empty) empty.style.display = 'none';
@@ -3411,13 +3541,24 @@ async function _loadInspectorPriceChart() {
 function _renderPriceChartControls() {
   const controls = document.getElementById('cardDetailPriceControls');
   if (!controls) return;
-  const { points, finish, source } = _priceChartState;
+  const { points, finish, source, range, sid } = _priceChartState;
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { timeframe: 'month', customDate: '' };
+  const col = _priceCol(finish, source);
   const finishes = _PRICE_FINISHES.filter(f => _PRICE_SOURCES.some(s => _colHasData(points, _priceCol(f.key, s.key))));
   const sources = _PRICE_SOURCES.filter(s => _colHasData(points, _priceCol(finish, s.key)));
-  const btn = (active, label, on) => `<button type="button" class="cd-price-btn${active ? ' active' : ''}" onclick="${on}">${label}</button>`;
+  // Only offer a window this column can actually draw — a range holding one point
+  // renders an invisible line (pointRadius is 0) and reads as missing data.
+  const ranges = _priceChartRangeOptions(prefs).filter(r =>
+    r.key === 'all' || _pointsInRange(points, col, r.key, prefs, sid).length >= 2);
+  // The custom-date range label is user input out of localStorage — escape it.
+  const esc = typeof escapeHtml === 'function' ? escapeHtml : (v => String(v ?? ''));
+  const btn = (active, label, on) => `<button type="button" class="cd-price-btn${active ? ' active' : ''}" onclick="${on}">${esc(label)}</button>`;
   const rows = [];
   if (finishes.length > 1) rows.push(`<div class="cd-price-row">${finishes.map(f => btn(f.key === finish, f.label, `_setPriceChartFinish('${f.key}')`)).join('')}</div>`);
   rows.push(`<div class="cd-price-row">${sources.map(s => btn(s.key === source, s.label, `_setPriceChartSource('${s.key}')`)).join('')}</div>`);
+  if (ranges.length > 1) rows.push(`<div class="cd-price-row">${ranges.map(r => btn(r.key === range, r.label, `_setPriceChartRange('${r.key}')`)).join('')}</div>`);
   controls.innerHTML = rows.join('');
 }
 
@@ -3426,9 +3567,23 @@ function _setPriceChartFinish(f) {
   if (!_colHasData(_priceChartState.points, _priceCol(f, _priceChartState.source))) {
     _priceChartState.source = _PRICE_SOURCES.find(s => _colHasData(_priceChartState.points, _priceCol(f, s.key)))?.key || _priceChartState.source;
   }
+  _revalidatePriceChartRange();
   _renderPriceChartControls(); _renderPriceChart();
 }
-function _setPriceChartSource(s) { _priceChartState.source = s; _renderPriceChartControls(); _renderPriceChart(); }
+function _setPriceChartSource(s) {
+  _priceChartState.source = s;
+  _revalidatePriceChartRange();
+  _renderPriceChartControls(); _renderPriceChart();
+}
+function _setPriceChartRange(r) { _priceChartState.range = r; _renderPriceChartControls(); _renderPriceChart(); }
+
+/** Finish/source swaps change which dates exist — keep the window or drop to All. */
+function _revalidatePriceChartRange() {
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { timeframe: 'month', customDate: '' };
+  _priceChartState.range = _resolvePriceChartRange(_priceChartState.range, prefs);
+}
 
 function _renderPriceChart() {
   const canvas = document.getElementById('cardDetailPriceCanvas');
@@ -3440,11 +3595,14 @@ function _renderPriceChart() {
     }
     return;
   }
-  const { points, finish, source } = _priceChartState;
+  const { points, finish, source, range, sid } = _priceChartState;
   const col = _priceCol(finish, source);
   const srcMeta = _PRICE_SOURCES.find(s => s.key === source) || { cur: '$' };
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { timeframe: 'month', customDate: '' };
   const labels = [], vals = [];
-  for (const p of points) if (col && p[col] != null) { labels.push(p.d); vals.push(Number(p[col])); }
+  for (const p of _pointsInRange(points, col, range, prefs, sid)) { labels.push(p.d); vals.push(Number(p[col])); }
   _destroyInspectorPriceChart();
   const css = getComputedStyle(document.documentElement);
   // Line color = the teal gem from the logo (--teal).
