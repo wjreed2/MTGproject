@@ -14,7 +14,10 @@
 //
 // Usage: node scripts/build-requeue-feedback.js
 //        → writes .semantics-requeue/requeue-feedback-2026-09.json
-//        then: node scripts/semantics-extract.js --cards-from-decks .semantics-requeue-feedback-tmp …
+//        then point the extractor at a directory holding ONLY this queue file
+//        (--cards-from-decks takes a directory and sweeps every file in it):
+//          mkdir -p .semantics-requeue-run && cp .semantics-requeue/requeue-feedback-2026-09.json .semantics-requeue-run/
+//          node scripts/semantics-extract.js --cards-from-decks .semantics-requeue-run --requeue …
 
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +52,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true
       AND a.weight >= 3 AND a.rate = 'once'
       AND c.cmc >= 4 AND c.type_line REGEXP 'Instant|Sorcery'
       AND JSON_CONTAINS(c.games_json, '"paper"')`);
+  const onceDrawCount = heavyDraw.length; // cards matching B, including rider overlap
   for (const r of heavyDraw) names.add(r.name);
 
   const out = {
@@ -60,6 +64,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true
   fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, 'requeue-feedback-2026-09.json');
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
-  console.log(`${out.cards.length} cards queued (${riderCount} rider-class, ${out.cards.length - riderCount} once-draw-class) → ${outPath}`);
+  const overlap = riderCount + onceDrawCount - out.cards.length;
+  console.log(`${out.cards.length} cards queued (${riderCount} rider-class, ${onceDrawCount} once-draw-class, ${overlap} in both) → ${outPath}`);
   await db.end();
 })().catch(e => { console.error(e); process.exit(1); });

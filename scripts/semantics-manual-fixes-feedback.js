@@ -8,10 +8,10 @@
 // ("all activated abilities of all Elf cards in your graveyard" + legendary-Elf ETB
 // draw). Every other feedback item is a CLASS bug fixed in semantics-backfill-feedback
 // or the extraction prompt, so it stays fixed for cards nobody has rated yet.
-const { createRequire } = require('module');
-const projRequire = createRequire('/Users/Will/dev/MTGproject/package.json');
-const mysql = projRequire('mysql2/promise');
-projRequire('dotenv').config({ path: '/Users/Will/dev/MTGproject/.env', quiet: true });
+const path = require('path');
+const mysql = require('mysql2/promise');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
+const { resyncAxes } = require('./lib/semantics-axes');
 
 const upsert = (list, match, entry) => {
   const i = list.findIndex(match);
@@ -64,18 +64,7 @@ const FIXES = [
       `UPDATE card_semantics SET ir_json = ?, status = 'manual', model = 'manual',
          run_id = 'feedback-2026-09', updated_at = ? WHERE oracle_id = ?`,
       [JSON.stringify(ir), now, row.oracle_id]);
-    await db.query('DELETE FROM card_semantics_axes WHERE oracle_id = ?', [row.oracle_id]);
-    const axisRows = [];
-    for (const [kind, list] of [['provides', ir.provides], ['needs', ir.needs], ['anti', ir.anti]]) {
-      for (const a of Array.isArray(list) ? list : []) {
-        if (!a || typeof a.axis !== 'string') continue;
-        axisRows.push([row.oracle_id, kind, a.axis.slice(0, 60), a.param ? String(a.param).slice(0, 60) : null,
-          Math.min(Math.max(parseInt(a.weight) || 1, 1), 5), a.rate ? String(a.rate).slice(0, 12) : null]);
-      }
-    }
-    if (axisRows.length) {
-      await db.query('INSERT IGNORE INTO card_semantics_axes (oracle_id, kind, axis, param, weight, rate) VALUES ?', [axisRows]);
-    }
+    await resyncAxes(db, row.oracle_id, ir);
     console.log('✓ ' + f.name + ' patched (p/n was ' + before + ', now [' + ir.provides.length + ',' + ir.needs.length + '])');
   }
   await db.end();
