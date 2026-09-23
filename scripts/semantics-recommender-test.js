@@ -817,5 +817,410 @@ console.log('off-plan soft-wants cluster feeds below the wanted-axis class');
   check('4 soft needers cap at +3, not +4', !!feed && feed.pts === 3, JSON.stringify(sword?.trace));
 }
 
+console.log('adds — category focus');
+{
+  // A tutor and a counterspell that fill NO wanted axis of the aristocrats deck:
+  // exactly the case an unfocused run drops and a focused run must keep.
+  const tutor = { name: 'Focus Tutor', ir: synIR([['tutor.any', 4, 'once']], [], { roles: ['tutor'] }), cmc: 2, price: 3, owned: false, edhrecRank: 400 };
+  const counter = { name: 'Focus Counter', ir: synIR([['control.counter', 4, 'once']], [], { roles: ['counterspell'] }), cmc: 2, price: 2, owned: false, edhrecRank: 600 };
+  const fodder = { name: 'Fodder Engine', ir: synIR([['sac.fodder', 4, 'per_turn']]), cmc: 2, price: 3, owned: false, edhrecRank: 500 };
+  const candidates = [tutor, counter, fodder];
+  const focused = rec.scoreAdds({ ...ctxBase, candidates, budget: {}, focusCategory: 'Tutor' });
+  const fNames = focused.map(a => a.name);
+  check('focus keeps only the focused category', fNames.length === 1 && fNames[0] === 'Focus Tutor', JSON.stringify(fNames));
+  const fTrace = (focused[0]?.trace || []).find(t => t.kind === 'focus_fill');
+  check('focused pick carries a focus_fill credit', !!fTrace && fTrace.cat === 'Tutor', JSON.stringify(focused[0]?.trace));
+  check('focus_fill renders in English', explain.addBreakdown(focused[0]).some(l => /Focused category \(Tutor\)/.test(l.text)),
+    JSON.stringify(explain.addBreakdown(focused[0])));
+
+  // Target already met ⇒ no role_deficit credit; the focus credit alone must still
+  // clear the score/fit floors, or "show me tutors" would come back empty.
+  const metCtx = { ...ctxBase, thresholds: { ...ctxBase.thresholds, Tutor: 0 }, roleCounts: { ...ctxBase.roleCounts, Tutor: 9 } };
+  const met = rec.scoreAdds({ ...metCtx, candidates, budget: {}, focusCategory: 'Tutor' });
+  check('focus survives a met target', met.some(a => a.name === 'Focus Tutor'), JSON.stringify(met.map(a => a.name)));
+
+  const counters = rec.scoreAdds({ ...ctxBase, candidates, budget: {}, focusCategory: 'Counterspell' });
+  check('focus switches category cleanly', counters.length === 1 && counters[0].name === 'Focus Counter', JSON.stringify(counters.map(a => a.name)));
+
+  const unfocused = rec.scoreAdds({ ...ctxBase, candidates, budget: {} });
+  check('no focus leaves scoring untouched', !(unfocused.find(a => a.name === 'Fodder Engine')?.trace || []).some(t => t.kind === 'focus_fill'),
+    JSON.stringify(unfocused.map(a => a.name)));
+
+  const capped = rec.scoreAdds({ ...ctxBase, candidates, budget: { maxCardPrice: 1 }, focusCategory: 'Tutor' });
+  check('price cap still applies inside a focus', !capped.some(a => a.name === 'Focus Tutor'), JSON.stringify(capped.map(a => a.name)));
+
+  // Param-blind roles: a tribe-bound tutor tutors nothing here, so the focus must
+  // not surface it (same guard the role-deficit credit uses).
+  const tribalDeck = [
+    { name: 'Rat One', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: synIR([['tribal.synergy', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Rat Two', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: synIR([['tribal.lord', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const ratCmd = { name: 'Rat Boss', ir: synIR([['tribal.lord', 5, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const ratGoals = inferGoals(tribalDeck, ratCmd, {});
+  const ratCtx = {
+    deckCards: tribalDeck, commander: ratCmd, goals: ratGoals.goals,
+    thresholds: th.computeThresholds({ goal: ratGoals.goals[0]?.goal }),
+    roleCounts: th.countRoles(tribalDeck), hist: ratGoals.histogram, templates,
+  };
+  const ninjaTutor = {
+    name: 'Ninja Tutor',
+    ir: { ...synIR([['tutor.creature', 4, 'repeatable']], [], { roles: ['tutor'] }) },
+    cmc: 3, price: 2, owned: false, edhrecRank: 900,
+  };
+  ninjaTutor.ir.provides[0].param = 'Ninja';
+  const ratFocus = rec.scoreAdds({ ...ratCtx, candidates: [ninjaTutor], budget: {}, focusCategory: 'Tutor' });
+  check('focus respects the tribe-bound role guard', ratFocus.length === 0, JSON.stringify(ratFocus.map(a => a.name)));
+}
+
+console.log('adds — starved wants and curve-gap depletion');
+{
+  // A 'wants' need with NOTHING feeding it used to score exactly zero, so a
+  // half-dead card kept full on-axis credit (Greater Good asking for body.big in
+  // a deck with no power-4 creatures — feedback #19).
+  const baseIR = [['sac.fodder', 4, 'per_turn'], ['token.creature', 3, 'per_turn']];
+  const candidates = [
+    { name: 'Clean Fodder', ir: synIR(baseIR), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Starved Fodder', ir: synIR(baseIR, [['body.big', 3]]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ];
+  const adds = rec.scoreAdds({ ...ctxBase, candidates, budget: {} });
+  const clean = adds.find(a => a.name === 'Clean Fodder');
+  const starved = adds.find(a => a.name === 'Starved Fodder');
+  check('unfed want costs points', clean && starved && starved.score < clean.score,
+    JSON.stringify(adds.map(a => a.name + '@' + a.score)));
+  const t = (starved?.trace || []).find(x => x.kind === 'needs_starved');
+  check('starved need carries the axis it is missing', !!t && t.axes.includes('body.big'), JSON.stringify(t));
+  check('starved need renders in English, no axis tokens', (() => {
+    const lines = explain.addBreakdown(starved).concat(explain.addReasons(starved));
+    const line = lines.map(l => (typeof l === 'string' ? l : l.text)).find(x => /Nothing here feeds/.test(x));
+    return !!line && /big creatures/.test(line) && !/body\.big/.test(line);
+  })(), JSON.stringify(explain.addReasons(starved)));
+  // A need with ONE supplier is a coincidence, not support — but not a strike either.
+  const lone = rec.scoreAdds({ ...ctxBase, budget: {}, candidates: [
+    { name: 'Lone Need', ir: synIR(baseIR, [['sac.outlet_free', 3]]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ] });
+  check('single-supplier need is neither fed nor starved',
+    !(lone[0]?.trace || []).some(x => x.kind === 'needs_starved'), JSON.stringify(lone[0]?.trace));
+
+  // One curve hole is a fixed number of slots, but every candidate was scored
+  // against the same frozen deck, so a single MV-3 gap paid every MV-3 suggestion
+  // and compressed the list (feedback #5; #12-#18 tied seven picks at 13.2). All
+  // three below score identically — the SECOND claim on the one open slot is the
+  // one that must yield.
+  const tied = [
+    { name: 'ThreeA', ir: synIR(baseIR), cmc: 3, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'ThreeB', ir: synIR(baseIR), cmc: 3, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'TwoSaturated', ir: synIR([['sac.fodder', 5, 'per_turn'], ['token.creature', 5, 'per_turn']]), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+  ];
+  const order = rec.scoreAdds({ ...ctxBase, candidates: tied, budget: {} });
+  check('same-bucket candidates all score the same (guards the case below)',
+    new Set(order.map(a => a.score)).size === 1, JSON.stringify(order.map(a => a.name + '@' + a.score)));
+  check('a satisfied curve gap stops paying later cards in its bucket',
+    order.map(a => a.name).indexOf('TwoSaturated') < order.map(a => a.name).indexOf('ThreeB'),
+    JSON.stringify(order.map(a => a.name)));
+  check('curve credit itself is untouched in the trace (breakdown invariant)',
+    order.filter(a => a.name.startsWith('Three'))
+      .every(a => (a.trace || []).some(t => t.kind === 'curve_fill' && t.pts > 0)),
+    JSON.stringify(order.map(a => a.trace)));
+}
+
+console.log('adds — the cap is the budget');
+{
+  const fod = [['sac.fodder', 4, 'per_turn'], ['token.creature', 3, 'per_turn']];
+  const cands = [
+    { name: 'Cheap', ir: synIR(fod), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'NearCap', ir: synIR(fod), cmc: 2, price: 18, owned: false, edhrecRank: 500 },
+  ];
+  // No cap: the nudge is a cheaper-of-two-equivalents tiebreak and still applies.
+  const any = rec.scoreAdds({ ...ctxBase, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  check('with no cap, cheaper still wins a tie',
+    any.find(a => a.name === 'Cheap').score > any.find(a => a.name === 'NearCap').score,
+    JSON.stringify(any.map(a => a.name + '@' + a.score)));
+  // Cap set: the user already stated the budget, so price stops steering inside it.
+  const capped = rec.scoreAdds({ ...ctxBase, candidates: cands, budget: { maxCardPrice: 20, flagAbove: 5 } });
+  check('under a cap, price no longer steers inside the budget',
+    capped.find(a => a.name === 'Cheap').score === capped.find(a => a.name === 'NearCap').score,
+    JSON.stringify(capped.map(a => a.name + '@' + a.score)));
+  check('under a cap, no price line appears in the breakdown',
+    capped.every(a => !(a.trace || []).some(t => t.kind === 'price_soft')),
+    JSON.stringify(capped.map(a => a.trace)));
+}
+
+console.log('adds — role credit is weight- and rate-aware (feedback 2026-09)');
+{
+  const mk = (name, provides, roles, cmc) => ({
+    name, ir: synIR(provides, [], { roles }), cmc: cmc || 2, price: 1, owned: false, edhrecRank: 500,
+  });
+  // Same fodder base so on-axis credit ties; only the draw backing differs.
+  const engine = mk('Real Engine', [['sac.fodder', 4, 'per_turn'], ['card_advantage.draw_engine', 4, 'repeatable']], ['card_draw']);
+  const trinket = mk('Coin Trinket', [['sac.fodder', 4, 'per_turn'], ['card_advantage.draw_engine', 1, 'repeatable']], ['card_draw']);
+  const adds = rec.scoreAdds({ ...ctxBase, candidates: [engine, trinket], budget: {} });
+  const dPts = (a) => (adds.find(x => x.name === a).trace.find(t => t.kind === 'role_deficit' && t.cat === 'Card Draw') || {}).pts || 0;
+  check('w4 engine outearns w1 trinket on the same deficit', dPts('Real Engine') > dPts('Coin Trinket') && dPts('Coin Trinket') > 0,
+    JSON.stringify([dPts('Real Engine'), dPts('Coin Trinket')]));
+
+  // Loot in a deck with no discard demand backs the Card Draw role not at all —
+  // no deficit credit, and no seat in a Card Draw focus.
+  const looter = mk('Pure Looter', [['sac.fodder', 4, 'per_turn'], ['card_advantage.loot', 3, 'repeatable']], ['card_draw']);
+  const lootAdds = rec.scoreAdds({ ...ctxBase, candidates: [looter], budget: {} });
+  check('loot earns no Card Draw deficit without discard demand',
+    !(lootAdds[0]?.trace || []).some(t => t.kind === 'role_deficit' && t.cat === 'Card Draw'),
+    JSON.stringify(lootAdds[0]?.trace));
+  const lootFocus = rec.scoreAdds({ ...ctxBase, candidates: [looter], budget: {}, focusCategory: 'Card Draw' });
+  check('loot is excluded from a Card Draw focus without discard demand', lootFocus.length === 0,
+    JSON.stringify(lootFocus.map(a => a.name)));
+  // ...but a deck that WANTS discards (a strong gy.self_fill needer) values it.
+  const gyDeck = [...deckCards,
+    { name: 'Yard Payoff', qty: 1, cmc: 2, typeLine: 'Enchantment', ir: synIR([], [['gy.self_fill', 4]], {}) }];
+  const gyGoals = inferGoals(gyDeck, commander, {});
+  const gyCtx = { ...ctxBase, deckCards: gyDeck, goals: gyGoals.goals, hist: gyGoals.histogram, roleCounts: th.countRoles(gyDeck) };
+  const lootThere = rec.scoreAdds({ ...gyCtx, candidates: [looter], budget: {}, focusCategory: 'Card Draw' });
+  check('loot keeps a seat where the deck wants discards', lootThere.length === 1, JSON.stringify(lootThere.map(a => a.name)));
+}
+
+console.log('adds — helps-needs never starve; two needers are a pair, not a theme');
+{
+  const baseIR = [['sac.fodder', 4, 'per_turn'], ['token.creature', 3, 'per_turn']];
+  // A helps-level appetite with zero suppliers is not a flaw (Lannery, #38).
+  const lannery = { name: 'Lannery-ish', cmc: 3, price: 1, owned: false, edhrecRank: 500,
+    ir: { ...synIR(baseIR, []), needs: [{ axis: 'sac.outlet_free', param: null, criticality: 'helps', weight: 2 }] } };
+  const a1 = rec.scoreAdds({ ...ctxBase, candidates: [lannery], budget: {} });
+  check('unfed helps-need carries no starved penalty',
+    !(a1[0]?.trace || []).some(t => t.kind === 'needs_starved'), JSON.stringify(a1[0]?.trace));
+
+  // Exactly 2 strong off-plan needers cap the feeds credit at +1 (#30/#32/#42).
+  const pairDeck = [...deckCards,
+    { name: 'Knuckles-ish', qty: 1, cmc: 3, typeLine: 'Creature — Echidna', ir: synIR([], [['artifacts.source', 4]], {}) },
+    { name: 'Omnitool-ish', qty: 1, cmc: 2, typeLine: 'Artifact', ir: synIR([], [['artifacts.source', 4]], {}) }];
+  const pairGoals = inferGoals(pairDeck, commander, {});
+  const pairCtx = { ...ctxBase, deckCards: pairDeck, goals: pairGoals.goals, hist: pairGoals.histogram, roleCounts: th.countRoles(pairDeck) };
+  const bauble = { name: 'Bauble', cmc: 0, price: 1, owned: false, edhrecRank: 500,
+    ir: synIR([['sac.fodder', 4, 'per_turn'], ['artifacts.source', 2, 'once']], []) };
+  const a2 = rec.scoreAdds({ ...pairCtx, candidates: [bauble], budget: {} });
+  const feed = (a2[0]?.trace || []).find(t => (t.kind === 'feeds' || t.kind === 'feeds_offplan') && t.axis === 'artifacts.source');
+  check('2-needer off-plan feed credited but capped at +1', !!feed && feed.pts > 0 && feed.pts <= 1,
+    JSON.stringify(feed || a2[0]?.trace));
+}
+
+console.log('adds — commander mechanics: synthesized identity axes (Thranduil)');
+{
+  // Thranduil-shaped commander: legendary-Elf ETB engine + yard-ability engine.
+  const thranduil = { name: 'Elvenking', typeLine: 'Legendary Creature — Elf Noble',
+    ir: { ...synIR([['gy.matters', 5, 'static']], [], { tribal: { types: ['Elf', 'Noble'], lord_of: [] } }),
+      needs: [
+        { axis: 'body.legendary', param: 'Elf', criticality: 'wants', weight: 5 },
+        { axis: 'ability.activated', param: 'Elf', criticality: 'wants', weight: 4 },
+        { axis: 'gy.self_fill', param: 'Elf', criticality: 'wants', weight: 4 },
+      ] } };
+  const elfDeck = [
+    { name: 'Elf A', qty: 20, cmc: 2, typeLine: 'Creature — Elf', ir: synIR([], [], { tribal: { types: ['Elf'], lord_of: [] } }) },
+    { name: 'Forest', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const elfGoals = inferGoals(elfDeck, thranduil, {});
+  const elfCtx = { deckCards: elfDeck, commander: thranduil, goals: elfGoals.goals,
+    thresholds: th.computeThresholds({ goal: elfGoals.goals[0]?.goal }),
+    roleCounts: th.countRoles(elfDeck), hist: elfGoals.histogram, templates };
+  const legendElf = { name: 'Legend Elf', cmc: 3, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Legendary Creature — Elf Warrior',
+    ir: { ...synIR([['pump.single', 2, 'repeatable']], [], { tribal: { types: ['Elf', 'Warrior'], lord_of: [] } }),
+      faces: [{ abilities: [{ kind: 'activated' }] }] } };
+  const plainElf = { name: 'Plain Elf', cmc: 3, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Creature — Elf',
+    ir: synIR([['pump.single', 2, 'repeatable']], [], { tribal: { types: ['Elf'], lord_of: [] } }) };
+  const adds = rec.scoreAdds({ ...elfCtx, candidates: [legendElf, plainElf], budget: {} });
+  const legend = adds.find(a => a.name === 'Legend Elf');
+  const plain = adds.find(a => a.name === 'Plain Elf');
+  // With no legends in the 99 the commander's want IS the wanted set, so credit
+  // arrives via fills_axis; in a legend-rich deck the same join lands as `feeds`.
+  const legCredit = (legend?.trace || []).find(t =>
+    (t.kind === 'feeds' || t.kind === 'fills_axis') && t.axis === 'body.legendary');
+  check('legendary elf feeds the commander by existing',
+    !!legCredit && ((legCredit.names || legCredit.needers) || []).includes('Elvenking'),
+    JSON.stringify(legend?.trace));
+  check('activated ability feeds the commander from faces',
+    (legend?.trace || []).some(t => (t.kind === 'feeds' || t.kind === 'fills_axis') && t.axis === 'ability.activated'),
+    JSON.stringify(legend?.trace));
+  check('commander-fed single needer earns the wanted-axis class (not +1)',
+    (legCredit || {}).pts >= 4, JSON.stringify(legend?.trace));
+  check('the plain elf earns neither', !(plain?.trace || []).some(t => t.axis === 'body.legendary' || t.axis === 'ability.activated'),
+    JSON.stringify(plain?.trace));
+  check('legend outscores its plain twin', legend.score > plain.score, JSON.stringify([legend.score, plain.score]));
+}
+
+console.log('adds — a GY consumer in the command zone ends consumer shopping');
+{
+  const gyCmdr = { name: 'Yard King', typeLine: 'Legendary Creature — Elf Noble',
+    ir: { ...synIR([['gy.matters', 5, 'static']], [], {}),
+      needs: [{ axis: 'gy.self_fill', param: null, criticality: 'wants', weight: 4 }] } };
+  // Entomb-shaped filler: fills the yard, wants a reanimator.
+  const gyDeck = [
+    { name: 'Entomb-ish A', qty: 1, cmc: 1, typeLine: 'Instant', ir: { ...synIR([['gy.self_fill', 4, 'once']], []), needs: [{ axis: 'gy.reanimate', param: null, criticality: 'wants', weight: 4 }] } },
+    { name: 'Entomb-ish B', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: { ...synIR([['gy.self_fill', 4, 'once']], []), needs: [{ axis: 'gy.reanimate', param: null, criticality: 'wants', weight: 4 }] } },
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const goals = inferGoals(gyDeck, gyCmdr, {});
+  const index = rec.deckAxisIndex(gyDeck, gyCmdr);
+  const wanted = rec.wantedAxes(goals.goals[0]?.goal, goals.histogram, index, templates, goals.goals);
+  check('gy.reanimate never enters the wanted set', !wanted.has('gy.reanimate'), JSON.stringify([...wanted.keys()]));
+  const ctx = { deckCards: gyDeck, commander: gyCmdr, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(gyDeck), hist: goals.histogram, templates };
+  const reanimator = { name: 'Big Reanimator', cmc: 4, price: 1, owned: false, edhrecRank: 500,
+    ir: synIR([['gy.reanimate', 4, 'repeatable']], [], { roles: ['recursion'] }) };
+  const adds = rec.scoreAdds({ ...ctx, candidates: [reanimator], budget: {} });
+  const t = adds[0]?.trace || [];
+  check('reanimators neither feed the fillers nor fill a Recursion deficit',
+    !t.some(x => (x.kind === 'feeds' || x.kind === 'feeds_offplan') && x.axis === 'gy.reanimate')
+    && !t.some(x => x.kind === 'role_deficit' && x.cat === 'Recursion'),
+    JSON.stringify(t));
+}
+
+console.log('adds — composition substrates and the off-tribe caveat');
+{
+  // Type-changer tribal.synergy in a near-pure tribe is worth almost nothing (#28).
+  const denseDeck = [
+    { name: 'Rat Pack', qty: 22, cmc: 2, typeLine: 'Creature — Rat', ir: synIR([['tribal.synergy', 3, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Rat Lord A', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: synIR([['tribal.lord', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Rat Lord B', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: synIR([['tribal.lord', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Rat Lord C', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: synIR([['tribal.lord', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const denseCmd = { name: 'Rat Boss', typeLine: 'Legendary Creature — Rat', ir: synIR([['tribal.lord', 5, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const denseGoals = inferGoals(denseDeck, denseCmd, {});
+  check('dense tribe context reads tribal', String(denseGoals.goals[0]?.goal || '').startsWith('tribal:'), JSON.stringify(denseGoals.goals.map(g => g.goal)));
+  const denseCtx = { deckCards: denseDeck, commander: denseCmd, goals: denseGoals.goals,
+    thresholds: th.computeThresholds({ goal: denseGoals.goals[0]?.goal }),
+    roleCounts: th.countRoles(denseDeck), hist: denseGoals.histogram, templates };
+  // The anthem rider keeps the card above the absolute fit floor (3) so the scaled
+  // tribal.synergy trace is actually observable — a bare changer never survives it.
+  const changer = { name: 'Type Changer', cmc: 1, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Artifact — Equipment', ir: synIR([['tribal.synergy', 3, 'static'], ['anthem.global', 3, 'static']], [], {}) };
+  const cAdds = rec.scoreAdds({ ...denseCtx, candidates: [changer], budget: {} });
+  const cFill = (cAdds[0]?.trace || []).find(t => t.kind === 'fills_axis' && t.axis === 'tribal.synergy');
+  check('param-null tribal.synergy is credited but scaled by the off-tribe remainder',
+    !!cFill && cFill.pts > 0 && cFill.pts <= 1.5, JSON.stringify(cFill || cAdds[0]?.trace));
+
+  // Off-tribe creature carries the caveat, on-tribe does not; score untouched.
+  const offRat = { name: 'Off Tribe Guy', cmc: 3, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Creature — Dragon', ir: synIR([['tribal.lord', 3, 'static']], [], { tribal: { types: ['Dragon'], lord_of: [] } }) };
+  const oAdds = rec.scoreAdds({ ...denseCtx, candidates: [offRat], budget: {} });
+  check('off-tribe creature is flagged with the tribe name', oAdds[0]?.offTribe === 'Rat', JSON.stringify(oAdds[0]));
+  const reasons = explain.addReasons(oAdds[0] || {});
+  check('caveat renders after the positives', reasons.some(r => /Not a Rat itself/.test(r)), JSON.stringify(reasons));
+
+  // Mystic Forge class: cast-from-top artifact "draw" scales with artifact density.
+  const forge = { name: 'Forge-ish', cmc: 4, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Artifact', ir: (() => { const ir = synIR([['cast.from_anywhere', 4, 'repeatable']], [], { roles: ['card_draw'] }); ir.provides[0].param = 'artifact'; return ir; })() };
+  const fAdds = rec.scoreAdds({ ...denseCtx, candidates: [forge], budget: {}, focusCategory: 'Card Draw' });
+  const fDef = (fAdds[0]?.trace || []).find(t => t.kind === 'role_deficit' && t.cat === 'Card Draw');
+  check('cast-from-top draw is credited but discounted in an artifact-light deck',
+    !!fDef && fDef.pts > 0 && fDef.pts <= 0.5, JSON.stringify(fDef || fAdds[0]?.trace));
+}
+
+console.log('adds — commander mechanics guard rails (2026-09 review fixes)');
+{
+  // Elf-bound commander want + a param-null legends-matter payoff in the 99.
+  const cmdr = { name: 'Elvenking', typeLine: 'Legendary Creature — Elf Noble',
+    ir: { ...synIR([['gy.matters', 5, 'static']], [], { tribal: { types: ['Elf', 'Noble'], lord_of: [] } }),
+      needs: [{ axis: 'body.legendary', param: 'Elf', criticality: 'wants', weight: 5 }] } };
+  const deck = [
+    { name: 'Legend Payoff', qty: 1, cmc: 3, typeLine: 'Enchantment',
+      ir: { ...synIR([], []), needs: [{ axis: 'body.legendary', param: null, criticality: 'wants', weight: 4 }] } },
+    { name: 'Forest', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const goals = inferGoals(deck, cmdr, {});
+  const ctx = { deckCards: deck, commander: cmdr, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates };
+  const dragon = { name: 'Legend Dragon', cmc: 5, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Legendary Creature — Dragon', ir: synIR([['pump.single', 2, 'repeatable']], [], { tribal: { types: ['Dragon'], lord_of: [] } }) };
+  const elfW = { name: 'Legend Elf Warrior', cmc: 3, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Legendary Creature — Elf Warrior', ir: synIR([['pump.single', 2, 'repeatable']], [], { tribal: { types: ['Elf', 'Warrior'], lord_of: [] } }) };
+  const adds = rec.scoreAdds({ ...ctx, candidates: [dragon, elfW], budget: {} });
+  const legendTraces = (name) => (adds.find(a => a.name === name)?.trace || []).filter(t => t.axis === 'body.legendary');
+  // The commander's Elf-bound want must not light up for a Dragon (param-blind
+  // commanderWeight did): it serves only the param-null payoff — a +1 curiosity.
+  check('legendary Dragon does not collect the Elf-bound commander want',
+    legendTraces('Legend Dragon').reduce((s, t) => s + (t.pts || 0), 0) <= 1,
+    JSON.stringify(adds.find(a => a.name === 'Legend Dragon')?.trace));
+  check('legendary Elf still earns commander-class credit',
+    legendTraces('Legend Elf Warrior').reduce((s, t) => s + (t.pts || 0), 0) >= 4,
+    JSON.stringify(adds.find(a => a.name === 'Legend Elf Warrior')?.trace));
+  // One identity fact = one credit: the Elf/Warrior fan-out must not score twice.
+  check('multi-typed legend earns body.legendary exactly once',
+    legendTraces('Legend Elf Warrior').length === 1, JSON.stringify(legendTraces('Legend Elf Warrior')));
+
+  // Supply side: the commander never feeds his own want, and one multi-typed
+  // legend in the 99 is ONE supplier of a param-null demand.
+  const index0 = rec.deckAxisIndex(deck, cmdr);
+  check('commander does not supply his own body.legendary want',
+    !index0.provides.get('body.legendary'), JSON.stringify(index0.provides.get('body.legendary')));
+  const index1 = rec.deckAxisIndex([...deck,
+    { name: 'EW', qty: 1, cmc: 2, typeLine: 'Legendary Creature — Elf Warrior', ir: synIR([], [], { tribal: { types: ['Elf', 'Warrior'], lord_of: [] } }) }], cmdr);
+  check('one multi-typed legend counts as one supplier',
+    index1.provides.get('body.legendary')?.count === 1, JSON.stringify(index1.provides.get('body.legendary')));
+
+  // A model-authored provide on a synthesized axis is ignored: a NON-legend
+  // claiming body.legendary earns nothing on it (validator flags the row too).
+  const fake = { name: 'Fake Legend', cmc: 2, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Creature — Human',
+    ir: { ...synIR([], []), provides: [{ axis: 'body.legendary', param: 'Human', rate: 'static', weight: 5 }] } };
+  const fakeAdds = rec.scoreAdds({ ...ctx, candidates: [fake], budget: {} });
+  check('stored body.legendary provide on a non-legend is ignored',
+    !((fakeAdds[0]?.trace || []).some(t => t.axis === 'body.legendary')), JSON.stringify(fakeAdds[0]?.trace));
+}
+
+console.log('adds — a cast-from-yard commander also ends recursion shopping');
+{
+  const cmdr = { name: 'Muldrotha-ish', typeLine: 'Legendary Creature — Elemental Avatar',
+    ir: synIR([['gy.cast_from', 5, 'repeatable']], []) };
+  const deck = [
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const goals = inferGoals(deck, cmdr, {});
+  const ctx = { deckCards: deck, commander: cmdr, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates };
+  const reanimator = { name: 'Big Reanimator', cmc: 4, price: 1, owned: false, edhrecRank: 500,
+    ir: synIR([['gy.reanimate', 4, 'repeatable']], [], { roles: ['recursion'] }) };
+  const adds = rec.scoreAdds({ ...ctx, candidates: [reanimator], budget: {} });
+  // gy.cast_from suppresses the wanted set and feeds — the Recursion role deficit
+  // must follow the same axis list, not gy.matters alone.
+  check('no Recursion role deficit beside a cast-from-yard commander',
+    !((adds[0]?.trace || []).some(t => t.kind === 'role_deficit' && t.cat === 'Recursion')),
+    JSON.stringify(adds[0]?.trace));
+}
+
+console.log('adds — "chosen type" params are wildcards; type line backs the tribe caveat');
+{
+  const cmdr = { name: 'Rat Boss', typeLine: 'Legendary Creature — Rat',
+    ir: synIR([['tribal.lord', 5, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const deck = [
+    { name: 'Rat Pack', qty: 20, cmc: 2, typeLine: 'Creature — Rat', ir: synIR([], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Rat Payoff', qty: 1, cmc: 3, typeLine: 'Enchantment',
+      ir: { ...synIR([], []), needs: [{ axis: 'tribal.synergy', param: 'Rat', criticality: 'wants', weight: 4 }] } },
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const goals = inferGoals(deck, cmdr, {});
+  check('rat context reads tribal', String(goals.goals[0]?.goal || '').startsWith('tribal:'), JSON.stringify(goals.goals.map(g => g.goal)));
+  const ctx = { deckCards: deck, commander: cmdr, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates };
+  // Cavern of Souls class after the backfill: tribal.synergy param "chosen type".
+  const chosen = { name: 'Chosen Payoff', cmc: 2, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Artifact', ir: (() => { const ir = synIR([['tribal.synergy', 3, 'static']], []); ir.provides[0].param = 'chosen type'; return ir; })() };
+  const cAdds = rec.scoreAdds({ ...ctx, candidates: [chosen], budget: {} });
+  const cT = (cAdds[0]?.trace || []).find(t => t.axis === 'tribal.synergy');
+  check('a chosen-type provider earns full tribal credit (no off-tribe discount)',
+    !!cT && cT.pts >= 3, JSON.stringify(cAdds[0]?.trace));
+
+  // An actual Rat whose IR lacks the tribal block: the type line backs the caveat.
+  const undocRat = { name: 'Undocumented Rat', cmc: 2, price: 1, owned: false, edhrecRank: 500,
+    typeLine: 'Creature — Rat Rogue', ir: synIR([['tribal.lord', 4, 'static']], []) };
+  const rAdds = rec.scoreAdds({ ...ctx, candidates: [undocRat], budget: {} });
+  check('a Rat by type line is not flagged "Not a Rat itself"',
+    !!rAdds[0] && rAdds[0].offTribe === undefined, JSON.stringify(rAdds[0]));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

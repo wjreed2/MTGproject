@@ -3262,7 +3262,8 @@ img.stack-main.loaded { opacity: 1; }
    after the accent was changed. #settingsValueExcludeSlider is the same control
    in the Settings menu and had the same pale bar. */
 #settingsValueExcludeSlider,
-.price-modal-settings input[type="range"] {
+.price-modal-settings input[type="range"],
+.suggest-targets-pop input[type="range"] {
   width: 100%; margin-top: 7px; display: block; height: 16px;
   -webkit-appearance: none; appearance: none;
   background: transparent; cursor: pointer;
@@ -3271,7 +3272,8 @@ img.stack-main.loaded { opacity: 1; }
    into these pseudo-elements, so the filled span tracks the thumb the way the
    native accent fill used to. */
 #settingsValueExcludeSlider::-webkit-slider-runnable-track,
-.price-modal-settings input[type="range"]::-webkit-slider-runnable-track {
+.price-modal-settings input[type="range"]::-webkit-slider-runnable-track,
+.suggest-targets-pop input[type="range"]::-webkit-slider-runnable-track {
   height: 6px; border-radius: 999px;
   background: linear-gradient(
     to right,
@@ -3279,7 +3281,8 @@ img.stack-main.loaded { opacity: 1; }
     rgba(255, 255, 255, 0.14) var(--range-fill, 0%) 100%);
 }
 #settingsValueExcludeSlider::-webkit-slider-thumb,
-.price-modal-settings input[type="range"]::-webkit-slider-thumb {
+.price-modal-settings input[type="range"]::-webkit-slider-thumb,
+.suggest-targets-pop input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; margin-top: -4px;
   border: none; border-radius: 50%;
@@ -3287,14 +3290,17 @@ img.stack-main.loaded { opacity: 1; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 #settingsValueExcludeSlider::-moz-range-track,
-.price-modal-settings input[type="range"]::-moz-range-track {
+.price-modal-settings input[type="range"]::-moz-range-track,
+.suggest-targets-pop input[type="range"]::-moz-range-track {
   height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
 }
 #settingsValueExcludeSlider::-moz-range-progress,
-.price-modal-settings input[type="range"]::-moz-range-progress {
+.price-modal-settings input[type="range"]::-moz-range-progress,
+.suggest-targets-pop input[type="range"]::-moz-range-progress {
   height: 6px; border-radius: 999px; background: rgb(var(--lgx1));
 }
-.price-modal-settings input[type="range"]::-moz-range-thumb {
+.price-modal-settings input[type="range"]::-moz-range-thumb,
+.suggest-targets-pop input[type="range"]::-moz-range-thumb {
   width: 14px; height: 14px; border: none; border-radius: 50%;
   background: rgb(var(--lgx1));
 }
@@ -5081,6 +5087,106 @@ body.glass-mode .pubdeck-card:hover {
   margin-right: 6px;
   flex-shrink: 0;
 }
+
+/* ── Suggestion category targets — sliders button + its floating panel ──────
+   The button sits in the Suggested Adds header like every other header control;
+   the panel is hoisted to <body> (the panel's overflow:hidden would clip it)
+   and reuses .deck-options-dropdown for the frosted overlay chrome. */
+#tab-decks .suggest-targets-btn {
+  height: 34px;
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+/* A focus or price cap is narrowing the list — say so even when the panel is shut. */
+#tab-decks .suggest-targets-btn.has-filters {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+.suggest-targets-pop {
+  position: fixed; /* anchored to the button at open time */
+  width: min(320px, calc(100vw - 20px));
+  padding: 0.9rem 1rem;
+  overscroll-behavior: contain;
+}
+.suggest-target-head { display: flex; align-items: center; margin-bottom: 0.6rem; }
+.suggest-target-title { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+.suggest-target-reset { margin-left: auto; font-size: 0.72rem; padding: 2px 8px; }
+.suggest-target-row { margin-bottom: 9px; }
+.suggest-target-top { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; }
+.suggest-target-name { color: var(--text2); }
+
+/* Max price sits above the categories and is separated from them. */
+.suggest-target-price { border-bottom: 1px solid var(--border2); padding-bottom: 10px; margin-bottom: 10px; }
+
+/* Per-category focus toggle — suggestions fill that category only. */
+.suggest-target-focus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.suggest-target-focus:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+.suggest-target-focus.active {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+.suggest-target-row.is-focused .suggest-target-name,
+.suggest-target-row.is-focused .suggest-target-val {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+.suggest-target-note-focus { color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2))); }
+/* Touch: no sticky iOS hover — only the lit state highlights. */
+@media (hover: none) {
+  .suggest-target-focus:hover {
+    color: var(--text3);
+    border-color: var(--border2);
+    background: transparent;
+  }
+  .suggest-target-focus.active:hover {
+    color: #fff;
+    border-color: rgba(var(--lgx2), 0.55);
+    background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  }
+}
+.suggest-target-have { margin-left: auto; font-size: 0.68rem; color: var(--text3); white-space: nowrap; }
+.suggest-target-val {
+  min-width: 2ch;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.suggest-target-plan {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-top: 1px solid var(--border2);
+  margin-top: 4px;
+  padding-top: 9px;
+  font-size: 0.78rem;
+}
+.suggest-target-plan .suggest-target-val { margin-left: auto; }
+.suggest-target-note { margin-top: 5px; font-size: 0.68rem; color: var(--text3); line-height: 1.5; }
+.suggest-target-note-over { color: var(--red); }
 
 /* Collection + sets controls sizing parity — one header pattern, two tabs. */
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .search-box,

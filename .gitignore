@@ -49,3 +49,9 @@ data/foundation-lab/user-decks/
 # Tesseract language model, downloaded into the repo root by tesseract.js when
 # scripts/scan-photo-test.js runs. Regenerated on demand; not source.
 eng.traineddata
+
+# Semantics re-extraction queues — generated from DB state (scripts/build-requeue-*.js);
+# regenerate, do not version
+.semantics-requeue/
+# Requeue lists built from live account decks — user data, never version
+.semantics-requeue-user/

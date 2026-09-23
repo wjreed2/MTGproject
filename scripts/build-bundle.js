@@ -23,6 +23,7 @@ const ROOT = path.join(__dirname, '..');
 const CHUNKS = {
   'bundle': [
     'js/deck-ops.js',
+    'js/collection-ops.js',
     'js/db-client.js',
     'js/auth.js',
     'js/state.js',

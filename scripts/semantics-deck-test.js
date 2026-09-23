@@ -60,11 +60,24 @@ console.log('goal inference — tribal detection');
   const res = inferGoals([...bodies, ...lords], null, {});
   check('tribal:Goblin in top-2', res.goals.slice(0, 2).some(x => x.goal === 'tribal:Goblin'),
     JSON.stringify(res.goals.map(x => x.goal)));
-  check('omni-types ignored without lords', (() => {
+  // An omni-type is a ride-along only when something else is the deck — 14 Humans
+  // among 20 assorted bodies is goodstuff, so the tribe must not register.
+  check('omni-types ignored when they only ride along', (() => {
     const humans = Array.from({ length: 14 }, (_, i) =>
       syn(`H${i}`, [], [], { tribal: { types: ['Human'], lord_of: [] } }));
-    const r = inferGoals(humans, null, {});
+    const others = Array.from({ length: 20 }, (_, i) =>
+      syn(`O${i}`, [], [], { tribal: { types: [`Misc${i}`], lord_of: [] } }));
+    const r = inferGoals([...humans, ...others], null, {});
     return !r.goals.some(x => x.goal === 'tribal:Human');
+  })());
+  // ...but when it IS the deck, it's the plan. Gornog ran 22 Warriors of 23 tribal
+  // bodies, read as tribeless, and got Dragons suggested (feedback #22/#23).
+  check('dominant omni-type registers as the tribe', (() => {
+    const warriors = Array.from({ length: 22 }, (_, i) =>
+      syn(`W${i}`, [], [], { tribal: { types: ['Warrior'], lord_of: [] } }));
+    const stray = syn('Stray', [], [], { tribal: { types: ['Echidna'], lord_of: [] } });
+    const r = inferGoals([...warriors, stray], null, {});
+    return r.goals.some(x => x.goal === 'tribal:Warrior');
   })());
 }
 

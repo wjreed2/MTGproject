@@ -104,13 +104,25 @@ function synergyClusters(cards, interactions) {
 // but are never creature tribes — without this filter Krenko reads as "tribal:Mountain".
 const NON_TRIBES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes', 'Land']);
 
+// An omni-type rides along in every deck, so a body count alone can't tell
+// "Warrior tribal" from "happens to run Warriors" — it takes DOMINANCE, i.e. nearly
+// every tribal body in the deck being that one type. Gornog (feedback #22/#23) is
+// 22 Warriors out of 23 tribal bodies and read as tribeless, so its adds were
+// Dragons; the same deck's 11 Humans are the ride-along the ignore list is for.
+// Measured over the fixture corpus: the dominant tribe there sits at 0.96 while no
+// other omni-type anywhere clears 0.48, so the gate has ~2× margin on both sides.
+const OMNI_DOMINANCE = 0.6;
+
 function tribalDetection(deckCards, commander) {
   const bodies = {}; // subtype → qty of creatures carrying it
   const lords = {};  // subtype → lord count
+  let tribalBodies = 0; // cards carrying ANY real tribe — the dominance denominator
   const all = commander ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
   for (const c of all) {
     const qty = c.qty || 1;
-    for (const t of c.ir?.tribal?.types || []) { if (!NON_TRIBES.has(t)) bodies[t] = (bodies[t] || 0) + qty; }
+    const types = (c.ir?.tribal?.types || []).filter(t => !NON_TRIBES.has(t));
+    if (types.length) tribalBodies += qty;
+    for (const t of types) bodies[t] = (bodies[t] || 0) + qty;
     for (const t of c.ir?.tribal?.lord_of || []) { if (!NON_TRIBES.has(t)) lords[t] = (lords[t] || 0) + qty; }
   }
   const hits = [];
@@ -118,9 +130,11 @@ function tribalDetection(deckCards, commander) {
     const lordCount = lords[type] || 0;
     if (n >= 12 || lordCount >= 3) hits.push({ type, bodies: n, lords: lordCount });
   }
-  // Ignore omni-types that ride along in every deck
+  // Ignore omni-types that ride along in every deck — unless they dominate it
   const IGNORE = new Set(['Human', 'Wizard', 'Warrior', 'Soldier', 'Shaman', 'Cleric', 'Rogue', 'Druid', 'Advisor', 'Scout', 'Noble', 'Phyrexian', 'Spirit', 'Construct']);
-  return hits.filter(h => !IGNORE.has(h.type) || h.lords >= 3).sort((a, b) => (b.bodies + b.lords * 5) - (a.bodies + a.lords * 5));
+  const dominates = (h) => tribalBodies > 0 && h.bodies / tribalBodies >= OMNI_DOMINANCE;
+  return hits.filter(h => !IGNORE.has(h.type) || h.lords >= 3 || dominates(h))
+    .sort((a, b) => (b.bodies + b.lords * 5) - (a.bodies + a.lords * 5));
 }
 
 // A core group is either {axes, types?, min} or {anyOf: [{key, axes, min}...]} —
