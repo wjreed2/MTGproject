@@ -180,6 +180,51 @@ console.log('subscription runner core (usage-limit pause/resume)');
   })());
 }
 
+console.log('feedback lints (§12, shared with scripts/semantics-backfill-feedback.js)');
+{
+  // opponent-scoped death appetite: the REAL enum value is 'opponent' (vocab
+  // TRIGGER_CONTROLLER_SCOPES) — the lint once tested 'opp'/'opponents' and was
+  // dead for every trigger in the store.
+  const fx = clone(fixtures['blood-artist']);
+  fx.ir.needs = [...(fx.ir.needs || []), { axis: 'creatures_dying', param: null, criticality: 'wants', weight: 3 }];
+  for (const a of fx.ir.faces[0].abilities) if (a.trigger?.event === 'dies') a.trigger.controller_scope = 'opponent';
+  const res = validateCardIR(fx.ir, fx.row);
+  check('opponent-scoped dies trigger + creatures_dying need → need_scope', hasFlag(res, 'need_scope', 'soft'),
+    JSON.stringify(res.flags));
+  const fx2 = clone(fixtures['blood-artist']);
+  fx2.ir.needs = [...(fx2.ir.needs || []), { axis: 'creatures_dying', param: null, criticality: 'wants', weight: 3 }];
+  const res2 = validateCardIR(fx2.ir, fx2.row);
+  check('any-scoped dies trigger does not fire need_scope', !hasFlag(res2, 'need_scope'),
+    JSON.stringify(res2.flags));
+}
+{
+  // draw_vs_loot binds the discard to the cost sentence: an unrelated later
+  // "discard" after a sacrifice cost must not fire (the old dotall regex did).
+  const mk = (text) => {
+    const fx = clone(fixtures['lightning-bolt']);
+    fx.row.oracle_text = text;
+    fx.ir.provides = [...(fx.ir.provides || []), { axis: 'card_advantage.draw', param: null, rate: 'once', weight: 3 }];
+    return validateCardIR(fx.ir, fx.row);
+  };
+  check('additional-cost discard draw → draw_vs_loot',
+    hasFlag(mk('As an additional cost to cast this spell, discard a card.\nDraw two cards.'), 'draw_vs_loot', 'soft'));
+  check('sacrifice cost + unrelated opponent discard does not fire draw_vs_loot',
+    !hasFlag(mk('As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards. Each opponent discards a card.'), 'draw_vs_loot'));
+}
+{
+  // synthesized axes are NEEDS-only: a model-authored provide is flagged.
+  const fx = clone(fixtures['sol-ring']);
+  fx.ir.provides.push({ axis: 'body.legendary', param: null, rate: 'static', weight: 3 });
+  const res = validateCardIR(fx.ir, fx.row);
+  check('model-authored body.legendary provide → synth_axis_provide', hasFlag(res, 'synth_axis_provide', 'soft'),
+    JSON.stringify(res.flags));
+  check('a body.legendary NEED is legal', (() => {
+    const fx2 = clone(fixtures['sol-ring']);
+    fx2.ir.needs = [...(fx2.ir.needs || []), { axis: 'body.legendary', param: null, criticality: 'wants', weight: 2 }];
+    return !hasFlag(validateCardIR(fx2.ir, fx2.row), 'synth_axis_provide');
+  })());
+}
+
 console.log('vocab / schema agreement');
 check('every wire-schema effect op enum matches vocab', (() => {
   const s = JSON.stringify(irSchema.cardIRSchema);

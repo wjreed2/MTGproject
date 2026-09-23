@@ -11,6 +11,7 @@
 
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
+const irLints = require('./ir-lints');
 
 const HARD = 'hard';
 const SOFT = 'soft';
@@ -421,21 +422,15 @@ function validateCardIR(ir, cardRow) {
   }
 
   // 12. capability-vs-faces lints (soft) — classes the 2026-09 suggestion feedback
-  // surfaced, kept here so future extractions can't quietly reintroduce them
-  // (the one-time corrections live in scripts/semantics-backfill-feedback.js).
+  // surfaced, kept here so future extractions can't quietly reintroduce them. The
+  // detectors live in ir-lints.js, shared with the one-time corrections in
+  // scripts/semantics-backfill-feedback.js so the two can never drift apart.
   {
-    const allAbilities = (ir.faces || []).flatMap(f => Array.isArray(f?.abilities) ? f.abilities : []);
     const needsList = Array.isArray(ir.needs) ? ir.needs : [];
     // a) death appetite whose every 'dies' scope is opponent-only (Vren): the card
     //    is fed by killing THEIR creatures — the need should be removal wants.
-    if (needsList.some(n => n?.axis === 'creatures_dying')) {
-      const death = allAbilities.filter(a =>
-        (a?.trigger && a.trigger.event === 'dies') || (a?.replaces && a.replaces.event === 'dies'));
-      const oppOnly = death.length && death.every(a => {
-        const scope = a.trigger ? a.trigger.controller_scope : a.replaces?.scope?.controller;
-        return scope === 'opp' || scope === 'opponents';
-      });
-      if (oppOnly) ctx.soft('need_scope', 'needs creatures_dying but every dies scope is opponent-only — removal wants instead');
+    if (needsList.some(n => n?.axis === 'creatures_dying') && irLints.opponentOnlyDeathScope(ir)) {
+      ctx.soft('need_scope', 'needs creatures_dying but every dies scope is opponent-only — removal wants instead');
     }
     // b) sac-outlet appetite on a card whose own tokens sac themselves (Lannery):
     //    Treasure/Food/Clue are their own outlets.
@@ -446,21 +441,24 @@ function validateCardIR(ir, cardRow) {
     // c) draw claimed on an additional-cost-discard cast (Unexpected Windfall):
     //    filtering, not card advantage — the loot axis exists for exactly this.
     if (provided.has('card_advantage.draw') && /Instant|Sorcery/.test(String(cardRow?.type_line || ''))
-      && /additional cost to cast this spell.*discard/is.test(rowText)) {
+      && irLints.isAdditionalCostDiscard(rowText)) {
       ctx.soft('draw_vs_loot', 'additional-cost-discard cast provides card_advantage.draw — should be card_advantage.loot');
     }
     // d) strong lifegain want on a card that pays the life itself (M.O.D.O.K.,
     //    Necrodominance): an offset, not a build-around — unless lifegain also
     //    PAYS the card off (Amalia's trigger, Licia's "life you gained").
-    const strongLifegainWant = needsList.some(n => n?.axis === 'lifegain.source'
-      && n.criticality === 'wants' && (n.weight || 0) >= 3);
-    if (strongLifegainWant) {
-      const paysLife = allAbilities.some(a => (a?.cost?.life || 0) >= 1
-        || ((a?.effects || []).some(e => e?.op === 'lose_life') && (a?.effects || []).some(e => e?.op === 'draw')));
-      const paidOffByGain = allAbilities.some(a => a?.trigger?.event === 'lifegain')
-        || /life you gained/i.test(rowText);
-      if (paysLife && !paidOffByGain) {
-        ctx.soft('need_compensatory', 'strong lifegain.source want on a card that pays the life itself — helps-level offset');
+    if (needsList.some(n => n?.axis === 'lifegain.source'
+      && n.criticality === 'wants' && (n.weight || 0) >= 3)
+      && irLints.paysLifeItself(ir) && !irLints.paidOffByLifegain(ir, rowText)) {
+      ctx.soft('need_compensatory', 'strong lifegain.source want on a card that pays the life itself — helps-level offset');
+    }
+    // e) synthesized identity axes are NEEDS-only: provides on them come from the
+    //    type line / faces at scoring time (recommender.synthesizedProvides), and a
+    //    model-authored copy would double-count there — the recommender ignores
+    //    stored ones, this flag keeps them out of the store in the first place.
+    for (const p of ir.provides || []) {
+      if (vocab.SYNTHESIZED_PROVIDE_AXES.has(p?.axis)) {
+        ctx.soft('synth_axis_provide', `provides ${p.axis} — synthesized axis, engine derives it from the type line/faces; drop the provide`);
       }
     }
   }
