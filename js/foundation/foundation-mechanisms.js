@@ -10,8 +10,13 @@
   if (root) {
     for (const [k, v] of Object.entries(api)) root[k] = v;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function () {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function (root) {
   'use strict';
+
+  let burnApi = (root && root.burnIndicatesInteraction) ? root : null;
+  if (!burnApi && typeof require === 'function') {
+    try { burnApi = require('../burn-roles.js'); } catch (_) { burnApi = null; }
+  }
 
   const SOURCE_ORDER = Object.freeze(['cardir', 'role_tag', 'oracle']);
 
@@ -58,7 +63,8 @@
     recursion: Object.freeze(['recursion', 'reanimator']),
     protection: Object.freeze(['protection']),
     wipe: Object.freeze(['board_wipe']),
-    spotInteraction: Object.freeze(['spot_removal', 'burn']),
+    // IR role `burn` alone is not spot interaction (may be face damage only).
+    spotInteraction: Object.freeze(['spot_removal']),
     stack: Object.freeze(['counterspell']),
     engine: Object.freeze(['anthem']),
     finisher: Object.freeze(['wincon']),
@@ -224,7 +230,9 @@
       add('recursion', qualityFor('recursion', cfg), 'role_tag');
     }
     if (tags.includes('Protection')) add('protection', 0.8, 'role_tag');
-    if (tags.includes('Removal') || tags.includes('Bite') || tags.includes('Burn') || tags.includes('Bounce')) {
+    if (tags.includes('Removal') || tags.includes('Bite') || tags.includes('Bounce')
+        || tags.includes('Burn.Any') || tags.includes('Burn.Creature')
+        || (burnApi && burnApi.burnIndicatesInteraction(tags, oracle))) {
       add('spotInteraction', 0.8, 'role_tag');
     }
     if (tags.includes('Board Wipe')) add('wipe', 0.85, 'role_tag');
