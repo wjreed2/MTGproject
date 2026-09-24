@@ -9733,16 +9733,12 @@ async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCH
 // v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
 const SCRY_TAG_SCHEMA_VERSION = '5';
 
-/** Join predicate: current schema, else the newest row still stored for that card. */
-function oracleTagSchemaJoin(alias) {
-  const a = alias || 't';
-  const pref = String(SCRY_TAG_SCHEMA_VERSION).replace(/'/g, '');
-  return `${a}.schema_version = (
-    SELECT tpick.schema_version FROM scryfall_oracle_tags tpick
-    WHERE tpick.oracle_id = ${a}.oracle_id
-    ORDER BY (tpick.schema_version = '${pref}') DESC, CAST(tpick.schema_version AS UNSIGNED) DESC
-    LIMIT 1)`;
-}
+// scryfall_oracle_tags is keyed on oracle_id ALONE (one row per card; the import
+// upserts schema_version in place), so "current schema, else newest stored" in SQL
+// reduces to "the row that exists" — the catalog queries below join plainly on
+// oracle_id, and preferOracleTagRows keeps the version preference for the general
+// case in loadOracleTagRows. If the PK ever grows a schema_version column, the
+// plain joins would duplicate cards and need the preference pushed back into SQL.
 
 async function loadOracleTagRows(queryable, oracleIds, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
   const ids = [...new Set((oracleIds || [])
@@ -11326,7 +11322,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND ${oracleTagSchemaJoin('t')}
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -11410,7 +11406,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND ${oracleTagSchemaJoin('t')}
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
