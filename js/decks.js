@@ -2806,22 +2806,41 @@ function _tagsOnCardForGrouping(card) {
   return [...out];
 }
 
+/** Every tag the card actually has (role cache, stored roleTags, My Tags). */
+function _allTagsOnCard(card) {
+  const out = new Set();
+  const add = (t) => {
+    const s = String(t || '').trim();
+    if (s) out.add(s);
+  };
+  if (typeof _probTagsOnCard === 'function') {
+    try { (_probTagsOnCard(card) || []).forEach(add); } catch (_) { /* fall through */ }
+  }
+  if (typeof _roleTagsForCard === 'function') {
+    try { (_roleTagsForCard(card) || []).forEach(add); } catch (_) { /* fall through */ }
+  }
+  (card && card.roleTags || []).forEach(add);
+  _tagsOnCardForGrouping(card).forEach(add);
+  return [...out];
+}
+
 function _tagsOnCardForGroupTier(card, tier) {
+  const all = _allTagsOnCard(card);
   if (tier === 'tag_default') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    return roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    const defaults = roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    // A card that has tags must not fall through to Untagged.
+    return defaults.length ? defaults : all;
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
     // Default tags with a manual or auto primary/secondary tier count here too.
     const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
-    return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    const matched = [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    return matched.length ? matched : all;
   }
-  if (tier === 'tag_all') {
-    const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    return [...new Set([...roleTags, ...userTags])];
-  }
-  return userTags;
+  if (tier === 'tag_all') return all;
+  return userTags.length ? userTags : all;
 }
 
 let _deckListSearchDebounce = null;

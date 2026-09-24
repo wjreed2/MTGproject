@@ -1207,14 +1207,26 @@
       });
     }
     const rest = list.filter(s => !used.has(s.id));
-    if (rest.length) {
+    const tagSubs = rest.filter(s => s.source === 'tag');
+    const otherSubs = rest.filter(s => s.source !== 'tag');
+    if (tagSubs.length) {
+      bands.push({
+        role: 'tags',
+        strategyId: null,
+        bandId: null,
+        label: 'Tags',
+        collapsed: false,
+        subs: tagSubs,
+      });
+    }
+    if (otherSubs.length) {
       bands.push({
         role: 'other',
         strategyId: null,
         bandId: null,
         label: 'Detected themes',
         collapsed: true,
-        subs: rest,
+        subs: otherSubs,
       });
     }
     return bands;
@@ -1282,8 +1294,53 @@
         hit.push(sub.id);
         reasons.push('theme:' + sub.themeId);
       }
+      // Role-tag homes: a tag the open piles don't already claim still files
+      // the card, so a tagged card is not left in Unassigned.
+      if (sub.source === 'tag' && (sub.projectTags || []).some(t => tagSet.has(t))) {
+        hit.push(sub.id);
+        reasons.push('roleTag:' + (sub.projectTags || [])[0]);
+      }
     }
     return { hit, reasons };
+  }
+
+  /** Tags that already place a card in Foundation or Mana Sources. */
+  const _PLACED_WITHOUT_STRATEGY = new Set([
+    'Card Draw', 'Wheel', 'Removal', 'Counterspell', 'Bounce', 'Bite',
+    'Burn.Any', 'Burn.Creature', 'Board Wipe', 'Ramp', 'Land', 'Commander',
+  ]);
+
+  /**
+   * One Strategy pile per role tag that no current subsection claims.
+   * Goal piles omit themes (equipment, protection, …), which left tagged
+   * cards in Unassigned even though the badge showed the tag.
+   */
+  function _tagHomeSubs(strategySubs, cards, deck) {
+    const covered = new Set();
+    for (const sub of strategySubs || []) {
+      for (const t of sub.projectTags || []) if (t) covered.add(t);
+    }
+    const seen = new Set();
+    const extra = [];
+    for (const card of cards || []) {
+      for (const tag of _roles(card, deck)) {
+        const t = String(tag || '').trim();
+        if (!t || covered.has(t) || _PLACED_WITHOUT_STRATEGY.has(t) || seen.has(t)) continue;
+        seen.add(t);
+        extra.push({
+          id: 'tag:' + t,
+          label: t,
+          source: 'tag',
+          projectTags: [t],
+          themeId: null,
+          subtagId: null,
+          goalKey: null,
+          strategyId: null,
+          bandId: 'tag:' + t,
+        });
+      }
+    }
+    return extra;
   }
 
   function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals) {
@@ -1716,7 +1773,7 @@
 
     let payoffSubsAll = _buildPayoffSubs(effectivePlan, themeAnalysis, declaredIds);
     const merged = _mergePinnedSubsIntoLists(strategySubs, payoffSubsAll, overrides, effectivePlan);
-    strategySubs = merged.strategySubs;
+    strategySubs = merged.strategySubs.concat(_tagHomeSubs(merged.strategySubs, cards, deck));
     payoffSubsAll = merged.payoffSubs;
 
     const ctx = { deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals, removalTargets: (opts && opts.removalTargets) || null };

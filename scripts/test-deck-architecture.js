@@ -898,4 +898,26 @@ function findRow(model, name) {
   }
 }
 
+// A role tag the deck's goal piles do not claim must still leave Unassigned.
+{
+  const deck = {
+    cards: [
+      card('Neheb, the Eternal', { isCommander: true, type: 'Legendary Creature', roleTags: ['Commander', 'Burn'], cmc: 5 }),
+      card('Swiftfoot Boots', { type: 'Artifact — Equipment', roleTags: ['Protection'], oracleText: 'Equipped creature has hexproof and haste.' }),
+      card('Light Up the Stage', { type: 'Sorcery', roleTags: ['Card Draw'], oracleText: 'Exile the top two cards of your library.' }),
+    ],
+    plan: vrenPlan({ primaryStrategyId: 'strategy.big_mana', winConditionId: 'wincon.combat' }),
+  };
+  const goals = [{ goal: 'big-mana', label: 'Big mana', confidence: 0.8 }];
+  const m = classifyDeckArchitecture(deck, deck.plan, { cards: deck.cards, goals });
+  const boots = findRow(m, 'Swiftfoot Boots');
+  assert.ok(boots, 'boots row');
+  assert.ok(!m.unassigned.some(r => r.name === 'Swiftfoot Boots'),
+    `tagged Protection card stayed Unassigned: ${m.unassigned.map(r => r.name)}`);
+  assert.ok(boots.strategySubs.includes('tag:Protection'), `boots subs ${boots.strategySubs}`);
+  const impulse = findRow(m, 'Light Up the Stage');
+  assert.ok(impulse.categories.includes('foundation'), 'Card Draw still files under Foundation');
+  assert.ok(!m.unassigned.some(r => r.name === 'Light Up the Stage'));
+}
+
 console.log('test-deck-architecture: ok');

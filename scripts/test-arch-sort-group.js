@@ -31,12 +31,25 @@ const sandbox = Object.assign({
   _deckCardBadgeSortKey: c => (c.badgeTag ? '0' + c.badgeTag : '1'),
   _typeLineOfDeckCard: c => String(c.type || ''),
   _isTagGroupByMode: gb => String(gb).startsWith('tag_'),
+  _roleTagsForCard: c => c.roleTags || [],
+  _tagsOnCardForGrouping: c => c.customTags || [],
+  _probTagsOnCard: c => [...(c.roleTags || []), ...(c.customTags || [])],
+  _tieredDefaultTagsForCard: () => [],
+  _tagMatchesDeckGroupTier: () => false,
+  normalizeDeckTagName: t => String(t || '').trim(),
+  _tagTierKey: t => String(t || '').trim().toLowerCase(),
+  _compareDeckTagGroupKeys: (a, b) => {
+    if (a === 'Untagged') return 1;
+    if (b === 'Untagged') return -1;
+    return String(a).localeCompare(String(b));
+  },
 }, arch);
 vm.createContext(sandbox);
 vm.runInContext([
   slice('function _deckStackSortCards(items, cardOf)', '\nfunction setDeckStackSort'),
   slice('// Architecture Group By — one classification', '\nfunction _archVisualTile'),
   slice('function _buildDeckGroups(cards, groupBy)', '\n// Precomputed ownership maps'),
+  slice('function _allTagsOnCard(card)', '\nlet _deckListSearchDebounce'),
 ].join('\n'), sandbox);
 
 const { _archSortRows, _archGroupRows, _buildDeckGroups, _setArchGroupModel } = sandbox;
@@ -137,6 +150,18 @@ assert.strictEqual(_archGroupRows(rows), null);
   const fallback = _buildDeckGroups(cards, 'architecture');
   assert.deepStrictEqual(Object.keys(fallback), ['Unassigned']);
   assert.strictEqual(fallback.Unassigned.length, cards.length);
+}
+
+// Primary grouping used to drop default role tags, so badged cards sat in Untagged.
+{
+  const tagged = { name: 'Swiftfoot Boots', type: 'Artifact', roleTags: ['Protection'], isCommander: false };
+  const bare = { name: 'Vanilla Bear', type: 'Creature', roleTags: [], isCommander: false };
+  const groups = _buildDeckGroups([tagged, bare], 'tag_primary');
+  assert.ok(!groups.Untagged || !groups.Untagged.some(c => c.name === 'Swiftfoot Boots'),
+    'a card with a role tag must not stay Untagged');
+  assert.ok((groups.Protection || []).some(c => c.name === 'Swiftfoot Boots'));
+  assert.strictEqual((groups.Untagged || []).length, 1);
+  assert.strictEqual(groups.Untagged[0].name, 'Vanilla Bear');
 }
 
 console.log('test-arch-sort-group: ok');
