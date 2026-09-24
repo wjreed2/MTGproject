@@ -2824,23 +2824,23 @@ function _allTagsOnCard(card) {
   return [...out];
 }
 
+// Group-by dropdown tiers are STRICT: a card with nothing at the requested tier
+// lands in Untagged — seeing what still needs curation is the point of the view.
+// (A full-tag fallback briefly lived here and hid exactly that; Architecture
+// placement keeps its own fallback via deck-architecture's _roles, untouched.)
 function _tagsOnCardForGroupTier(card, tier) {
-  const all = _allTagsOnCard(card);
   if (tier === 'tag_default') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    const defaults = roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
-    // A card that has tags must not fall through to Untagged.
-    return defaults.length ? defaults : all;
+    return roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
     // Default tags with a manual or auto primary/secondary tier count here too.
     const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
-    const matched = [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
-    return matched.length ? matched : all;
+    return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
-  if (tier === 'tag_all') return all;
-  return userTags.length ? userTags : all;
+  if (tier === 'tag_all') return _allTagsOnCard(card);
+  return userTags;
 }
 
 let _deckListSearchDebounce = null;
