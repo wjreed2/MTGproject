@@ -35,7 +35,9 @@ const sandbox = Object.assign({
   _tagsOnCardForGrouping: c => c.customTags || [],
   _probTagsOnCard: c => [...(c.roleTags || []), ...(c.customTags || [])],
   _tieredDefaultTagsForCard: () => [],
-  _tagMatchesDeckGroupTier: () => false,
+  // Default tags match the Default tier; nothing carries a primary/secondary
+  // tier in this sandbox, so those views stay strict-empty (see the tier test).
+  _tagMatchesDeckGroupTier: (card, tag, tier) => tier === 'tag_default',
   normalizeDeckTagName: t => String(t || '').trim(),
   _tagTierKey: t => String(t || '').trim().toLowerCase(),
   _compareDeckTagGroupKeys: (a, b) => {
@@ -152,16 +154,20 @@ assert.strictEqual(_archGroupRows(rows), null);
   assert.strictEqual(fallback.Unassigned.length, cards.length);
 }
 
-// Primary grouping used to drop default role tags, so badged cards sat in Untagged.
+// Primary is STRICT: only explicitly (or auto-) tiered tags group there. An
+// untiered role tag leaves its card in Untagged — the view exists to show what
+// still needs curation. The Default view still groups by the role tag itself.
 {
   const tagged = { name: 'Swiftfoot Boots', type: 'Artifact', roleTags: ['Protection'], isCommander: false };
   const bare = { name: 'Vanilla Bear', type: 'Creature', roleTags: [], isCommander: false };
-  const groups = _buildDeckGroups([tagged, bare], 'tag_primary');
-  assert.ok(!groups.Untagged || !groups.Untagged.some(c => c.name === 'Swiftfoot Boots'),
-    'a card with a role tag must not stay Untagged');
-  assert.ok((groups.Protection || []).some(c => c.name === 'Swiftfoot Boots'));
-  assert.strictEqual((groups.Untagged || []).length, 1);
-  assert.strictEqual(groups.Untagged[0].name, 'Vanilla Bear');
+  const primary = _buildDeckGroups([tagged, bare], 'tag_primary');
+  assert.ok(!primary.Protection, 'an untiered role tag must not group under Primary');
+  assert.deepStrictEqual(names(primary.Untagged || []).sort(),
+    ['Swiftfoot Boots', 'Vanilla Bear'], 'both cards sit in Untagged under Primary');
+  const byDefault = _buildDeckGroups([tagged, bare], 'tag_default');
+  assert.ok((byDefault.Protection || []).some(c => c.name === 'Swiftfoot Boots'),
+    'the Default view still groups by the role tag');
+  assert.ok((byDefault.Untagged || []).some(c => c.name === 'Vanilla Bear'));
 }
 
 console.log('test-arch-sort-group: ok');
