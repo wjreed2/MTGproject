@@ -2467,6 +2467,7 @@ const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printi
 const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
 const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
 const removalRoles = require('./js/removal-roles.js'); // CardIR removal-target classifier (client + server)
+const scryTagSchema = require('./js/scry-tag-schema.js');
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -3878,12 +3879,7 @@ app.put('/api/collection', requireAuth, async (req, res) => {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await conn.query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(conn, oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -3960,10 +3956,7 @@ async function _collectionTagContext(conn, accountId, cards) {
     const [tr] = await conn.query(
       `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oidList);
     typeRows = tr || [];
-    const [tg] = await conn.query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-        WHERE oracle_id IN (${ph}) AND schema_version = ?`, [...oidList, SCRY_TAG_SCHEMA_VERSION]);
-    tagRows = tg || [];
+    tagRows = await loadOracleTagRows(conn, oidList);
   }
   const typeByOid = new Map((typeRows || [])
     .map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')]));
@@ -6393,9 +6386,15 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     // enchantment/… removal) — derived target-type labels only, same rule as
     // the strip below: never ship the raw effect AST or axis tokens.
     const removalTargets = {};
-    for (const c of deckCards) {
+    const irProjectTags = {};
+    const irWincon = {};
+    const irSources = commander ? deckCards.concat([commander]) : deckCards;
+    for (const c of irSources) {
       const cats = removalRoles.classifyRemovalTargets(c.ir);
-      if (cats.length) removalTargets[c.name] = cats;
+      if (cats.length && c.name) removalTargets[c.name] = cats;
+      const tags = scryTagSchema.irProjectTagsForCard(c.ir);
+      if (tags.length && c.name) irProjectTags[c.name] = tags;
+      if (c.name && scryTagSchema.irCardClosesGame(c.ir)) irWincon[c.name] = true;
     }
 
     // Strip internal reasoning tokens before they leave the server. The client
@@ -6411,6 +6410,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
       coverage: { semantics: coverage },
       removalTargets,
+      irProjectTags,
+      irWincon,
     });
   } catch (e) {
     console.error('[analyze]', e);
@@ -9717,10 +9718,7 @@ async function _fingerprintCardsFor(metas) {
 }
 
 async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
-  const [rows] = await db().query(
-    `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
-    [String(oracleId || '').toLowerCase(), schemaVersion]
-  );
+  const rows = await loadOracleTagRows(db(), [String(oracleId || '').toLowerCase()], schemaVersion);
   if (!rows.length) return null;
   try {
     let tags;
@@ -9734,6 +9732,27 @@ async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCH
 
 // v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
 const SCRY_TAG_SCHEMA_VERSION = '5';
+
+// scryfall_oracle_tags is keyed on oracle_id ALONE (one row per card; the import
+// upserts schema_version in place), so "current schema, else newest stored" in SQL
+// reduces to "the row that exists" — the catalog queries below join plainly on
+// oracle_id, and preferOracleTagRows keeps the version preference for the general
+// case in loadOracleTagRows. If the PK ever grows a schema_version column, the
+// plain joins would duplicate cards and need the preference pushed back into SQL.
+
+async function loadOracleTagRows(queryable, oracleIds, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
+  const ids = [...new Set((oracleIds || [])
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(v => ORACLE_UUID_RE.test(v)))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await queryable.query(
+    `SELECT oracle_id, tags_json, schema_version FROM scryfall_oracle_tags
+     WHERE oracle_id IN (${ph})`,
+    ids
+  );
+  return scryTagSchema.preferOracleTagRows(rows, schemaVersion);
+}
 let _scryfallImportProgress = {
   running: false,
   phase: 'idle',
@@ -9878,10 +9897,7 @@ async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
       'SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id = ?',
       [oid]
     );
-    const [tagRows] = await conn.query(
-      'SELECT oracle_id, tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ?',
-      [oid, SCRY_TAG_SCHEMA_VERSION]
-    );
+    const tagRows = await loadOracleTagRows(conn, [oid]);
     const typeByOid = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
@@ -10029,12 +10045,7 @@ async function infillCollectionRoleTagsMissing() {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await db().query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(db(), oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -11311,7 +11322,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -11395,7 +11406,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
@@ -12207,11 +12218,7 @@ app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
     const typeByOracle = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
-    const [rows] = await db().query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-       WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-      [...oracleIds, schemaVersion]
-    );
+    const rows = await loadOracleTagRows(db(), oracleIds, schemaVersion);
     const tagsByOracleId = {};
     const oracleIdsWithTagRow = new Set();
     rows.forEach(r => {

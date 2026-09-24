@@ -6542,6 +6542,8 @@ function _archModelOrNull(deck, cards) {
       overrides: deck.architectureOverrides,
       goals: cached && cached.goals ? cached.goals : null,
       removalTargets: cached && cached.removalTargets ? cached.removalTargets : null,
+      irProjectTags: cached && cached.irProjectTags ? cached.irProjectTags : null,
+      irWincon: cached && cached.irWincon ? cached.irWincon : null,
     });
   } catch (err) {
     console.error('Architecture view failed:', err);

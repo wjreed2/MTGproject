@@ -920,4 +920,58 @@ function findRow(model, name) {
   assert.ok(!m.unassigned.some(r => r.name === 'Light Up the Stage'));
 }
 
+// Development has CardIR, so analyze returns goals and those piles replace themes.
+// Placement must use the IR-derived project tags analyze sends — deck cards have no ir.
+{
+  const deck = {
+    cards: [
+      card('Beast Whisperer', { type: 'Creature', roleTags: [] }),
+      card('Swords to Plowshares', { type: 'Instant', roleTags: [] }),
+      card('Sol Ring', { type: 'Artifact', roleTags: [] }),
+      card('Craterhoof Behemoth', { type: 'Creature', roleTags: [], cmc: 8 }),
+    ],
+  };
+  const goals = [{ goal: 'tokens-wide', label: 'Tokens', confidence: 0.9 }];
+  const bare = classifyDeckArchitecture(deck, null, { cards: deck.cards, goals });
+  assert.ok(!findRow(bare, 'Swords to Plowshares').foundationFns.includes('interaction'),
+    'a removal spell with neither tags nor IR stays out of Interaction');
+  const m = classifyDeckArchitecture(deck, null, {
+    cards: deck.cards,
+    goals,
+    irProjectTags: {
+      'Beast Whisperer': ['Card Draw', 'Token Maker'],
+      'Swords to Plowshares': ['Removal'],
+      'Sol Ring': ['Ramp'],
+    },
+    irWincon: { 'Craterhoof Behemoth': true },
+    removalTargets: { 'Swords to Plowshares': ['creature'] },
+  });
+  assert.ok(findRow(m, 'Swords to Plowshares').foundationFns.includes('interaction'));
+  assert.deepStrictEqual(findRow(m, 'Swords to Plowshares').interactionGroups, ['creature']);
+  assert.ok(findRow(m, 'Sol Ring').manabaseSubs.includes('ramp'));
+  assert.ok(findRow(m, 'Beast Whisperer').foundationFns.includes('card_advantage'));
+  assert.ok(findRow(m, 'Beast Whisperer').strategySubs.some(id => id.startsWith('goal:')),
+    `token maker should join the goal pile, got ${findRow(m, 'Beast Whisperer').strategySubs}`);
+  assert.ok(findRow(m, 'Craterhoof Behemoth').payoffSubs.includes('win_condition'));
+  assert.ok((m.counts.foundationUnique || 0) > 0, 'foundation panel is not empty once IR tags arrive');
+}
+
+{
+  const schema = require('../js/scry-tag-schema.js');
+  const picked = schema.preferOracleTagRows([
+    { oracle_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', schema_version: '4', tags_json: ['Ramp'] },
+    { oracle_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', schema_version: '4', tags_json: ['Removal'] },
+    { oracle_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', schema_version: '5', tags_json: ['Burn.Creature'] },
+  ], '5');
+  const byId = new Map(picked.map(r => [r.oracle_id, r.tags_json]));
+  assert.deepStrictEqual(byId.get('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), ['Ramp'],
+    'v4 tags still apply when v5 has not been imported for that card');
+  assert.deepStrictEqual(byId.get('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), ['Burn.Creature'],
+    'v5 wins when that row exists');
+  assert.deepStrictEqual(schema.irProjectTagsForCard({ roles: ['burn', 'spot_removal', 'ramp'] }), ['Removal', 'Ramp'],
+    'flat CardIR burn is not a project interaction tag');
+  assert.strictEqual(schema.irCardClosesGame({ wincon: { kind: 'combo_piece' } }), true);
+  assert.strictEqual(schema.irCardClosesGame({ roles: ['burn'] }), false);
+}
+
 console.log('test-deck-architecture: ok');

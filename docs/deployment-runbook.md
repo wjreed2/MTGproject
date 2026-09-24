@@ -70,8 +70,10 @@ mirroring the changelog pipeline:
 
 5. Tag schema is **v5** (`SCRY_TAG_SCHEMA_VERSION` on the server and `_SCRY_TAG_SCHEMA_VERSION`
    in the client). After this deploy, re-run the admin Scryfall tag import (and EDHREC
-   percentile recompute) at schema `5`. Leaving only v4 rows makes role pools empty and
-   collection saves strip Scryfall tags.
+   percentile recompute) at schema `5`. Reads fall back to the newest older row when a
+   card has no v5 tags, so Architecture does not go empty before that import. Burn
+   subtypes (`Burn.Any`, `Burn.Creature`, `Burn.Player`) exist only in v5 — until the
+   import, face burn is simply absent rather than counted as interaction.
 
 ## 1c. Two machines running extraction (collaborator setup)
 

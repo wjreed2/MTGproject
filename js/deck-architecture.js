@@ -203,15 +203,24 @@
     return String(card && (card.oracleText || card.oracle_text) || '').toLowerCase();
   }
 
-  function _roles(card, deck) {
+  function _roles(card, deck, irProjectTags) {
+    let out = null;
     if (root && typeof root._probTagsOnCard === 'function') {
-      try { return root._probTagsOnCard(card, deck) || []; } catch (_) { /* fall through */ }
+      try { out = (root._probTagsOnCard(card, deck) || []).slice(); } catch (_) { out = null; }
     }
-    const out = [];
-    if (_isLand(card)) out.push('Land');
-    if (card && card.isCommander) out.push('Commander');
-    (card && card.roleTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
-    (card && card.customTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+    if (!out) {
+      out = [];
+      if (_isLand(card)) out.push('Land');
+      if (card && card.isCommander) out.push('Commander');
+      (card && card.roleTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+      (card && card.customTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+    }
+    // Analyze sends project-tag labels derived from CardIR. Deck cards themselves
+    // never carry ir, so this is the only way those roles reach placement.
+    const extra = irProjectTags && card && card.name ? irProjectTags[card.name] : null;
+    if (Array.isArray(extra)) {
+      for (const t of extra) if (t && !out.includes(t)) out.push(t);
+    }
     return out;
   }
 
@@ -713,7 +722,8 @@
     'wincon.lock': Object.freeze(['Stax']),
   });
 
-  function _cardHasWinconSignal(card, plan, deck, goals) {
+  function _cardHasWinconSignal(card, plan, deck, goals, irWincon) {
+    if (irWincon && card && card.name && irWincon[card.name]) return true;
     if (card && card.isCommander && _goalImpliesCommanderWincon(goals)) return true;
     const ir = _ir(card);
     if (ir && ir.wincon) return true;
@@ -1315,7 +1325,7 @@
    * Goal piles omit themes (equipment, protection, …), which left tagged
    * cards in Unassigned even though the badge showed the tag.
    */
-  function _tagHomeSubs(strategySubs, cards, deck) {
+  function _tagHomeSubs(strategySubs, cards, deck, irProjectTags) {
     const covered = new Set();
     for (const sub of strategySubs || []) {
       for (const t of sub.projectTags || []) if (t) covered.add(t);
@@ -1323,7 +1333,7 @@
     const seen = new Set();
     const extra = [];
     for (const card of cards || []) {
-      for (const tag of _roles(card, deck)) {
+      for (const tag of _roles(card, deck, irProjectTags)) {
         const t = String(tag || '').trim();
         if (!t || covered.has(t) || _PLACED_WITHOUT_STRATEGY.has(t) || seen.has(t)) continue;
         seen.add(t);
@@ -1343,7 +1353,7 @@
     return extra;
   }
 
-  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals) {
+  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals, irWincon) {
     const hit = [];
     const reasons = [];
     const tagSet = new Set(tags);
@@ -1367,7 +1377,7 @@
     // Pieces is the more specific statement of it in a combo deck, Token /
     // Swarm pays off going wide short of winning outright, Value Finishers
     // grind the plan's payoffs out, Threats / Bombs is off-plan muscle.
-    const isWincon = _cardHasWinconSignal(card, plan, deck, ctxGoals);
+    const isWincon = _cardHasWinconSignal(card, plan, deck, ctxGoals, irWincon);
     let comboReason = '';
     if (payoffSubs.some(s => s.id === 'combo') && (isWincon || tagSet.has('Tutor'))) {
       if (_ir(card) && _ir(card).wincon && _ir(card).wincon.kind === 'combo_piece') comboReason = 'ir:combo';
@@ -1417,7 +1427,7 @@
 
   function classifyCardArchitecture(card, ctx) {
     const { deck, plan, strategySubs, payoffSubs } = ctx;
-    const tags = _roles(card, deck);
+    const tags = _roles(card, deck, ctx && ctx.irProjectTags);
     const categories = new Set();
     const reasons = [];
     let ambiguous = false;
@@ -1442,7 +1452,7 @@
     s.reasons.forEach(r => reasons.push(r));
     if (s.hit.length) categories.add('strategy');
 
-    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctx.goals);
+    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctx.goals, ctx.irWincon);
     p.reasons.forEach(r => reasons.push(r));
     if (p.hit.length) categories.add('payoffs');
 
@@ -1744,6 +1754,8 @@
       : [];
     const declaredIds = new Set(declaredList.map(t => t.id));
     const goals = (opts && opts.goals) || null;
+    const irProjectTags = (opts && opts.irProjectTags) || null;
+    const irWincon = (opts && opts.irWincon) || null;
     const overrides = (opts && opts.overrides) || (deck && deck.architectureOverrides);
 
     let strategySubs = _buildStrategySubs(resolvedPlan, themeAnalysis, declaredIds, goals);
@@ -1773,10 +1785,14 @@
 
     let payoffSubsAll = _buildPayoffSubs(effectivePlan, themeAnalysis, declaredIds);
     const merged = _mergePinnedSubsIntoLists(strategySubs, payoffSubsAll, overrides, effectivePlan);
-    strategySubs = merged.strategySubs.concat(_tagHomeSubs(merged.strategySubs, cards, deck));
+    strategySubs = merged.strategySubs.concat(_tagHomeSubs(merged.strategySubs, cards, deck, irProjectTags));
     payoffSubsAll = merged.payoffSubs;
 
-    const ctx = { deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals, removalTargets: (opts && opts.removalTargets) || null };
+    const ctx = {
+      deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals,
+      removalTargets: (opts && opts.removalTargets) || null,
+      irProjectTags, irWincon,
+    };
     let rows = cards.map(c => classifyCardArchitecture(c, ctx));
     rows = applyArchitectureOverrides(rows, overrides);
     rows = _mergeArchitectureRowsByKey(rows);
