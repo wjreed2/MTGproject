@@ -35,7 +35,7 @@ Keys: `mtg_arch_panel_layout`, `mtg_arch_card_mode`.
 
 ## Classification
 
-Deterministic, client-side: [`js/deck-architecture.js`](../js/deck-architecture.js). Inputs: project role tags, semantic goals (`/api/decks/analyze`), `architectureOverrides` identity, optional Plan when the Deck Plan feature is on (`activePlanSubTags`, wincon, key cards), `analyzeDeckThemes`, CardIR when present. No EDHREC rank. No live Scryfall. No `engine2/` edits.
+Deterministic, client-side: [`js/deck-architecture.js`](../js/deck-architecture.js). Inputs: project role tags, semantic goals (`/api/decks/analyze`), `architectureOverrides` identity, optional Plan when the Deck Plan feature is on (`activePlanSubTags`, wincon, key cards), `analyzeDeckThemes`, and CardIR-derived placement when analyze has semantics (`irProjectTags`, `irWincon`, `removalTargets`). Deck cards do not carry raw CardIR. No EDHREC rank. No live Scryfall. No `engine2/` edits.
 
 - **Mana Sources:** lands (`_isLandDeckCard`, basics / nonbasics) plus Ramp (rocks, rituals, ramp lands, dorks). Internal category id remains `manabase`.
 - **Foundation functions:** always shown, including zeros. Wipes ≠ spot interaction. Ramp is not a Foundation function in this view. Parent tag **Burn** alone is not interaction — only `Burn.Any` / `Burn.Creature` (or legacy `Burn` whose oracle can hit creatures / any target). Face burn (`Burn.Player` / `Burn.Opponents`, e.g. Valakut Exploration) stays out of Interaction.
