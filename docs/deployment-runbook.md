@@ -68,6 +68,13 @@ mirroring the changelog pipeline:
 4. Prod also needs the oracle catalog current (admin **import-oracle** endpoint) so the
    new `scryfall_oracle_cards` columns are populated — the analyze route joins on them.
 
+5. Tag schema is **v5** (`SCRY_TAG_SCHEMA_VERSION` on the server and `_SCRY_TAG_SCHEMA_VERSION`
+   in the client). After this deploy, re-run the admin Scryfall tag import (and EDHREC
+   percentile recompute) at schema `5`. Reads fall back to the newest older row when a
+   card has no v5 tags, so Architecture does not go empty before that import. Burn
+   subtypes (`Burn.Any`, `Burn.Creature`, `Burn.Player`) exist only in v5 — until the
+   import, face burn is simply absent rather than counted as interaction.
+
 ## 1c. Two machines running extraction (collaborator setup)
 
 Extraction is CPU-free but subscription-expensive: every card costs a headless

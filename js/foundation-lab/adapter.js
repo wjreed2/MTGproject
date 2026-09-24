@@ -179,11 +179,11 @@
     let hits = 0;
     if (sid === 'strategy.reanimator' && tags.some(t => t === 'Reanimate' || t === 'Recursion')) hits += 2;
     if (sid === 'strategy.voltron' && tags.some(t => t === 'Protection' || t === 'Pump' || t === 'Evasion')) hits += 2;
-    if (sid === 'strategy.tokens' && tags.includes('Token Maker')) hits += 2;
+    if ((sid === 'strategy.tokens' || sid.startsWith('strategy.tokens.')) && tags.includes('Token Maker')) hits += 2;
     if (sid === 'strategy.sacrifice' && tags.some(t => t === 'Sac Outlet' || t === 'Drain')) hits += 2;
     if (sid === 'strategy.spellslinger' && /\bInstant\b|\bSorcery\b/i.test(card.type || '')) hits += 1;
     if (sid === 'strategy.stax' && tags.some(t => t === 'Stax' || t === 'Hatebear')) hits += 2;
-    if (sid === 'strategy.enchantress' && /\bEnchantment\b/i.test(card.type || '')) hits += 1;
+    if (sid === 'strategy.auras' && /\bEnchantment\b/i.test(card.type || '')) hits += 1;
     if (card.ir && (card.ir.provides || card.ir.needs)) hits += 1;
     if (hits >= 2) return 'HIGH';
     if (hits === 1) return 'MED';

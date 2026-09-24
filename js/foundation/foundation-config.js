@@ -105,7 +105,7 @@
 
     interaction: {
       threatTypes: {
-        creature: { base: 0.85, tags: ['Removal', 'Bite', 'Burn', 'Bounce'] },
+        creature: { base: 0.85, tags: ['Removal', 'Bite', 'Burn.Any', 'Burn.Creature', 'Bounce'] },
         wideBoard: { base: 0.7, tags: ['Board Wipe'] },
         artifact: { base: 0.55, tags: ['Removal'], oracle: /\bartifact\b/i },
         enchantment: { base: 0.5, tags: ['Removal'], oracle: /\benchantment\b/i },
@@ -155,6 +155,12 @@
       'strategy.reanimator': { resources: 1.15, keepGoing: 1.15, manaAccess: 0.95 },
       'strategy.spellslinger': { resources: 1.1, manaAccess: 1.1, interaction: 1.05 },
       'strategy.tokens': { interaction: 1.1, keepGoing: 1.05 },
+      // Go Wide leans harder on keeping the board than the umbrella does — a
+      // swarm that eats one wipe is out of the game.
+      'strategy.tokens.go_wide': { interaction: 1.1, keepGoing: 1.15 },
+      'strategy.treasure': { manaAccess: 1.15, resources: 1.05 },
+      'strategy.food': { keepGoing: 1.1, resources: 1.05 },
+      'strategy.clues': { resources: 1.15, interaction: 1.05 },
       'strategy.sacrifice': { resources: 1.1, keepGoing: 1.1 },
       'strategy.stax': { interaction: 1.2, keepGoing: 1.15 },
       'strategy.goodstuff': { resources: 1.05, interaction: 1.05 },

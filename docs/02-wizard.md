@@ -62,25 +62,22 @@ This is a UX requirement/note; do not assume it is implemented unless implementa
 
 ## Strategy catalog
 
-18 IDs:
-- `strategy.tokens`
-- `strategy.sacrifice`
-- `strategy.spellslinger`
-- `strategy.reanimator`
-- `strategy.voltron`
-- `strategy.counters`
-- `strategy.landfall`
-- `strategy.tribal`
-- `strategy.artifacts`
-- `strategy.enchantress`
-- `strategy.control`
-- `strategy.blink`
-- `strategy.superfriends`
-- `strategy.theft`
-- `strategy.stax`
-- `strategy.mill`
-- `strategy.goodstuff`
-- `strategy.other`
+Strategy catalog (Batch 1 — shortlist preferred in wizard chips; full list via search / Show more):
+
+- `strategy.tokens` (umbrella — **Tokens**), `strategy.tokens.go_wide` (**Go Wide**)
+- `strategy.sacrifice`, `strategy.spellslinger`, `strategy.reanimator`
+- `strategy.voltron`, `strategy.counters`, `strategy.landfall`, `strategy.tribal` (label **Typal**)
+- `strategy.artifacts`, `strategy.equipment`, `strategy.auras` (was Enchantress), `strategy.vehicles`
+- Token children (all `parent: 'strategy.tokens'`, search-only except Go Wide):
+  `strategy.food`, `strategy.treasure`, `strategy.clues`, `strategy.tokens.blood`,
+  `strategy.tokens.powerstone`, `strategy.tokens.incubate`, `strategy.tokens.map`,
+  `strategy.tokens.junk`, `strategy.tokens.role`, `strategy.tokens.gold`
+- `strategy.typal.elf`, `strategy.typal.goblin`, `strategy.typal.zombie`, `strategy.typal.dragon` (pinned)
+- `strategy.lifegain`, `strategy.combo`
+- `strategy.control`, `strategy.blink`, `strategy.superfriends`, `strategy.theft`
+- `strategy.stax`, `strategy.mill`, `strategy.goodstuff`, `strategy.other`
+
+Legacy ids migrate on load: `strategy.enchantress` → `strategy.auras`, `theme.lifegain` → `strategy.lifegain`.
 
 ## Plan envelope
 

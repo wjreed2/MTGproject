@@ -76,6 +76,34 @@
     'evasion.grant': 'Evasion',
     'anthem.global': 'Anthem',
     'pump.single': 'Pump',
+    // Added 2026-09-20: this map covered 27 of engine2's 121 axes, so a deck whose
+    // semantics were present still had most of its axes contribute no role signal
+    // (strategy-gap-audit.md §2.7). Every pair below is an existing axis and an
+    // existing project label — no engine2 change, no new tag ingest.
+    'body.evasive': 'Evasion',
+    'mill.opponent': 'Mill',
+    'gy.reanimate': 'Reanimate',
+    'gy.self_fill': 'Self-Mill',
+    'gy.cast_from': 'Graveyard Cast',
+    'card_advantage.wheel': 'Wheel',
+    'discard.attack': 'Discard',
+    'discard.outlet': 'Discard',
+    // Q6 in the audit asked for these two to be wired rather than deleted. Both are
+    // Ring-1 axes - extraction can emit them and nothing anywhere read them.
+    // Looting is draw-then-discard; the half a reanimator deck cares about is the discard.
+    'card_advantage.loot': 'Discard',
+    'mana.untap_lands': 'Ramp',
+    'control.tax': 'Stax',
+    'hate.cast_restriction': 'Hatebear',
+    'hate.search': 'Hatebear',
+    'theft.control': 'Control',
+    'token.treasure': 'Treasure',
+    'combat.extra': 'Extra Combat',
+    'combat.attack_trigger': 'Attack Trigger',
+    'haste.enabler': 'Haste Enabler',
+    'group.slug': 'Group Slug',
+    'copy.spell': 'Copy',
+    'token.copy': 'Copy',
   });
 
   function emptyCommanderPlanFields() {

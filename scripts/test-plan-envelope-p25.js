@@ -136,4 +136,18 @@ const e21 = require('../engine2.1wizard');
   assert.strictEqual(empty.picks.length, 0);
 }
 
+{
+  const auras = plan.mergedPlanSubtagDefaults({
+    winConditionId: 'wincon.combat',
+    primaryStrategyId: 'strategy.auras',
+    planConfirmed: true,
+    planTypePicks: { 'strategy.auras': ['aura'] },
+  }, 30);
+  const enchType = auras.find(r => r.id === 'ench.type');
+  assert.ok(enchType, 'auras inherits ench.* subtags');
+  assert.ok(/Auras/i.test(enchType.label), enchType.label);
+  assert.strictEqual(plan.subtagStrategyId('ench.draw'), 'strategy.auras');
+  assert.strictEqual(plan.subtagStrategyId('equip.type'), 'strategy.equipment');
+}
+
 console.log('[test-plan-envelope-p25] ok');

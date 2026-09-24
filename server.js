@@ -2466,6 +2466,8 @@ const {
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
 const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
+const removalRoles = require('./js/removal-roles.js'); // CardIR removal-target classifier (client + server)
+const scryTagSchema = require('./js/scry-tag-schema.js');
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -3877,12 +3879,7 @@ app.put('/api/collection', requireAuth, async (req, res) => {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await conn.query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(conn, oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -3959,10 +3956,7 @@ async function _collectionTagContext(conn, accountId, cards) {
     const [tr] = await conn.query(
       `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oidList);
     typeRows = tr || [];
-    const [tg] = await conn.query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-        WHERE oracle_id IN (${ph}) AND schema_version = ?`, [...oidList, SCRY_TAG_SCHEMA_VERSION]);
-    tagRows = tg || [];
+    tagRows = await loadOracleTagRows(conn, oidList);
   }
   const typeByOid = new Map((typeRows || [])
     .map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')]));
@@ -6388,6 +6382,21 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
+    // Architecture view's Interaction/Removal subsections (creature/artifact/
+    // enchantment/… removal) — derived target-type labels only, same rule as
+    // the strip below: never ship the raw effect AST or axis tokens.
+    const removalTargets = {};
+    const irProjectTags = {};
+    const irWincon = {};
+    const irSources = commander ? deckCards.concat([commander]) : deckCards;
+    for (const c of irSources) {
+      const cats = removalRoles.classifyRemovalTargets(c.ir);
+      if (cats.length && c.name) removalTargets[c.name] = cats;
+      const tags = scryTagSchema.irProjectTagsForCard(c.ir);
+      if (tags.length && c.name) irProjectTags[c.name] = tags;
+      if (c.name && scryTagSchema.irCardClosesGame(c.ir)) irWincon[c.name] = true;
+    }
+
     // Strip internal reasoning tokens before they leave the server. The client
     // renders only `reasons`/`breakdown` (English) + goal label/summary — it never
     // reads raw `trace` (axis/param/weight tokens) or goal `evidence` (axes/clusters).
@@ -6400,6 +6409,9 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       adds: adds.map(({ trace, ...a }) => a),
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
       coverage: { semantics: coverage },
+      removalTargets,
+      irProjectTags,
+      irWincon,
     });
   } catch (e) {
     console.error('[analyze]', e);
@@ -8747,6 +8759,7 @@ let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to pre
 const {
   PROJECT_ROLE_TAGS: SCRYFALL_AUTO_TAGS,
   OTAG_TO_PROJECT_LABEL: _OTAG_TO_LABEL,
+  demoteRampTutorLabels,
 } = require('./js/project-role-tags.js');
 // Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
 // engine resolve `otag:removal` against the local tag table (which stores "Removal").
@@ -9007,7 +9020,7 @@ async function ensureCardSemanticsTables() {
  * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
-async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '5' } = {}) {
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -9057,6 +9070,13 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
         if (!pctByOracle.has(item.oracle_id)) pctByOracle.set(item.oracle_id, {});
         pctByOracle.get(item.oracle_id)[role] = Math.round(p * 1e5) / 1e5;
       });
+    }
+
+    // No tag rows for this schema: leave existing percentiles alone. Wiping first
+    // and finding nothing re-triggers the boot backfill forever.
+    if (!rows.length) {
+      console.log(`[edhrec-pct] skip — no tag rows for schema ${schemaVersion}`);
+      return { roles: 0, updated: 0, withRank: Number(rankRow?.n || 0), skipped: true };
     }
 
     // Clear then write (cards with no qualifying roles get NULL).
@@ -9111,7 +9131,7 @@ async function backfillEdhrecPercentilesIfNeeded() {
     return;
   }
   console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
-  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: SCRY_TAG_SCHEMA_VERSION });
   console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
 }
 
@@ -9697,21 +9717,42 @@ async function _fingerprintCardsFor(metas) {
   return cards;
 }
 
-async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
-  const [rows] = await db().query(
-    `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
-    [String(oracleId || '').toLowerCase(), schemaVersion]
-  );
+async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
+  const rows = await loadOracleTagRows(db(), [String(oracleId || '').toLowerCase()], schemaVersion);
   if (!rows.length) return null;
   try {
-    if (Array.isArray(rows[0].tags_json)) return rows[0].tags_json;
-    return JSON.parse(rows[0].tags_json || '[]');
+    let tags;
+    if (Array.isArray(rows[0].tags_json)) tags = rows[0].tags_json;
+    else tags = JSON.parse(rows[0].tags_json || '[]');
+    return typeof demoteRampTutorLabels === 'function' ? demoteRampTutorLabels(tags) : tags;
   } catch (_) {
     return [];
   }
 }
 
-const SCRY_TAG_SCHEMA_VERSION = '4';
+// v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
+const SCRY_TAG_SCHEMA_VERSION = '5';
+
+// scryfall_oracle_tags is keyed on oracle_id ALONE (one row per card; the import
+// upserts schema_version in place), so "current schema, else newest stored" in SQL
+// reduces to "the row that exists" — the catalog queries below join plainly on
+// oracle_id, and preferOracleTagRows keeps the version preference for the general
+// case in loadOracleTagRows. If the PK ever grows a schema_version column, the
+// plain joins would duplicate cards and need the preference pushed back into SQL.
+
+async function loadOracleTagRows(queryable, oracleIds, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
+  const ids = [...new Set((oracleIds || [])
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(v => ORACLE_UUID_RE.test(v)))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await queryable.query(
+    `SELECT oracle_id, tags_json, schema_version FROM scryfall_oracle_tags
+     WHERE oracle_id IN (${ph})`,
+    ids
+  );
+  return scryTagSchema.preferOracleTagRows(rows, schemaVersion);
+}
 let _scryfallImportProgress = {
   running: false,
   phase: 'idle',
@@ -9759,7 +9800,7 @@ function tagsFromBatchLogic(oracleIds, typeRows, tagRows) {
     }
     const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
     if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
-    fromDb.set(oid, arr.filter(Boolean));
+    fromDb.set(oid, demoteRampTutorLabels(arr.filter(Boolean)));
   }
   const out = new Map();
   for (const oid of oracleIds) {
@@ -9798,7 +9839,7 @@ function computeCollectionStoredRoleTags(card, oid, typeByOid, tagsByOidMap, ovB
   if (tlMerged.includes('land') || landPayload) tags.push('Land');
   if (card?.isCommander) tags.push('Commander');
   if (oid && tagsByOidMap.has(oid)) tags.push(...(tagsByOidMap.get(oid) || []));
-  const uniq = [...new Set(tags)];
+  const uniq = demoteRampTutorLabels([...new Set(tags)]);
   const ov = oid ? ovByOid.get(oid) : null;
   return applyAccountTagOverridesToTags(uniq, ov || { add: [], remove: [] });
 }
@@ -9856,10 +9897,7 @@ async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
       'SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id = ?',
       [oid]
     );
-    const [tagRows] = await conn.query(
-      'SELECT oracle_id, tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ?',
-      [oid, SCRY_TAG_SCHEMA_VERSION]
-    );
+    const tagRows = await loadOracleTagRows(conn, [oid]);
     const typeByOid = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
@@ -10007,12 +10045,7 @@ async function infillCollectionRoleTagsMissing() {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await db().query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(db(), oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -10146,7 +10179,7 @@ async function saveTagQueryCache(schemaVersion, cacheMap) {
   }
 }
 
-async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, refreshCache = false, onProgress = null } = {}) {
+async function buildTagMapFromQueries({ schemaVersion = '5', useCache = true, refreshCache = false, onProgress = null } = {}) {
   const specs = SCRYFALL_AUTO_TAGS.map(spec => ({
     label: spec.label,
     query: spec.query || `otag:${spec.otag}`,
@@ -10209,11 +10242,18 @@ async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, re
   });
   await Promise.all(workers);
   if (cacheWriteMap.size) await saveTagQueryCache(schemaVersion, cacheWriteMap);
+  // Ramp land-searches must not also carry Tutor (see demoteRampTutorLabels).
+  if (typeof demoteRampTutorLabels === 'function') {
+    for (const [oid, labelSet] of tagMap) {
+      const cleaned = demoteRampTutorLabels([...labelSet]);
+      tagMap.set(oid, new Set(cleaned));
+    }
+  }
   return { tagMap, totalQueries, completedQueries };
 }
 
 async function importScryfallOracleBulkToDb({
-  schemaVersion = '4',
+  schemaVersion = '5',
   importCards = true,
   rebuildTags = true,
   useTagQueryCache = true,
@@ -11282,7 +11322,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -11366,7 +11406,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
@@ -11881,7 +11921,7 @@ app.get('/api/scryfall/search', async (req, res) => {
 });
 
 async function runScryfallImportEndpoint(req, res, mode) {
-  const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+  const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
   if (_scryfallImportProgress.running) {
     return res.status(409).json({ error: 'Scryfall import already running', progress: _scryfallImportProgress });
   }
@@ -12149,7 +12189,7 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
 /** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
 app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
   try {
-    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
     const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
     res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {
@@ -12178,11 +12218,7 @@ app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
     const typeByOracle = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
-    const [rows] = await db().query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-       WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-      [...oracleIds, schemaVersion]
-    );
+    const rows = await loadOracleTagRows(db(), oracleIds, schemaVersion);
     const tagsByOracleId = {};
     const oracleIdsWithTagRow = new Set();
     rows.forEach(r => {

@@ -743,6 +743,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 12.5 6.2 4h3.6L13 12.5"/><path d="M4.6 8.8h6.8"/></svg>
         Deck themes
       </button>
+            <button type="button" id="settingsDeckPlanBtn" class="btn btn-ghost btn-sm deck-menu-item" title="Saved Plan strategy &amp; win condition — off by default. Architecture uses semantic goals; turning on restores Plan identity without wiping stored data" style="width:100%;justify-content:flex-start;gap:7px" onclick="toggleDeckPlanSetting()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 3.5h10v9H3z"/><path d="M5.5 6.5h5M5.5 9h3.5"/></svg>
+        Deck Plan
+      </button>
             <button type="button" id="settingsDeckOwnershipBtn" class="btn btn-ghost btn-sm deck-menu-item" style="width:100%;justify-content:flex-start;gap:7px" onclick="toggleDeckOwnershipSetting()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 4.5h11v7h-11z"/><path d="M5 7.2h6M5 9.8h3.5"/></svg>
         Deck ownership indicators
@@ -1059,7 +1063,7 @@
             </span>
           </span>
           <div style="flex:1"></div>
-          <button type="button" id="deckPlanWizardBtn" data-feature-off="deck-plan" hidden style="display:none" class="btn btn-outline btn-sm" onclick="openDeckPlanWizard()" title="Deck plan — strategy &amp; win condition">Plan</button>
+          <button type="button" id="deckPlanWizardBtn" class="btn btn-outline btn-sm" onclick="openDeckPlanWizard()" title="Deck plan — strategy &amp; win condition">Plan</button>
           <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="themes" onclick="toggleDeckInfoPanel('themes')" title="Toggle">▾</button>
         </div>
         <div class="panel-body" id="deckThemesBody"></div>

@@ -1538,6 +1538,10 @@ const SCRYFALL_AUTO_TAGS = (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.is
   { label: 'Bounce',         otag: 'bounce' },
   { label: 'Control',        query: '(o:"gain control" or o:"exchange control")' },
   { label: 'Burn',           otag: 'burn' },
+  { label: 'Burn.Any',       otag: 'burn.any' },
+  { label: 'Burn.Creature',  otag: 'burn.creature' },
+  { label: 'Burn.Player',    otag: 'burn.player' },
+  { label: 'Burn.Opponents', query: 'otag:burn (o:"each opponent" OR o:"all opponents" OR o:"to each opponent" OR o:"each other player")' },
   { label: 'Group Slug',     otag: 'group-slug' },
   { label: 'Stax',           otag: 'tax' },
   { label: 'Hatebear',       otag: 'hatebear' },
@@ -1547,6 +1551,8 @@ const SCRYFALL_AUTO_TAGS = (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.is
   { label: 'Combat Trick',   otag: 'combat-trick' },
   { label: 'Bite',           otag: 'bite' },
   { label: 'Extra Combat',   otag: 'extra-combat' },
+  { label: 'Attack Trigger', otag: 'attack-trigger' },
+  { label: 'Saboteur',       otag: 'saboteur' },
   { label: 'Token Maker',    query: '(o:create o:token)' },
   { label: 'Blink',          otag: 'blink' },
   { label: 'Copy',           otag: 'copy' },
@@ -1724,6 +1730,10 @@ const DEFAULT_TAG_BADGE = {
   'Bounce':        { color: '#56b4e0', icon: '<path d="M9 10L4 15l5 5"/><path d="M4 15h11a5 5 0 005-5V6"/>' },
   'Control':       { color: '#7a52cc', icon: '<path d="M4 9h14l-4-4M20 15H6l4 4"/>' },
   'Burn':          { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Any':      { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Creature': { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Player':   { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Burn.Opponents':{ color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
   'Group Slug':    { color: '#c43d5a', icon: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M4 4l16 16"/>' },
   'Stax':          { color: '#6b7280', icon: '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/>' },
   'Hatebear':      { color: '#a9744f', icon: '<circle cx="7" cy="10" r="1.8"/><circle cx="12" cy="8.5" r="1.8"/><circle cx="17" cy="10" r="1.8"/><path d="M7.5 15a4.5 4.5 0 009 0c0-2-2-3-4.5-3s-4.5 1-4.5 3z"/>' },
@@ -1733,6 +1743,8 @@ const DEFAULT_TAG_BADGE = {
   'Combat Trick':  { color: '#e0a020', icon: '<path d="M13 2L4 14h7l-2 8 9-12h-7z"/>' },
   'Bite':          { color: '#5a8a3c', icon: '<path d="M4 6h16v2c0 4-3 5-4 9-1-4-2-5-4-5s-3 1-4 5c-1-4-4-5-4-9z"/>' },
   'Extra Combat':  { color: '#d65a31', icon: '<path d="M5 5l9 9M19 5l-9 9M3 17l3 3M21 17l-3 3"/>' },
+  'Attack Trigger':{ color: '#b5482a', icon: '<path d="M6 11V8a2 2 0 014 0M10 11V7a2 2 0 014 0v4M14 11V8a2 2 0 014 0v6a6 6 0 01-6 6H9l-4-4 1-1 3 2"/>' },
+  'Saboteur':      { color: '#5e548e', icon: '<path d="M12 3l6 4c0 8-2 12-6 14-4-2-6-6-6-14z"/>' },
   'Token Maker':   { color: '#1fa8a0', icon: '<rect x="3" y="3" width="11" height="11" rx="1.5"/><path d="M19 11v8m-4-4h8"/>' },
   'Blink':         { color: '#6cc4e8', icon: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>' },
   'Copy':          { color: '#8b6fd8', icon: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>' },
@@ -1961,7 +1973,7 @@ let _tagOverridesByOracleId = new Map();  // oracleId -> { addTags:string[], rem
 let _tagOverridesLoaded = false;
 let _tagOverridesLoadPromise = null;
 let _tagSettingsTarget = null;            // { oracleId, cardName, defaultTags:Set, add:Set, remove:Set }
-const _SCRY_TAG_SCHEMA_VERSION = '4';
+const _SCRY_TAG_SCHEMA_VERSION = '5';
 function _isUuidLike(v) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || '').trim());
 }
@@ -2794,22 +2806,41 @@ function _tagsOnCardForGrouping(card) {
   return [...out];
 }
 
+/** Every tag the card actually has (role cache, stored roleTags, My Tags). */
+function _allTagsOnCard(card) {
+  const out = new Set();
+  const add = (t) => {
+    const s = String(t || '').trim();
+    if (s) out.add(s);
+  };
+  if (typeof _probTagsOnCard === 'function') {
+    try { (_probTagsOnCard(card) || []).forEach(add); } catch (_) { /* fall through */ }
+  }
+  if (typeof _roleTagsForCard === 'function') {
+    try { (_roleTagsForCard(card) || []).forEach(add); } catch (_) { /* fall through */ }
+  }
+  (card && card.roleTags || []).forEach(add);
+  _tagsOnCardForGrouping(card).forEach(add);
+  return [...out];
+}
+
 function _tagsOnCardForGroupTier(card, tier) {
+  const all = _allTagsOnCard(card);
   if (tier === 'tag_default') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    return roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    const defaults = roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    // A card that has tags must not fall through to Untagged.
+    return defaults.length ? defaults : all;
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
     // Default tags with a manual or auto primary/secondary tier count here too.
     const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
-    return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    const matched = [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    return matched.length ? matched : all;
   }
-  if (tier === 'tag_all') {
-    const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    return [...new Set([...roleTags, ...userTags])];
-  }
-  return userTags;
+  if (tier === 'tag_all') return all;
+  return userTags.length ? userTags : all;
 }
 
 let _deckListSearchDebounce = null;
@@ -5284,6 +5315,43 @@ function architectureSetPrimary(key, category, subsection) {
   _commitArchitectureOverrides(deck, next);
 }
 
+/**
+ * Drag a card from one Architecture pile to another: leave the source pile only,
+ * set the destination as primary. Other memberships stay. Drop on Unassigned
+ * uses architectureUnassignCard instead.
+ */
+function architectureMoveCard(key, fromCat, fromSub, toCat, toSub) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!key || !toCat) return;
+  if (fromCat && fromSub != null && fromCat === toCat && String(fromSub) === String(toSub || '')) return;
+  const card = _architectureFindCard(deck, key);
+  if (!card) return;
+  if (toCat === 'manabase' && _archManabaseNeedsLand(toSub) && !_isLandDeckCard(card)) {
+    if (typeof showNotif === 'function') showNotif('Basics and Nonbasics are lands only.');
+    return;
+  }
+  if (typeof moveArchitectureMembership !== 'function') return;
+  const prevPrimary = typeof _badgeTagForCard === 'function' ? _badgeTagForCard(card) : null;
+  const next = moveArchitectureMembership(
+    deck.architectureOverrides,
+    key,
+    fromCat || null,
+    fromSub != null ? fromSub : null,
+    toCat,
+    toSub || '',
+  );
+  const rec = next.byKey[key];
+  if (rec) {
+    rec.writtenRole = typeof mappedRoleForPlacement === 'function'
+      ? mappedRoleForPlacement(toCat, toSub, card, deck)
+      : null;
+    rec.prevPrimaryTag = prevPrimary;
+  }
+  _architectureWritePrimaryRole(deck, card, toCat, toSub);
+  _commitArchitectureOverrides(deck, next);
+}
+
 function architectureAddExtra(key, category, subsection) {
   const deck = getActiveDeck();
   if (!deck || activeDeckIsShared) return;
@@ -5319,6 +5387,274 @@ function architectureUnassignCard(key) {
   _commitArchitectureOverrides(deck, unassignArchitectureCard(deck.architectureOverrides, key));
 }
 
+/**
+ * Hide an Architecture subsection from the view. Persists on architectureOverrides.hiddenSubs.
+ * When Plan is enabled, optionally disables a matching planSubTags entry.
+ */
+function architectureRemoveSubsection(category, subsectionId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!category || !subsectionId) return;
+  if (typeof hideArchitectureSubsection !== 'function') return;
+
+  const next = hideArchitectureSubsection(deck.architectureOverrides, category, subsectionId);
+
+  const id = String(subsectionId);
+  if (id.startsWith('subtag:') && deck.plan
+      && typeof isPlanFeatureEnabled === 'function' && isPlanFeatureEnabled()) {
+    const subtagId = id.slice('subtag:'.length);
+    if (subtagId) {
+      deck.plan = typeof normalizeDeckPlan === 'function'
+        ? normalizeDeckPlan(deck.plan)
+        : (deck.plan || {});
+      deck.plan.planSubTags = deck.plan.planSubTags && typeof deck.plan.planSubTags === 'object'
+        ? deck.plan.planSubTags
+        : {};
+      const prev = deck.plan.planSubTags[subtagId] || { enabled: true, target: 1 };
+      deck.plan.planSubTags[subtagId] = { ...prev, enabled: false };
+    }
+  }
+
+  _commitArchitectureOverrides(deck, next);
+  if (typeof showNotif === 'function') showNotif('Subsection removed');
+}
+
+/**
+ * Show / pin an Architecture subsection. Restores hidden piles.
+ * When Plan is enabled, re-enables matching planSubTags.
+ */
+function architectureAddSubsection(category, subsectionId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!category || !subsectionId) return;
+  if (typeof showArchitectureSubsection !== 'function') return;
+
+  const next = showArchitectureSubsection(deck.architectureOverrides, category, subsectionId);
+  const id = String(subsectionId);
+  if (id.startsWith('subtag:') && deck.plan
+      && typeof isPlanFeatureEnabled === 'function' && isPlanFeatureEnabled()) {
+    const subtagId = id.slice('subtag:'.length);
+    if (subtagId) {
+      deck.plan = typeof normalizeDeckPlan === 'function'
+        ? normalizeDeckPlan(deck.plan)
+        : (deck.plan || {});
+      deck.plan.planSubTags = deck.plan.planSubTags && typeof deck.plan.planSubTags === 'object'
+        ? deck.plan.planSubTags
+        : {};
+      const prev = deck.plan.planSubTags[subtagId] || { enabled: true, target: 1 };
+      const target = Number.isFinite(Number(prev.target)) ? Math.max(1, Number(prev.target)) : 1;
+      deck.plan.planSubTags[subtagId] = { ...prev, enabled: true, target };
+    }
+  }
+
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') showNotif('Subsection added');
+}
+
+function _archIdentityLabel(id) {
+  if (!id) return '';
+  if (typeof strategyLabel === 'function' && String(id).startsWith('strategy.')) {
+    return strategyLabel(id);
+  }
+  if (String(id).startsWith('tribal:')) {
+    const type = String(id).slice('tribal:'.length);
+    if (type) return type.charAt(0).toUpperCase() + type.slice(1) + ' typal';
+  }
+  return String(id);
+}
+
+function _patchArchitectureIdentity(deck, patch) {
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : Object.assign({ byKey: {}, hiddenSubs: [], pinnedSubs: [] }, deck.architectureOverrides || {});
+  if ('primaryStrategyId' in patch) ov.primaryStrategyId = patch.primaryStrategyId || null;
+  if ('secondaryStrategyId' in patch) ov.secondaryStrategyId = patch.secondaryStrategyId || null;
+  if ('winConditionId' in patch) ov.winConditionId = patch.winConditionId || null;
+  if (ov.secondaryStrategyId && ov.secondaryStrategyId === ov.primaryStrategyId) {
+    ov.secondaryStrategyId = null;
+  }
+  return ov;
+}
+
+/** Write Architecture primary strategy onto architectureOverrides. */
+function architectureSetStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!strategyId) return;
+  const next = _patchArchitectureIdentity(deck, { primaryStrategyId: strategyId });
+  if (next.secondaryStrategyId === strategyId) next.secondaryStrategyId = null;
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Primary strategy set to ' + _archIdentityLabel(strategyId));
+  }
+}
+
+/** Write Architecture secondary strategy. Pass null/'' to clear. */
+function architectureSetSecondaryStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  const nextId = strategyId ? String(strategyId) : null;
+  if (nextId && nextId === ov.primaryStrategyId) {
+    if (typeof showNotif === 'function') showNotif('Secondary cannot match primary strategy.');
+    return;
+  }
+  const next = _patchArchitectureIdentity(deck, { secondaryStrategyId: nextId });
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    if (!nextId) showNotif('Secondary strategy cleared');
+    else showNotif('Secondary strategy set to ' + _archIdentityLabel(nextId));
+  }
+}
+
+/**
+ * Promote a detected (off-identity) theme into the Strategy header row.
+ * Fills primary, then secondary, if either slot is empty; once both are
+ * taken it's additive — the theme gets its own strategy band alongside
+ * them rather than displacing whatever is already there.
+ */
+function architecturePromoteDetectedTheme(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!strategyId) return;
+  const model = typeof _archModelOrNull === 'function' ? _archModelOrNull(deck, deck.cards) : null;
+  const identity = model && model.architectureIdentity;
+  if (identity && (identity.primaryStrategyId === strategyId || identity.secondaryStrategyId === strategyId)) {
+    return;
+  }
+  if (!identity || !identity.primaryStrategyId) {
+    architectureSetStrategy(strategyId);
+    return;
+  }
+  if (!identity.secondaryStrategyId) {
+    architectureSetSecondaryStrategy(strategyId);
+    return;
+  }
+  architectureAddPromotedStrategy(strategyId);
+}
+
+/** Add a detected theme as its own additional Strategy band, without touching primary/secondary. */
+function architectureAddPromotedStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!strategyId) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  const id = String(strategyId);
+  if (id === ov.primaryStrategyId || id === ov.secondaryStrategyId) return;
+  const list = Array.isArray(ov.promotedStrategyIds) ? ov.promotedStrategyIds.slice() : [];
+  if (list.includes(id)) {
+    if (typeof showNotif === 'function') showNotif(_archIdentityLabel(id) + ' is already promoted.');
+    return;
+  }
+  list.push(id);
+  ov.promotedStrategyIds = list;
+  _commitArchitectureOverrides(deck, ov);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Promoted ' + _archIdentityLabel(id) + ' to a strategy');
+  }
+}
+
+/** Demote a promoted Strategy band back into detected themes. */
+function architectureRemovePromotedStrategy(strategyId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  const id = strategyId ? String(strategyId) : '';
+  const list = Array.isArray(ov.promotedStrategyIds) ? ov.promotedStrategyIds.slice() : [];
+  const idx = list.indexOf(id);
+  if (idx === -1) {
+    if (typeof showNotif === 'function') showNotif('No such promoted strategy');
+    return;
+  }
+  list.splice(idx, 1);
+  ov.promotedStrategyIds = list;
+  _commitArchitectureOverrides(deck, ov);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Removed strategy ' + _archIdentityLabel(id));
+  }
+}
+
+/** Clear Architecture primary strategy override (falls back to inferred goals). */
+function architectureRemovePrimaryStrategy() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  if (!ov.primaryStrategyId) {
+    if (typeof showNotif === 'function') showNotif('No primary strategy override set');
+    return;
+  }
+  const prev = ov.primaryStrategyId;
+  const next = _patchArchitectureIdentity(deck, { primaryStrategyId: null });
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Removed strategy ' + _archIdentityLabel(prev));
+  }
+}
+
+/** Clear Architecture secondary strategy override. */
+function architectureRemoveSecondaryStrategy() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const ov = typeof normalizeArchitectureOverrides === 'function'
+    ? normalizeArchitectureOverrides(deck.architectureOverrides)
+    : (deck.architectureOverrides || {});
+  if (!ov.secondaryStrategyId) {
+    if (typeof showNotif === 'function') showNotif('No secondary strategy override set');
+    return;
+  }
+  const prev = ov.secondaryStrategyId;
+  const next = _patchArchitectureIdentity(deck, { secondaryStrategyId: null });
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    showNotif('Removed secondary strategy ' + _archIdentityLabel(prev));
+  }
+}
+
+/** Write Architecture win condition onto architectureOverrides. */
+function architectureSetPayoffs(winConditionId) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  if (!winConditionId) return;
+  const next = _patchArchitectureIdentity(deck, { winConditionId });
+  _commitArchitectureOverrides(deck, next);
+  if (typeof saveDeckPlanningNow === 'function') {
+    saveDeckPlanningNow(deck).catch(() => {});
+  }
+  if (typeof showNotif === 'function') {
+    const label = typeof winconLabel === 'function' ? winconLabel(winConditionId) : winConditionId;
+    showNotif('Payoffs set to ' + label);
+  }
+}
+
 const ARCH_CARD_SEL = '.arch-card-row[data-uid], .arch-card-tile[data-uid]';
 
 /** Hide the tap-revealed ⋯ on every architecture card except `exceptCard`. */
@@ -5343,6 +5679,8 @@ function _closeArchitectureMenu() {
   const el = document.getElementById('archPlacementMenu');
   if (el) el.remove();
   document.querySelectorAll('.arch-card--menu-open').forEach(card => card.classList.remove('arch-card--menu-open'));
+  document.querySelectorAll('.arch-sub--menu-open').forEach(sub => sub.classList.remove('arch-sub--menu-open'));
+  document.querySelectorAll('.arch-panel--menu-open').forEach(p => p.classList.remove('arch-panel--menu-open'));
   _closeArchCardActions();
   document.removeEventListener('click', _closeArchitectureMenuOnOutside, true);
 }
@@ -5350,61 +5688,470 @@ function _closeArchitectureMenu() {
 function _closeArchitectureMenuOnOutside(e) {
   const el = document.getElementById('archPlacementMenu');
   if (!el) return;
-  if (el.contains(e.target) || e.target.closest('[data-arch-menu]')) return;
+  if (el.contains(e.target) || e.target.closest('[data-arch-menu], [data-arch-sub-menu], [data-arch-panel-menu]')) return;
   _closeArchitectureMenu();
 }
 
+function _archMenuPosition(menu, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 24);
+  let left = rect.right - Math.min(300, window.innerWidth - 16);
+  if (left < 8) left = 8;
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
+}
+
+function _openArchitectureSubsectionMenu(category, subsectionId, anchor) {
+  _closeArchitectureMenu();
+  if (!category || !subsectionId || !anchor) return;
+  anchor.closest?.('.arch-sub, .arch-strategy-band--flat')?.classList.add('arch-sub--menu-open');
+  const menu = document.createElement('div');
+  menu.id = 'archPlacementMenu';
+  menu.className = 'arch-menu';
+  menu.innerHTML = `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-sub">Remove subsection</button>`;
+  menu.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    ev.stopPropagation();
+    if (btn.dataset.act === 'remove-sub') architectureRemoveSubsection(category, subsectionId);
+    _closeArchitectureMenu();
+  });
+  document.body.appendChild(menu);
+  _archMenuPosition(menu, anchor);
+  setTimeout(() => document.addEventListener('click', _closeArchitectureMenuOnOutside, true), 0);
+}
+
+// Inline SVG icons for the architecture menus (ui-ruleset §9.6: no glyph icons).
+const _ARCH_ICON_BACK = '<svg class="arch-menu-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4L6 8l4 4"/></svg>';
+const _ARCH_ICON_CHEVRON_R = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
+
+function _archVisibleSubsForPanel(category, model) {
+  if (category === 'foundation') {
+    const hidden = new Set(((model && model.hiddenSubs) || []).filter(m => m.category === 'foundation').map(m => m.subsection));
+    return (FOUNDATION_FNS || [])
+      .filter(fn => !hidden.has(fn.id))
+      .map(fn => ({ id: fn.id, label: fn.label }));
+  }
+  if (category === 'manabase') {
+    const hidden = new Set(((model && model.hiddenSubs) || []).filter(m => m.category === 'manabase').map(m => m.subsection));
+    return (MANABASE_SUBS || [])
+      .filter(sub => !hidden.has(sub.id))
+      .map(sub => ({ id: sub.id, label: sub.label }));
+  }
+  if (category === 'strategy') {
+    return (model.strategySubs || []).map(s => ({ id: s.id, label: s.label }));
+  }
+  if (category === 'payoffs') {
+    return (model.payoffSubs || []).map(s => ({ id: s.id, label: s.label }));
+  }
+  return [];
+}
+
+function _archSectionMenuEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _openArchitectureSectionMenu(category, anchor, model) {
+  _closeArchitectureMenu();
+  if (!category || !anchor) return;
+  anchor.closest?.('.arch-panel')?.classList.add('arch-panel--menu-open');
+  const menu = document.createElement('div');
+  menu.id = 'archPlacementMenu';
+  menu.className = 'arch-menu arch-menu--section';
+  menu.dataset.archSectionCat = category;
+
+  const render = (view, filterText) => {
+    const q = String(filterText || '').trim().toLowerCase();
+    const match = (label, extra) => {
+      if (!q) return true;
+      const blob = (label + ' ' + (extra || '')).toLowerCase();
+      return blob.includes(q);
+    };
+
+    if (view === 'root') {
+      const items = [];
+      if (category === 'strategy') {
+        items.push(`<button type="button" class="arch-menu-item" data-nav="set-strategy">Set primary strategy</button>`);
+        items.push(`<button type="button" class="arch-menu-item" data-nav="set-secondary">Set secondary strategy</button>`);
+        items.push(`<button type="button" class="arch-menu-item" data-nav="set-sub">Add subsection</button>`);
+        items.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-nav="remove-strategy">Remove strategy</button>`);
+      } else {
+        if (category === 'payoffs') {
+          items.push(`<button type="button" class="arch-menu-item" data-nav="set-payoffs">Set payoffs</button>`);
+        }
+        items.push(`<button type="button" class="arch-menu-item" data-nav="set-sub">Set subsection</button>`);
+        items.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-nav="remove-sub">Remove subsection</button>`);
+      }
+      menu.innerHTML = items.join('');
+      return;
+    }
+
+    if (view === 'set-strategy') {
+      const cur = (model && model.architectureIdentity && model.architectureIdentity.primaryStrategyId)
+        || (model && model.architectureOverrides && model.architectureOverrides.primaryStrategyId)
+        || null;
+      const shortSet = typeof PLAN_STRATEGY_SHORTLIST_SET !== 'undefined'
+        ? PLAN_STRATEGY_SHORTLIST_SET
+        : (typeof PLAN_STRATEGY_SHORTLIST_IDS !== 'undefined'
+          ? new Set(PLAN_STRATEGY_SHORTLIST_IDS)
+          : null);
+      const all = (typeof PLAN_STRATEGIES !== 'undefined' ? PLAN_STRATEGIES : []);
+      const rows = all
+        .filter(s => match(s.label, s.id))
+        .filter(s => q || !shortSet || shortSet.has(s.id) || s.id === cur)
+        .sort((a, b) => {
+          if (!shortSet || q) return a.label.localeCompare(b.label);
+          const as = shortSet.has(a.id) ? 0 : 1;
+          const bs = shortSet.has(b.id) ? 0 : 1;
+          return as - bs || a.label.localeCompare(b.label);
+        })
+        .map(s => {
+          const on = s.id === cur ? ' arch-menu-item--active' : '';
+          return `<button type="button" class="arch-menu-item${on}" data-act="set-strategy" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`;
+        }).join('');
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">Set primary strategy</div>
+        <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No strategies</div>'}</div>`;
+      return;
+    }
+
+    if (view === 'set-secondary') {
+      const cur = (model && model.architectureOverrides && model.architectureOverrides.secondaryStrategyId)
+        || (model && model.architectureIdentity && model.architectureIdentity.secondaryStrategyId)
+        || null;
+      const primary = (model && model.architectureOverrides && model.architectureOverrides.primaryStrategyId)
+        || (model && model.architectureIdentity && model.architectureIdentity.primaryStrategyId)
+        || null;
+      const noneOn = !cur ? ' arch-menu-item--active' : '';
+      const noneBtn = `<button type="button" class="arch-menu-item${noneOn}" data-act="set-secondary" data-id="">None</button>`;
+      const shortSet = typeof PLAN_STRATEGY_SHORTLIST_SET !== 'undefined'
+        ? PLAN_STRATEGY_SHORTLIST_SET
+        : (typeof PLAN_STRATEGY_SHORTLIST_IDS !== 'undefined'
+          ? new Set(PLAN_STRATEGY_SHORTLIST_IDS)
+          : null);
+      const all = (typeof PLAN_STRATEGIES !== 'undefined' ? PLAN_STRATEGIES : []);
+      const rows = all
+        .filter(s => s.id !== primary && match(s.label, s.id))
+        .filter(s => q || !shortSet || shortSet.has(s.id) || s.id === cur)
+        .sort((a, b) => {
+          if (!shortSet || q) return a.label.localeCompare(b.label);
+          const as = shortSet.has(a.id) ? 0 : 1;
+          const bs = shortSet.has(b.id) ? 0 : 1;
+          return as - bs || a.label.localeCompare(b.label);
+        })
+        .map(s => {
+          const on = s.id === cur ? ' arch-menu-item--active' : '';
+          return `<button type="button" class="arch-menu-item${on}" data-act="set-secondary" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`;
+        }).join('');
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">Set secondary strategy</div>
+        <div class="arch-menu-scroll">${noneBtn}${rows || '<div class="arch-menu-item arch-menu-item--quiet">No strategies</div>'}</div>`;
+      return;
+    }
+
+    if (view === 'remove-strategy') {
+      const primary = model && model.architectureOverrides && model.architectureOverrides.primaryStrategyId;
+      const secondary = model && model.architectureOverrides && model.architectureOverrides.secondaryStrategyId;
+      const promoted = (model && model.architectureOverrides && model.architectureOverrides.promotedStrategyIds) || [];
+      const rows = [];
+      if (primary) {
+        const label = _archIdentityLabel(primary);
+        rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-primary-strategy">Primary · ${_archSectionMenuEsc(label)}</button>`);
+      }
+      if (secondary) {
+        const label = _archIdentityLabel(secondary);
+        rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-secondary-strategy">Secondary · ${_archSectionMenuEsc(label)}</button>`);
+      }
+      for (const id of promoted) {
+        const label = _archIdentityLabel(id);
+        rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-promoted-strategy" data-id="${_archSectionMenuEsc(id)}">Promoted · ${_archSectionMenuEsc(label)}</button>`);
+      }
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">Remove strategy</div>
+        <div class="arch-menu-scroll">${rows.join('') || '<div class="arch-menu-item arch-menu-item--quiet">No strategies set</div>'}</div>`;
+      return;
+    }
+
+    if (view === 'set-payoffs') {
+      const cur = (model && model.architectureOverrides && model.architectureOverrides.winConditionId)
+        || (model && model.architectureIdentity && model.architectureIdentity.winConditionId)
+        || (model && model.plan && model.plan.winConditionId)
+        || null;
+      const rows = (typeof PLAN_WINCONS !== 'undefined' ? PLAN_WINCONS : [])
+        .filter(w => match(w.label, w.id))
+        .map(w => {
+          const on = w.id === cur ? ' arch-menu-item--active' : '';
+          return `<button type="button" class="arch-menu-item${on}" data-act="set-payoffs" data-id="${_archSectionMenuEsc(w.id)}">${_archSectionMenuEsc(w.label)}</button>`;
+        }).join('');
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">Set payoffs</div>
+        <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No options</div>'}</div>`;
+      return;
+    }
+
+    if (view === 'remove-sub') {
+      const visible = _archVisibleSubsForPanel(category, model).filter(s => match(s.label, s.id));
+      const rows = visible.map(s =>
+        `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-sub" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`
+      ).join('');
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">Remove subsection</div>
+        <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No subsections</div>'}</div>`;
+      return;
+    }
+
+    if (view === 'set-sub') {
+      const catalog = typeof architectureSubsectionCatalog === 'function'
+        ? architectureSubsectionCatalog(category, model && model.plan)
+        : [];
+      const inferred = typeof architectureInferredSubsectionOptions === 'function'
+        ? architectureInferredSubsectionOptions(category, model, model && model.hiddenSubs
+          ? { hiddenSubs: model.hiddenSubs, pinnedSubs: model.pinnedSubs || [] }
+          : (getActiveDeck() && getActiveDeck().architectureOverrides))
+        : [];
+      const present = new Set(_archVisibleSubsForPanel(category, model).map(s => s.id));
+      const inferredIds = new Set(inferred.map(i => i.id));
+      const inferredRows = inferred
+        .filter(i => !present.has(i.id) && match(i.label, (i.group || '') + ' ' + i.id))
+        .map(i => {
+          const hint = i.reason === 'hidden' ? 'Restore' : 'Suggested';
+          const group = i.group ? ` · ${_archSectionMenuEsc(i.group)}` : '';
+          return `<button type="button" class="arch-menu-item" data-act="add-sub" data-id="${_archSectionMenuEsc(i.id)}"><span class="arch-menu-item-label">${_archSectionMenuEsc(i.label)}${group}</span><span class="arch-menu-item-hint">${hint}</span></button>`;
+        }).join('');
+      const rest = catalog
+        .filter(c => !present.has(c.id) && !inferredIds.has(c.id) && match(c.label, (c.group || '') + ' ' + c.id))
+        .map(c => {
+          const group = c.group ? ` · ${_archSectionMenuEsc(c.group)}` : '';
+          return `<button type="button" class="arch-menu-item" data-act="add-sub" data-id="${_archSectionMenuEsc(c.id)}"><span class="arch-menu-item-label">${_archSectionMenuEsc(c.label)}${group}</span></button>`;
+        }).join('');
+      const subTitle = category === 'strategy' ? 'Add subsection' : 'Set subsection';
+      menu.innerHTML = `
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
+        <div class="arch-menu-title">${subTitle}</div>
+        <input type="search" class="arch-menu-search" placeholder="Search subsections…" value="${_archSectionMenuEsc(filterText || '')}" autocomplete="off">
+        <div class="arch-menu-scroll">
+          ${inferredRows ? `<div class="arch-menu-subtitle">Suggested</div>${inferredRows}` : ''}
+          ${rest ? `<div class="arch-menu-subtitle">All options</div>${rest}` : ''}
+          ${!inferredRows && !rest ? '<div class="arch-menu-item arch-menu-item--quiet">Nothing to add</div>' : ''}
+        </div>`;
+      const search = menu.querySelector('.arch-menu-search');
+      if (search) {
+        search.focus();
+        search.setSelectionRange((filterText || '').length, (filterText || '').length);
+        search.addEventListener('input', () => render('set-sub', search.value));
+        search.addEventListener('click', ev => ev.stopPropagation());
+        search.addEventListener('keydown', ev => ev.stopPropagation());
+      }
+    }
+  };
+
+  menu.addEventListener('click', ev => {
+    const nav = ev.target.closest('[data-nav]');
+    if (nav) {
+      ev.stopPropagation();
+      render(nav.dataset.nav, '');
+      return;
+    }
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    ev.stopPropagation();
+    const act = btn.dataset.act;
+    const id = btn.dataset.id;
+    if (act === 'set-strategy') architectureSetStrategy(id);
+    else if (act === 'set-secondary') architectureSetSecondaryStrategy(id || null);
+    else if (act === 'remove-primary-strategy') architectureRemovePrimaryStrategy();
+    else if (act === 'remove-secondary-strategy') architectureRemoveSecondaryStrategy();
+    else if (act === 'remove-promoted-strategy') architectureRemovePromotedStrategy(id);
+    else if (act === 'set-payoffs') architectureSetPayoffs(id);
+    else if (act === 'add-sub') architectureAddSubsection(category, id);
+    else if (act === 'remove-sub') architectureRemoveSubsection(category, id);
+    _closeArchitectureMenu();
+  });
+
+  document.body.appendChild(menu);
+  render('root');
+  _archMenuPosition(menu, anchor);
+  setTimeout(() => document.addEventListener('click', _closeArchitectureMenuOnOutside, true), 0);
+}
+
+function _archCategoryLabel(cat) {
+  const meta = (typeof CATEGORY_META !== 'undefined' && CATEGORY_META[cat]) || null;
+  return (meta && meta.label) || cat;
+}
+
+function _archSubLabel(cat, id, model) {
+  if (cat === 'foundation') {
+    const fn = (FOUNDATION_FNS || []).find(f => f.id === id);
+    return fn ? fn.label : id;
+  }
+  if (cat === 'manabase') {
+    const sub = (MANABASE_SUBS || []).find(s => s.id === id);
+    return sub ? sub.label : id;
+  }
+  if (cat === 'strategy') {
+    const sub = ((model && model.strategySubs) || []).find(s => s.id === id);
+    return sub ? sub.label : id;
+  }
+  if (cat === 'payoffs') {
+    const sub = ((model && model.payoffSubs) || []).find(s => s.id === id);
+    return sub ? sub.label : id;
+  }
+  return id;
+}
+
+function _archCardCurrentMemberships(row, model) {
+  const current = [];
+  (row.foundationFns || []).forEach(id => {
+    current.push({ cat: 'foundation', sub: id, label: _archCategoryLabel('foundation') + ' · ' + _archSubLabel('foundation', id, model) });
+  });
+  (row.strategySubs || []).forEach(id => {
+    current.push({ cat: 'strategy', sub: id, label: _archCategoryLabel('strategy') + ' · ' + _archSubLabel('strategy', id, model) });
+  });
+  (row.payoffSubs || []).forEach(id => {
+    current.push({ cat: 'payoffs', sub: id, label: _archCategoryLabel('payoffs') + ' · ' + _archSubLabel('payoffs', id, model) });
+  });
+  (row.manabaseSubs || []).forEach(id => {
+    current.push({ cat: 'manabase', sub: id, label: _archCategoryLabel('manabase') + ' · ' + _archSubLabel('manabase', id, model) });
+  });
+  return current;
+}
+
+/**
+ * Card ⋯ menu: file-explorer-style Move to / Also place in drill-down
+ * (section → strategy band when needed → subsection).
+ */
 function _openArchitectureMenu(key, anchor, model) {
   _closeArchitectureMenu();
   const row = (model?.rows || []).find(r => r.key === key);
   if (!row) return;
   anchor?.closest?.('.arch-card-row, .arch-card-tile')?.classList.add('arch-card--menu-open');
-  const opts = [];
-  (FOUNDATION_FNS || []).forEach(fn => {
-    opts.push({ cat: 'foundation', sub: fn.id, label: 'Foundation · ' + fn.label });
-  });
-  (model.strategySubs || []).forEach(s => {
-    opts.push({ cat: 'strategy', sub: s.id, label: 'Strategy · ' + s.label });
-  });
-  (model.payoffSubs || []).forEach(s => {
-    opts.push({ cat: 'payoffs', sub: s.id, label: 'Payoffs · ' + s.label });
-  });
-  (MANABASE_SUBS || []).forEach(sub => {
-    opts.push({ cat: 'manabase', sub: sub.id, label: 'Mana Sources · ' + sub.label });
-  });
 
-  const current = [];
-  row.foundationFns.forEach(id => current.push({ cat: 'foundation', sub: id, label: 'Foundation · ' + id }));
-  row.strategySubs.forEach(id => {
-    const sub = (model.strategySubs || []).find(s => s.id === id);
-    current.push({ cat: 'strategy', sub: id, label: 'Strategy · ' + (sub ? sub.label : id) });
-  });
-  row.payoffSubs.forEach(id => {
-    const sub = (model.payoffSubs || []).find(s => s.id === id);
-    current.push({ cat: 'payoffs', sub: id, label: 'Payoffs · ' + (sub ? sub.label : id) });
-  });
-  row.manabaseSubs.forEach(id => {
-    const sub = (MANABASE_SUBS || []).find(s => s.id === id);
-    current.push({ cat: 'manabase', sub: id, label: 'Mana Sources · ' + (sub ? sub.label : id) });
-  });
+  const cats = (typeof ARCH_CATEGORIES !== 'undefined' && ARCH_CATEGORIES.length)
+    ? ARCH_CATEGORIES
+    : ['foundation', 'strategy', 'payoffs', 'manabase'];
+  const current = _archCardCurrentMemberships(row, model);
+  const isPrimary = (cat, sub) => !!(row.primary && row.primary.category === cat && row.primary.subsection === sub);
+  const hasMembership = (cat, sub) => current.some(c => c.cat === cat && c.sub === sub);
+  const strategyBands = () => (typeof architectureStrategyBands === 'function'
+    ? architectureStrategyBands(model)
+    : null);
 
   const menu = document.createElement('div');
   menu.id = 'archPlacementMenu';
-  menu.className = 'arch-menu';
-  const optHtml = opts.map(o => `
-    <button type="button" class="arch-menu-item" data-act="primary" data-cat="${o.cat}" data-sub="${o.sub}">Set as primary: ${escapeHtml(o.label)}</button>
-    <button type="button" class="arch-menu-item arch-menu-item--quiet" data-act="extra" data-cat="${o.cat}" data-sub="${o.sub}">Also count as: ${escapeHtml(o.label)}</button>
-  `).join('');
-  const remHtml = current.map(o =>
-    `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove" data-cat="${o.cat}" data-sub="${o.sub}">Remove from ${escapeHtml(o.label)}</button>`
-  ).join('');
-  menu.innerHTML = `<div class="arch-menu-title">${escapeHtml(row.name)}</div>
-    <div class="arch-menu-scroll">${optHtml}${remHtml}</div>
-    <button type="button" class="arch-menu-item" data-act="reset">Reset to inferred</button>
-    <button type="button" class="arch-menu-item arch-menu-item--danger" data-act="unassign">Send to Unassigned</button>`;
+  menu.className = 'arch-menu arch-menu--section';
+
+  const chevron = '<span class="arch-menu-item-hint" aria-hidden="true">' + _ARCH_ICON_CHEVRON_R + '</span>';
+  const quiet = (msg) => `<div class="arch-menu-item arch-menu-item--quiet">${_archSectionMenuEsc(msg)}</div>`;
+  const back = (nav, attrs) =>
+    `<button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="${_archSectionMenuEsc(nav)}"${attrs || ''}>${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>`;
+
+  const leafButtons = (mode, cat, subs) => {
+    const act = mode === 'move' ? 'primary' : 'extra';
+    return (subs || []).map(s => {
+      const on = (mode === 'move' ? isPrimary(cat, s.id) : hasMembership(cat, s.id))
+        ? ' arch-menu-item--active'
+        : '';
+      return `<button type="button" class="arch-menu-item${on}" data-act="${act}" data-cat="${_archSectionMenuEsc(cat)}" data-sub="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`;
+    }).join('');
+  };
+
+  const render = (view, ctx) => {
+    const mode = (ctx && ctx.mode) === 'extra' ? 'extra' : 'move';
+    const modeTitle = mode === 'move' ? 'Move to' : 'Also place in';
+    const modeAttr = ` data-mode="${mode}"`;
+
+    if (view === 'root') {
+      const rem = current.length
+        ? `<button type="button" class="arch-menu-item" data-nav="remove"><span class="arch-menu-item-label">Remove from…</span>${chevron}</button>`
+        : '';
+      menu.innerHTML = `<div class="arch-menu-title">${escapeHtml(row.name)}</div>
+        <button type="button" class="arch-menu-item" data-nav="cats" data-mode="move"><span class="arch-menu-item-label">Move to</span>${chevron}</button>
+        <button type="button" class="arch-menu-item" data-nav="cats" data-mode="extra"><span class="arch-menu-item-label">Also place in</span>${chevron}</button>
+        ${rem}
+        <button type="button" class="arch-menu-item" data-act="reset">Reset to inferred</button>
+        <button type="button" class="arch-menu-item arch-menu-item--danger" data-act="unassign">Send to Unassigned</button>`;
+      return;
+    }
+
+    if (view === 'cats') {
+      const rows = cats.map(cat => {
+        const next = cat === 'strategy' ? 'strat' : 'subs';
+        return `<button type="button" class="arch-menu-item" data-nav="${next}" data-mode="${mode}" data-cat="${_archSectionMenuEsc(cat)}"><span class="arch-menu-item-label">${_archSectionMenuEsc(_archCategoryLabel(cat))}</span>${chevron}</button>`;
+      }).join('');
+      menu.innerHTML = `${back('root')}
+        <div class="arch-menu-title">${_archSectionMenuEsc(modeTitle)}</div>
+        <div class="arch-menu-scroll">${rows}</div>`;
+      return;
+    }
+
+    if (view === 'strat') {
+      const bands = strategyBands();
+      if (!bands || !bands.length) {
+        render('subs', { mode, cat: 'strategy' });
+        return;
+      }
+      const rows = bands.map((b, i) =>
+        `<button type="button" class="arch-menu-item" data-nav="strat-subs" data-mode="${mode}" data-band="${i}"><span class="arch-menu-item-label">${_archSectionMenuEsc(b.label)}</span>${chevron}</button>`
+      ).join('');
+      menu.innerHTML = `${back('cats', modeAttr)}
+        <div class="arch-menu-title">${_archSectionMenuEsc(_archCategoryLabel('strategy'))}</div>
+        <div class="arch-menu-scroll">${rows}</div>`;
+      return;
+    }
+
+    if (view === 'strat-subs') {
+      const bands = strategyBands() || [];
+      const bandIdx = Number(ctx && ctx.band);
+      const band = bands[bandIdx] || { label: _archCategoryLabel('strategy'), subs: [] };
+      const rows = leafButtons(mode, 'strategy', band.subs);
+      menu.innerHTML = `${back('strat', modeAttr)}
+        <div class="arch-menu-title">${_archSectionMenuEsc(band.label)}</div>
+        <div class="arch-menu-scroll">${rows || quiet('None yet')}</div>`;
+      return;
+    }
+
+    if (view === 'subs') {
+      const cat = (ctx && ctx.cat) || 'foundation';
+      const rows = leafButtons(mode, cat, _archVisibleSubsForPanel(cat, model));
+      menu.innerHTML = `${back('cats', modeAttr)}
+        <div class="arch-menu-title">${_archSectionMenuEsc(_archCategoryLabel(cat))}</div>
+        <div class="arch-menu-scroll">${rows || quiet('No subsections')}</div>`;
+      return;
+    }
+
+    if (view === 'remove') {
+      const rows = current.map(o =>
+        `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove" data-cat="${_archSectionMenuEsc(o.cat)}" data-sub="${_archSectionMenuEsc(o.sub)}">${escapeHtml(o.label)}</button>`
+      ).join('');
+      menu.innerHTML = `${back('root')}
+        <div class="arch-menu-title">Remove from</div>
+        <div class="arch-menu-scroll">${rows || quiet('No memberships')}</div>`;
+    }
+  };
+
   menu.addEventListener('click', ev => {
+    const nav = ev.target.closest('[data-nav]');
+    if (nav && menu.contains(nav)) {
+      ev.stopPropagation();
+      const view = nav.dataset.nav;
+      render(view, {
+        mode: nav.dataset.mode,
+        cat: nav.dataset.cat,
+        band: nav.dataset.band,
+      });
+      return;
+    }
     const btn = ev.target.closest('[data-act]');
-    if (!btn) return;
+    if (!btn || !menu.contains(btn)) return;
     ev.stopPropagation();
     const act = btn.dataset.act;
     if (act === 'primary') architectureSetPrimary(key, btn.dataset.cat, btn.dataset.sub);
@@ -5414,14 +6161,302 @@ function _openArchitectureMenu(key, anchor, model) {
     else if (act === 'unassign') architectureUnassignCard(key);
     _closeArchitectureMenu();
   });
+
   document.body.appendChild(menu);
-  const rect = anchor.getBoundingClientRect();
-  const top = Math.min(rect.bottom + 6, window.innerHeight - 24);
-  let left = rect.right - 280;
-  if (left < 8) left = 8;
-  menu.style.top = `${top}px`;
-  menu.style.left = `${left}px`;
+  render('root');
+  _archMenuPosition(menu, anchor);
   setTimeout(() => document.addEventListener('click', _closeArchitectureMenuOnOutside, true), 0);
+}
+
+// ── Architecture card drag (move between piles) ───────────────────────────────
+
+let _archPointerDrag = null;
+let _archSuppressClick = false;
+let _archHoverLocked = false;
+let _archHoverUnlockCleanup = null;
+const _ARCH_PTR_OPTS = { capture: true, passive: false };
+const _ARCH_DRAG_THRESHOLD = 8;
+
+function _archRemoveDragGhost() {
+  const g = document.getElementById('archDragGhost');
+  if (g) g.remove();
+}
+
+/** True while a pile-drag is in flight, or until the pointer leaves cards after drop. */
+function _archHoverChromeLocked() {
+  return _archHoverLocked || !!(_archPointerDrag && _archPointerDrag.moved);
+}
+
+function _archClearHoverChrome(root) {
+  if (typeof _hideCardHoverPreview === 'function') _hideCardHoverPreview();
+  _clearDeckTagLinkedHighlight(root);
+  _clearDeckStackPeek(root);
+  const focused = typeof document !== 'undefined' ? document.activeElement : null;
+  if (focused && typeof focused.blur === 'function' && root && root.contains(focused)) {
+    focused.blur();
+  }
+}
+
+function _archCancelHoverUnlock() {
+  if (typeof _archHoverUnlockCleanup === 'function') {
+    _archHoverUnlockCleanup();
+    _archHoverUnlockCleanup = null;
+  }
+}
+
+/**
+ * Pointer capture + a re-render under the cursor re-applies :hover and the
+ * same-card gold wash. Keep chrome locked until the pointer is no longer over
+ * an architecture card (or leaves the list), instead of unlocking on rAF.
+ */
+function _archResetStuckHover(root) {
+  _archCancelHoverUnlock();
+  if (!root) {
+    _archHoverLocked = false;
+    return;
+  }
+  _archHoverLocked = true;
+  root.classList.add('is-arch-hover-locked');
+  _archClearHoverChrome(root);
+
+  const prev = root.style.pointerEvents;
+  let listening = false;
+
+  const overArchCard = (clientX, clientY) => {
+    const under = document.elementFromPoint(clientX, clientY);
+    if (!under) return false;
+    const card = under.closest(ARCH_CARD_SEL);
+    return !!(card && root.contains(card));
+  };
+
+  const unlock = () => {
+    _archCancelHoverUnlock();
+    root.style.pointerEvents = prev;
+    root.classList.remove('is-arch-hover-locked');
+    _archHoverLocked = false;
+    _archClearHoverChrome(root);
+  };
+
+  const onProbe = (e) => {
+    if (!listening) return;
+    if (e.type === 'pointermove' && e.buttons) return;
+    if (overArchCard(e.clientX, e.clientY)) {
+      _archClearHoverChrome(root);
+      return;
+    }
+    unlock();
+  };
+
+  // Force the browser to drop sticky :hover from the drag gesture, then start
+  // listening — probing while pointer-events is none would always "miss" the card.
+  root.style.pointerEvents = 'none';
+  void root.offsetWidth;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!root.isConnected) {
+        unlock();
+        return;
+      }
+      root.style.pointerEvents = prev;
+      _archClearHoverChrome(root);
+      listening = true;
+      window.addEventListener('pointermove', onProbe, true);
+      window.addEventListener('pointerdown', onProbe, true);
+      _archHoverUnlockCleanup = () => {
+        listening = false;
+        window.removeEventListener('pointermove', onProbe, true);
+        window.removeEventListener('pointerdown', onProbe, true);
+      };
+    });
+  });
+}
+
+/** Leaf pile: nested .arch-sub, or a flattened strategy band that carries data-arch-sub without the arch-sub class. */
+function _archPileEl(fromEl) {
+  if (!fromEl || !fromEl.closest) return null;
+  return fromEl.closest('.arch-sub[data-arch-sub], .arch-strategy-band--flat[data-arch-sub]');
+}
+
+function _archCardSourcePlacement(cardEl) {
+  if (!cardEl) return { fromCat: null, fromSub: null, fromUnassigned: false };
+  if (cardEl.closest('.arch-unassigned')) {
+    return { fromCat: null, fromSub: null, fromUnassigned: true };
+  }
+  const sub = _archPileEl(cardEl);
+  const panel = cardEl.closest('.arch-panel[data-arch-cat]');
+  return {
+    fromCat: panel?.dataset?.archCat || null,
+    fromSub: sub?.dataset?.archSub || null,
+    fromUnassigned: false,
+  };
+}
+
+/** Resolve a drop under the pointer: leaf subsection or Unassigned (not strategy band wrappers). */
+function _archDropTargetFromPoint(clientX, clientY) {
+  const under = document.elementFromPoint(clientX, clientY);
+  if (!under) return null;
+  const un = under.closest('.arch-unassigned');
+  if (un) return { kind: 'unassigned', highlight: un, cat: null, sub: null };
+  const sub = _archPileEl(under);
+  if (!sub) return null;
+  const panel = sub.closest('.arch-panel[data-arch-cat]');
+  const cat = panel?.dataset?.archCat;
+  const subId = sub.dataset.archSub;
+  if (!cat || !subId) return null;
+  return { kind: 'sub', highlight: sub, cat, sub: subId };
+}
+
+function _archSetDropHighlight(st, el) {
+  if (!st) return;
+  if (st.highlightEl === el) return;
+  if (st.highlightEl) st.highlightEl.classList.remove('drag-over');
+  st.highlightEl = el || null;
+  if (el) el.classList.add('drag-over');
+}
+
+function _archPointerDragBind() {
+  window.addEventListener('pointermove', _archPointerMove, _ARCH_PTR_OPTS);
+  window.addEventListener('pointerup', _archPointerEnd, _ARCH_PTR_OPTS);
+  window.addEventListener('pointercancel', _archPointerEnd, _ARCH_PTR_OPTS);
+}
+
+function _archPointerDragUnbind() {
+  window.removeEventListener('pointermove', _archPointerMove, _ARCH_PTR_OPTS);
+  window.removeEventListener('pointerup', _archPointerEnd, _ARCH_PTR_OPTS);
+  window.removeEventListener('pointercancel', _archPointerEnd, _ARCH_PTR_OPTS);
+}
+
+function _archBeginDragVisual(st, e) {
+  st.moved = true;
+  _archCancelHoverUnlock();
+  _archClearHoverChrome(st.root);
+  st.root.classList.add('is-arch-dragging');
+  st.card.classList.add('dragging');
+  // Capture on the list, not the card — capturing the card glues :hover to it
+  // for the rest of the gesture (and after drop, once the node is replaced).
+  if (st.root.setPointerCapture) {
+    try { st.root.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  const img = st.card.querySelector('.stack-main, img');
+  const ghost = document.createElement('div');
+  ghost.id = 'archDragGhost';
+  ghost.style.cssText = 'position:fixed;pointer-events:none;z-index:9900;opacity:0.92;';
+  if (img && img.tagName === 'IMG') {
+    const clone = img.cloneNode(true);
+    clone.removeAttribute('loading');
+    clone.style.maxWidth = '120px';
+    clone.style.width = '120px';
+    clone.style.height = 'auto';
+    clone.style.display = 'block';
+    ghost.appendChild(clone);
+  } else {
+    ghost.className = 'arch-drag-ghost-label';
+    ghost.textContent = st.card.querySelector('.deck-card-name, .stack-name')?.textContent?.trim()
+      || st.key;
+  }
+  document.body.appendChild(ghost);
+  st.ghost = ghost;
+  const r = st.card.getBoundingClientRect();
+  st.ghostOx = e.clientX - r.left;
+  st.ghostOy = e.clientY - r.top;
+}
+
+function _archCardPointerDown(e, root) {
+  if (_deckIsPhone()) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return;
+  if (e.button !== 0) return;
+  if (e.target?.closest?.('button, a, input, textarea, summary')) return;
+  const card = e.target?.closest?.(ARCH_CARD_SEL);
+  if (!card || !root?.contains(card)) return;
+  const key = card.getAttribute('data-arch-key') || '';
+  if (!key) return;
+  const src = _archCardSourcePlacement(card);
+  _archPointerDrag = {
+    card,
+    key,
+    root,
+    fromCat: src.fromCat,
+    fromSub: src.fromSub,
+    fromUnassigned: src.fromUnassigned,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    pointerId: e.pointerId,
+    highlightEl: null,
+    ghost: null,
+    ghostOx: 0,
+    ghostOy: 0,
+  };
+  _archPointerDragBind();
+}
+
+function _archPointerMove(e) {
+  const st = _archPointerDrag;
+  if (!st || e.pointerId !== st.pointerId) return;
+  if (!st.moved) {
+    if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) < _ARCH_DRAG_THRESHOLD) return;
+    e.preventDefault();
+    _archBeginDragVisual(st, e);
+  }
+  if (st.ghost) {
+    st.ghost.style.left = `${e.clientX - st.ghostOx}px`;
+    st.ghost.style.top = `${e.clientY - st.ghostOy}px`;
+  }
+  // Hide the source card under the cursor so elementFromPoint sees the drop target.
+  const prevVis = st.card.style.visibility;
+  st.card.style.visibility = 'hidden';
+  if (st.ghost) st.ghost.style.visibility = 'hidden';
+  const drop = _archDropTargetFromPoint(e.clientX, e.clientY);
+  st.card.style.visibility = prevVis;
+  if (st.ghost) st.ghost.style.visibility = '';
+  _archSetDropHighlight(st, drop?.highlight || null);
+  e.preventDefault();
+}
+
+function _archPointerEnd(e) {
+  const st = _archPointerDrag;
+  _archPointerDrag = null;
+  _archPointerDragUnbind();
+  if (!st || e.pointerId !== st.pointerId) return;
+
+  if (st.root.releasePointerCapture) {
+    try { st.root.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _archRemoveDragGhost();
+  st.root.classList.remove('is-arch-dragging');
+  st.card.classList.remove('dragging');
+  _archSetDropHighlight(st, null);
+
+  if (!st.moved) return;
+
+  _archSuppressClick = true;
+  setTimeout(() => { _archSuppressClick = false; }, 400);
+
+  st.card.style.visibility = 'hidden';
+  const drop = _archDropTargetFromPoint(e.clientX, e.clientY);
+  st.card.style.visibility = '';
+  if (drop) {
+    if (drop.kind === 'unassigned') {
+      if (!st.fromUnassigned) architectureUnassignCard(st.key);
+    } else {
+      architectureMoveCard(st.key, st.fromCat, st.fromSub, drop.cat, drop.sub);
+    }
+  }
+  // Always reset hover chrome after a moved drag — even if the drop missed —
+  // so the source card cannot stay gold-washed under a sticky :hover.
+  _archResetStuckHover(st.root);
+}
+
+function _bindArchCardDrag(root, enabled) {
+  if (!root) return;
+  if (root._archDragPointerDown) {
+    root.removeEventListener('pointerdown', root._archDragPointerDown);
+    root._archDragPointerDown = null;
+  }
+  if (!enabled) return;
+  const onDown = e => _archCardPointerDown(e, root);
+  root._archDragPointerDown = onDown;
+  root.addEventListener('pointerdown', onDown);
 }
 
 function setDeckStackOrient(orient) {
@@ -5506,6 +6541,9 @@ function _archModelOrNull(deck, cards) {
       cards,
       overrides: deck.architectureOverrides,
       goals: cached && cached.goals ? cached.goals : null,
+      removalTargets: cached && cached.removalTargets ? cached.removalTargets : null,
+      irProjectTags: cached && cached.irProjectTags ? cached.irProjectTags : null,
+      irWincon: cached && cached.irWincon ? cached.irWincon : null,
     });
   } catch (err) {
     console.error('Architecture view failed:', err);
@@ -5524,9 +6562,9 @@ function _archSortRows(rows) {
 
 /**
  * Split architecture rows into the toolbar's Group By buckets so each subsection
- * reads like the other deck views. Returns null when a split adds nothing (one
- * bucket, or too few cards), and when Group By is already Architecture — the
- * outer panels/subsections are that grouping.
+ * can nest those buckets as drilldowns. Returns null when a split adds nothing
+ * (one bucket, or too few cards), and when Group By is already Architecture —
+ * the outer panels/subsections are that grouping.
  */
 function _archGroupRows(rows) {
   if (!rows || rows.length < 2) return null;
@@ -5535,8 +6573,19 @@ function _archGroupRows(rows) {
   for (const r of rows) if (r.card) rowOfCard.set(r.card, r);
   const groups = _buildDeckGroups([...rowOfCard.keys()], deckGroupBy || 'type');
   const out = [];
+  // Tag / multi-bucket Group By can list the same card in several drills; under
+  // one Architecture subsection that reads as the same card twice in one folder.
+  const seenKeys = new Set();
   for (const [label, cards] of Object.entries(groups)) {
-    const groupRows = cards.map(c => rowOfCard.get(c)).filter(Boolean);
+    const groupRows = [];
+    for (const c of cards) {
+      const r = rowOfCard.get(c);
+      if (!r) continue;
+      const k = r.key || architectureCardKey(c);
+      if (k && seenKeys.has(k)) continue;
+      if (k) seenKeys.add(k);
+      groupRows.push(r);
+    }
     if (groupRows.length) out.push({ label, rows: groupRows });
   }
   return out.length > 1 ? out : null;
@@ -5548,8 +6597,11 @@ function _archVisualTile(row, opts) {
   const nameKey = String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;');
   const uid = String(c.uid || c.scryfallId || '').replace(/"/g, '&quot;');
   const qty = row.qty || 1;
-  const primaryMark = row.primary ? ' is-arch-primary' : '';
-  const src = row.source === 'override' ? ' <span class="arch-pill arch-pill--override">Set</span>' : '';
+  const o = opts || {};
+  const primaryHere = !!(row.primary && o.placeCat
+    && row.primary.category === o.placeCat
+    && String(row.primary.subsection || '') === String(o.placeSub || ''));
+  const primaryMark = primaryHere ? ' is-arch-primary' : '';
   const archTileW = _archStackedLayoutActive() && typeof _archFitCardSize === 'number' && _archFitCardSize
     ? _archFitCardSize
     : (typeof deckCardSize === 'number' ? deckCardSize : 0);
@@ -5569,7 +6621,7 @@ function _archVisualTile(row, opts) {
       ${badge}
       ${menu}
     </div>
-    <div class="stack-name">${escapeHtml(row.name)}${src}</div>
+    <div class="stack-name">${escapeHtml(row.name)}</div>
   </div>`;
 }
 
@@ -5603,6 +6655,7 @@ function _bindArchListHoverPreview(el, deck, enabled) {
   const pickRow = target => target?.closest?.('.arch-card-row[data-uid]');
   let shownFor = null;
   const over = e => {
+    if (_archHoverChromeLocked()) return;
     const row = pickRow(e.target);
     if (!row || !el.contains(row) || row === shownFor) return;
     const card = getDeckCardByUid(deck, row.dataset.uid);
@@ -7310,7 +8363,19 @@ function _clearDeckTagLinkedHighlight(el) {
   _deckTagLinkHoverRef = null;
 }
 
+/** Architecture rows often have only data-card-name-key; empty cardKey must not count as a match. */
+function _deckTagLinkSameCard(from, to) {
+  if (!from || !to) return false;
+  const fromKey = String(from.dataset.cardKey || '');
+  const toKey = String(to.dataset.cardKey || '');
+  if (fromKey && toKey && fromKey === toKey) return true;
+  const fromName = String(from.dataset.cardNameKey || '');
+  const toName = String(to.dataset.cardNameKey || '');
+  return !!(fromName && toName && fromName === toName);
+}
+
 function _setDeckTagLinkedHighlight(el, key, nameKey, sourceEl) {
+  if (_archHoverChromeLocked()) return;
   if (!el || (!key && !nameKey)) return;
   const ref = `${key || ''}::${nameKey || ''}`;
   if (_deckTagLinkHoverRef === ref) return;
@@ -7337,6 +8402,7 @@ function _bindDeckTagGroupHoverLinking(el, enabled) {
   if (!enabled) return;
   const pickRow = target => target?.closest('.deck-card-row[data-card-key], .deck-stack-card[data-card-key], .deck-card-row[data-card-name-key], .deck-stack-card[data-card-name-key]');
   el.onmouseover = e => {
+    if (_archHoverChromeLocked()) return;
     const row = pickRow(e.target);
     if (!row || !el.contains(row)) return;
     const key = row.dataset.cardKey || '';
@@ -7348,10 +8414,11 @@ function _bindDeckTagGroupHoverLinking(el, enabled) {
     const from = pickRow(e.target);
     if (!from) return;
     const to = pickRow(e.relatedTarget);
-    if (to && to.dataset.cardKey === from.dataset.cardKey) return;
+    if (_deckTagLinkSameCard(from, to)) return;
     _clearDeckTagLinkedHighlight(el);
   };
   el.onfocusin = e => {
+    if (_archHoverChromeLocked()) return;
     const row = pickRow(e.target);
     if (!row || !el.contains(row)) return;
     const key = row.dataset.cardKey || '';
@@ -7386,7 +8453,7 @@ function _bindSwapZoneHoverLinking(el, enabled) {
     const from = pickRow(e.target);
     if (!from || !isSwapZone(from)) return;
     const to = pickRow(e.relatedTarget);
-    if (to && to.dataset.cardKey === from.dataset.cardKey) return;
+    if (_deckTagLinkSameCard(from, to)) return;
     _clearDeckTagLinkedHighlight(el);
   };
 }
@@ -7405,7 +8472,9 @@ function _deckStackPeekCardFromEvent(e, root) {
 }
 
 function _onDeckStackPeekOver(e) {
+  if (_archHoverChromeLocked()) return;
   const root = e.currentTarget;
+  if (root.classList.contains('is-arch-dragging')) return;
   const card = _deckStackPeekCardFromEvent(e, root);
   if (!card) return;
   if (card.classList.contains('is-stack-peek')) return;
@@ -7414,7 +8483,9 @@ function _onDeckStackPeekOver(e) {
 }
 
 function _onDeckStackPeekDown(e) {
+  if (_archHoverChromeLocked()) return;
   const root = e.currentTarget;
+  if (root.classList.contains('is-arch-dragging')) return;
   const card = _deckStackPeekCardFromEvent(e, root);
   _clearDeckStackPeek(root, card);
   if (card) card.classList.add('is-stack-peek');
@@ -11208,6 +12279,7 @@ function renderDeckList(deck) {
   _bindDeckTagGroupHoverLinking(el, false);
   _bindSwapZoneHoverLinking(el, false);
   _bindArchListHoverPreview(el, deck, false);
+  _bindArchCardDrag(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || [], { reportCount: true });
   // One classification per render, shared by the Architecture view's panels and
   // Group By → Architecture (list / visual / nested band skip).
@@ -11335,7 +12407,44 @@ function renderDeckList(deck) {
     });
     el.innerHTML = html + extraListHtml;
     el.onclick = e => {
+      if (_archSuppressClick) {
+        _archSuppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (_handleDeckExtraZoneToggleClick(e)) return;
+      const panelMenuBtn = e.target.closest('[data-arch-panel-menu]');
+      if (panelMenuBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        _openArchitectureSectionMenu(
+          panelMenuBtn.getAttribute('data-arch-cat'),
+          panelMenuBtn,
+          model,
+        );
+        return;
+      }
+      const promoteBtn = e.target.closest('[data-arch-promote-strategy]');
+      if (promoteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof architecturePromoteDetectedTheme === 'function') {
+          architecturePromoteDetectedTheme(promoteBtn.getAttribute('data-arch-promote-strategy'));
+        }
+        return;
+      }
+      const subMenuBtn = e.target.closest('[data-arch-sub-menu]');
+      if (subMenuBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        _openArchitectureSubsectionMenu(
+          subMenuBtn.getAttribute('data-arch-cat'),
+          subMenuBtn.getAttribute('data-arch-sub'),
+          subMenuBtn,
+        );
+        return;
+      }
       const menuBtn = e.target.closest('[data-arch-menu]');
       const card = e.target.closest(ARCH_CARD_SEL);
       const gesture = _archCardGesture(_isTouchPrimaryUi() ? 'touch' : 'mouse', {
@@ -11365,6 +12474,7 @@ function renderDeckList(deck) {
     _bindDeckTagGroupHoverLinking(el, true);
     _bindSwapZoneHoverLinking(el, swapsOn);
     _bindArchListHoverPreview(el, deck, archCardMode !== 'visual');
+    _bindArchCardDrag(el, canEdit && !activeDeckIsShared && !_deckIsPhone());
     if (stackedLayout) {
       const view = document.getElementById('deckArchitectureView');
       if (view) {
@@ -12285,7 +13395,10 @@ function _probTagsOnCard(card, deck) {
   if (Array.isArray(card.roleTags) && !fromOracle.some(t => t !== 'Land' && t !== 'Commander')) {
     card.roleTags.forEach(t => { if (t) out.add(String(t)); });
   }
-  return [...out].filter(t => !_isDeckTagDisabled(deckRef, t));
+  const list = (typeof demoteRampTutorLabels === 'function')
+    ? demoteRampTutorLabels([...out])
+    : [...out];
+  return list.filter(t => !_isDeckTagDisabled(deckRef, t));
 }
 
 function _ensureProbChartFilterDelegation() {
@@ -13704,7 +14817,7 @@ function renderCommanderGameplan(deck) {
       </div>
       <div class="panel-body cmdr-gp-body">
         <div class="cmdr-gp-plan-sync" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.35rem 0 .55rem;font-size:.75rem">
-          <label for="cmdGpCastTurn" title="Synced with Plan wizard (CP-Q14)">Cast turn</label>
+          <label for="cmdGpCastTurn" title="Target turn to cast the commander">Cast turn</label>
           <span class="cmdr-gp-castturn card-detail-qty-row" title="Cast turn">
             <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="_cmdCastTurnStep('${String(deck.id).replace(/'/g, "\\'")}', -1)" aria-label="Earlier cast turn">&minus;</button>
             <span class="card-detail-qty-value" id="cmdGpCastTurn">${meta.planCastTurn != null ? meta.planCastTurn : meta.cmdCMC}</span>
@@ -15071,7 +16184,10 @@ function _roleTagsForCard(card) {
   if (oracleId && _scryTagsByOracleId.has(oracleId)) {
     tags.push(...(_scryTagsByOracleId.get(oracleId) || []));
   }
-  return _applyTagOverrides(oracleId, [...new Set(tags)]);
+  const demoted = (typeof demoteRampTutorLabels === 'function')
+    ? demoteRampTutorLabels([...new Set(tags)])
+    : [...new Set(tags)];
+  return _applyTagOverrides(oracleId, demoted);
 }
 
 function syncDeckCardAutoRoleTags(card) {
@@ -16290,7 +17406,11 @@ const _REPL_ROLE_PHRASES = [
 
 function _replPhraseRolesFor(oracleBlob) {
   if (!oracleBlob) return [];
-  return _REPL_ROLE_PHRASES.filter(e => e.res.some(re => re.test(oracleBlob)));
+  const hits = _REPL_ROLE_PHRASES.filter(e => e.res.some(re => re.test(oracleBlob)));
+  if (typeof demoteRampTutorLabels !== 'function') return hits;
+  // Callers expect { label, … } rows; demote by label then keep matching phrase entries.
+  const keep = new Set(demoteRampTutorLabels(hits.map(e => e.label)));
+  return hits.filter(e => keep.has(e.label));
 }
 
 // Irregular plurals for tribe words as they appear in oracle text ("Elves you control").
