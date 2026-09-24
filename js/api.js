@@ -421,11 +421,26 @@ function _parseScryfallPriceField(v) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Prices are taken off a fetched card only when our own API priced it — the server sets
+ * `priceSource` from its price-log-first / TCGplayer-on-miss cascade. A blob fetched
+ * straight from api.scryfall.com carries Scryfall's numbers instead, and those used to
+ * land in the stored card and then disagree with the price log that the badges, deltas
+ * and inspector read. Unpriced here means unpriced in the blob: the price-log pass
+ * (applyLatestPriceLogToCards / the server's deck enrichment) fills it in on read.
+ */
+function _entryPricesFromCard(card) {
+  if (!card?.priceSource) return { usd: null, usdFoil: null, usdCk: null, usdCkFoil: null };
+  return {
+    usd: _parseScryfallPriceField(card.prices?.usd),
+    usdFoil: _parseScryfallPriceField(card.prices?.usd_foil),
+    usdCk: _parseScryfallPriceField(card.prices?.usd_ck),
+    usdCkFoil: _parseScryfallPriceField(card.prices?.usd_ck_foil),
+  };
+}
+
 function cardToEntry(card, qty = 1) {
-  const usd = _parseScryfallPriceField(card.prices?.usd);
-  const usdFoil = _parseScryfallPriceField(card.prices?.usd_foil);
-  const usdCk = _parseScryfallPriceField(card.prices?.usd_ck);
-  const usdCkFoil = _parseScryfallPriceField(card.prices?.usd_ck_foil);
+  const { usd, usdFoil, usdCk, usdCkFoil } = _entryPricesFromCard(card);
   const rawFaces = _scryfallCardFaces(card);
   const cardFaces = rawFaces.map(face => ({
     name: face.name || '',

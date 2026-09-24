@@ -4743,9 +4743,10 @@ async function historyCollectionUndoFromRow(packed) {
   }
   if (!ev.scryfallId) { showNotif('Cannot restore this entry', true); return; }
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(ev.scryfallId)}`);
-    if (!res.ok) throw new Error('lookup failed');
-    const card = await res.json();
+    // fetchCardById goes through our priced endpoint; a raw Scryfall blob here put
+    // Scryfall's own number on the restored row instead of the price log's.
+    const card = await fetchCardById(ev.scryfallId);
+    if (!card) throw new Error('lookup failed');
     addCardToCollection(card, n, !!ev.foil);   // records its own history event
     _histUndoneRowKeys.add(packed);
     if (_historyVisible) renderCollectionHistory();

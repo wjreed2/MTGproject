@@ -153,9 +153,17 @@ function _ownerLabel(email) {
   return at > 0 ? email.slice(0, at) : (email || 'unknown');
 }
 
-/** Deck value, short enough to sit on one line beside the card count. */
-function _browseDeckPrice(v) {
-  const n = Number(v) || 0;
+/**
+ * Deck value, short enough to sit on one line beside the card count, in the viewer's
+ * displayed-price vendor. The listing is cached once for
+ * every user, so the server ships both totals and the pick happens here; CK falls back
+ * to TCG because a deck of printings the log has no CK price for would read $0.
+ */
+function _browseDeckPrice(deck) {
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  const tcg = Number(deck?.price) || 0;
+  const ck = Number(deck?.priceCK) || 0;
+  const n = primary === 'ck' ? (ck > 0 ? ck : tcg) : tcg;
   if (!n) return '';
   return n >= 1000
     ? '$' + Math.round(n).toLocaleString('en-US')
@@ -196,7 +204,7 @@ function _browseDeckCard(d) {
 
   const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
     + ` · ${d.cardCount} cards · ${_ownerLabel(d.ownerEmail)}`;
-  const price = _browseDeckPrice(d.price);
+  const price = _browseDeckPrice(d);
   const notes = String(d.notes || '').trim();
 
   return `

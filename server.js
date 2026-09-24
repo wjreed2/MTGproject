@@ -2697,6 +2697,10 @@ function _applyTcgPricesToCard(card, usd, usdFoil) {
   if (nf > 0) next.usd = String(nf);
   if (fo > 0) next.usd_foil = String(fo);
   card.prices = next;
+  // `priceSource` tells the client this number came from our price pipeline rather
+  // than from a blob it fetched off api.scryfall.com itself — cardToEntry only
+  // stamps prices onto a stored card when it is set. See attachPriceLogPrices.
+  if (nf > 0 || fo > 0) card.priceSource = 'tcgplayer';
   return card;
 }
 
@@ -2757,11 +2761,19 @@ async function attachPriceLogPrices(cards) {
       const p = byId.get(String(c.id || '').toLowerCase());
       if (!p) continue;
       const next = { ...(c.prices || {}) };
-      if (p.tcg_normal != null) next.usd = p.tcg_normal;
-      if (p.tcg_foil != null) next.usd_foil = p.tcg_foil;
-      if (p.ck_normal != null) next.usd_ck = p.ck_normal;
-      if (p.ck_foil != null) next.usd_ck_foil = p.ck_foil;
+      let applied = false;
+      if (p.tcg_normal != null) { next.usd = p.tcg_normal; applied = true; }
+      if (p.tcg_foil != null) { next.usd_foil = p.tcg_foil; applied = true; }
+      if (p.ck_normal != null) { next.usd_ck = p.ck_normal; applied = true; }
+      if (p.ck_foil != null) { next.usd_ck_foil = p.ck_foil; applied = true; }
       c.prices = next;
+      // The price log is the authority; say so on the card. The client stores prices
+      // only off a marked card, which is what keeps raw-Scryfall numbers (from its own
+      // direct api.scryfall.com calls) out of the stored blobs and out of the deltas.
+      // Only when a column actually held a value: a row can exist with every vendor
+      // NULL (a printing too new to have a market price), and marking that as priced
+      // would vouch for numbers we never supplied.
+      if (applied) c.priceSource = 'price-log';
     }
   } catch (e) {
     // Price-history tables not present in this DB — degrade gracefully (search still works).
@@ -4384,13 +4396,17 @@ app.get('/api/decks/public', async (req, res) => {
     }
 
     // The card's own finish, falling back to non-foil when a foil price is
-    // missing — the same rule the deck page's value uses.
-    const deckValue = cards => (cards || []).reduce((sum, c) => {
-      const nonFoil = parseFloat(c.priceTCG) || 0;
-      const foil = parseFloat(c.priceTCGFoil) || 0;
+    // missing — the same rule the deck page's value uses. Both vendors are summed:
+    // this listing is cached once for every user, so it cannot read one viewer's
+    // displayed-price setting; the client picks the column its setting asks for.
+    const deckValue = (cards, nfKey, foilKey) => (cards || []).reduce((sum, c) => {
+      const nonFoil = parseFloat(c[nfKey]) || 0;
+      const foil = parseFloat(c[foilKey]) || 0;
       const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
       return sum + unit * (c.qty || 1);
     }, 0);
+    const deckValueTcg = cards => deckValue(cards, 'priceTCG', 'priceTCGFoil');
+    const deckValueCk = cards => deckValue(cards, 'priceCK', 'priceCKFoil');
 
     // Read the cached readouts; never infer here. Filling even four of them made
     // a cold listing take five seconds, and the background warm-up works through
@@ -4431,7 +4447,8 @@ app.get('/api/decks/public', async (req, res) => {
         cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
         notes: String(deck.notes || '').slice(0, 400),
         goal: goalByDeck.get(r.id) || null,
-        price: Math.round(deckValue(cards) * 100) / 100,
+        price: Math.round(deckValueTcg(cards) * 100) / 100,
+        priceCK: Math.round(deckValueCk(cards) * 100) / 100,
         ownerEmail: r.email,
         // A handle or display name where there is one — the local part of an
         // email is a poor byline, and the precon library's is "Wizards of the
@@ -10435,7 +10452,9 @@ app.get('/api/scryfall/card/:set/:num', async (req, res) => {
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${String(set).toLowerCase()}/${num}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    // Same precedence as /api/scryfall/card-id/:id — price log first, TCG only on a miss.
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -10488,7 +10507,10 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
         .json({ error: upstream ? 'Card not found' : 'Card lookup timed out' });
     }
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    // The log is keyed off mtgjson_printing, not scryfall_oracle_cards, so a printing
+    // missing from the local oracle DB can still have a price row. Try it before TCG.
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -10885,6 +10907,15 @@ app.post('/api/scryfall/collection', async (req, res) => {
     });
     const data = await upstream.json();
     if (!upstream.ok) return res.status(upstream.status).json(data);
+    // Same precedence as search: price log first, TCG only for printings it missed.
+    // Import and the collection-history restore both write cards from this response,
+    // so this is what makes a stored price a price-log price.
+    const cards = Array.isArray(data.data) ? data.data : [];
+    await attachPriceLogPrices(cards);
+    if (hasTcgCreds()) {
+      const misses = cards.filter(c => !_cardHasUsdPrice(c)).slice(0, 24);
+      if (misses.length) await Promise.all(misses.map(enrichCardWithTcgPrices));
+    }
     res.json(data);
   } catch (e) {
     console.error(e);
@@ -10901,7 +10932,8 @@ app.get('/api/scryfall/named', async (req, res) => {
       const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
       if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
       const card = await upstream.json();
-      await enrichCardWithTcgPrices(card);
+      await attachPriceLogPrices([card]);
+      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
       return res.json(card);
     }
 
@@ -10925,7 +10957,10 @@ app.get('/api/scryfall/named', async (req, res) => {
     })();
     if (localRow) {
       let card = _localRowToScryfallCard(localRow);
-      await enrichCardWithTcgPrices(card);
+      // Price log first — this used to lead with TCGplayer, so a card the log had a
+      // row for still got its number from a live vendor call, and the two disagreed.
+      await attachPriceLogPrices([card]);
+      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
       if (!_cardHasUsdPrice(card) && localRow.scryfall_id) {
         const upstreamCard = await _fetchScryfallCardById(localRow.scryfall_id);
         if (upstreamCard) card = upstreamCard;
@@ -10939,12 +10974,17 @@ app.get('/api/scryfall/named', async (req, res) => {
           await enrichCardWithTcgPrices(card);
         }
       }
+      // Both fallbacks above swap the whole card, which throws away the price-log pass
+      // done on the first one — including its CK columns, which no other source fills.
+      // Re-run it on the card we settled on; it only ever writes values the log holds.
+      await attachPriceLogPrices([card]);
       return res.json(card);
     }
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -11840,7 +11880,9 @@ app.get('/api/scryfall/search', async (req, res) => {
 
     // Fast path: exact name search `!"CardName"` → serve from local oracle DB, no Scryfall round-trip.
     // The deck builder always appends `-is:extra`; strip that and any other simple suffix filters.
-    const exactNameMatch = q.match(/^!"([^"]+)"/);
+    // scryfall_oracle_cards holds one row per card, not per printing, so the fast path
+    // cannot answer unique=prints (the version picker's fallback) — that goes upstream.
+    const exactNameMatch = unique === 'prints' ? null : q.match(/^!"([^"]+)"/);
     if (exactNameMatch) {
       const exactName = exactNameMatch[1];
       const [rows] = await db().query(
@@ -11851,7 +11893,11 @@ app.get('/api/scryfall/search', async (req, res) => {
         [exactName]
       );
       if (rows.length) {
-        return res.json({ object: 'list', total_cards: rows.length, has_more: false, data: rows.map(_localRowToScryfallCard) });
+        // _localRowToScryfallCard emits prices:{usd:null}, so without this the exact-name
+        // path (every deck-builder name lookup) served a card with no price at all.
+        const cards = rows.map(_localRowToScryfallCard);
+        await attachPriceLogPrices(cards);
+        return res.json({ object: 'list', total_cards: cards.length, has_more: false, data: cards });
       }
       // Not in local DB — fall through to Scryfall
     }
@@ -11867,10 +11913,16 @@ app.get('/api/scryfall/search', async (req, res) => {
     }
     const data = await upstream.json();
     const cards = data.data || [];
-    // TCG enrichment is slow (catalog + pricing per card). Scryfall JSON already includes prices;
-    // use skipTcg=1 for high-frequency UI (deck suggestions, replacement finder).
+    // One price authority: the MTGJSON price log, which overwrites whatever prices the
+    // Scryfall blob shipped with. TCGplayer is the miss-only fallback for printings the
+    // log has no row for yet (a set released since the last snapshot) — it is slow
+    // (catalog + pricing lookup per card), so it stays capped and skipTcg=1 opts
+    // high-frequency UI (deck suggestions, replacement finder) out entirely. A card the
+    // log and TCG both miss keeps Scryfall's own number: display-only, never stored.
+    await attachPriceLogPrices(cards);
     if (!skipTcg && hasTcgCreds()) {
-      await Promise.all(cards.slice(0, 24).map(enrichCardWithTcgPrices)); // cap for responsiveness
+      const misses = cards.filter(c => !_cardHasUsdPrice(c)).slice(0, 24); // cap for responsiveness
+      if (misses.length) await Promise.all(misses.map(enrichCardWithTcgPrices));
     }
     data.data = cards;
     res.json(data);

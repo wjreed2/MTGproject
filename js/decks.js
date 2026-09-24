@@ -23,14 +23,31 @@ function toggleDeckInfoTooltip() {
   badge.classList.toggle('open');
 }
 
+/** 'TCG' or 'CK' — whichever vendor Settings → Displayed price source selects. */
+function _primaryVendorLabel() {
+  const v = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  return v === 'ck' ? 'CK' : 'TCG';
+}
+
+/**
+ * Deck total in the vendor the card badges are showing. Same finish rule as a badge:
+ * the card's own finish, falling back to non-foil when the foil price is missing.
+ */
+function _deckPrimaryValue(cards) {
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  return (cards || []).reduce((sum, c) => {
+    const unit = typeof getPrimaryPriceForCard === 'function'
+      ? getPrimaryPriceForCard(c, primary)
+      : (Number(c?.priceTCG) || 0);
+    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
+  }, 0);
+}
+
 function _renderDeckInfoTooltip() {
   const tip = document.getElementById('deckInfoTooltip');
   const deck = getActiveDeck();
   if (!tip || !deck) return;
-  const totalTcg = (deck.cards || []).reduce((sum, c) => {
-    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
-    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
-  }, 0);
+  const totalValue = _deckPrimaryValue(deck.cards);
   const gcFormat = _isCommanderFormatForGameChangers(deck);
   const gcEntries = gcFormat && _gameChangerOracleIds ? _deckGameChangerEntries(deck) : null;
   const gcCount = gcEntries ? gcEntries.length : (gcFormat ? '…' : '—');
@@ -43,7 +60,7 @@ function _renderDeckInfoTooltip() {
   }).join('') : '';
   tip.innerHTML = `
     <div class="deck-info-row"><span class="deck-info-label">Format</span><span>${escapeHtml(deck.format || '—')}</span></div>
-    <div class="deck-info-row"><span class="deck-info-label">Value (TCG)</span><span>$${totalTcg.toFixed(2)}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Value (${_primaryVendorLabel()})</span><span>$${totalValue.toFixed(2)}</span></div>
     <div class="deck-info-row"><span class="deck-info-label">Game changers</span><span>${gcCount}</span></div>
     ${gcRows}`;
 }
@@ -2435,7 +2452,14 @@ function setDeckGroupBy(val) {
   if (deck) renderDeckList(deck);
 }
 
-function _deckCardSortPrice(c) {
+/**
+ * Sort by the number on the card, not always TCG — otherwise a CK-primary user sees a
+ * list ordered by prices that aren't the ones being displayed. `primary` is resolved
+ * once per sort by the caller: this runs inside a comparator, and letting
+ * getPrimaryPriceForCard resolve it re-read localStorage on every comparison.
+ */
+function _deckCardSortPrice(c, primary) {
+  if (typeof getPrimaryPriceForCard === 'function') return Number(getPrimaryPriceForCard(c, primary)) || 0;
   if (typeof getTCGPriceForCard === 'function') return Number(getTCGPriceForCard(c)) || 0;
   return Number(c?.priceTCG) || 0;
 }
@@ -2473,6 +2497,9 @@ function _deckCardBadgeSortKey(card) {
 function _deckStackSortCards(items, cardOf) {
   const dir = deckStackSortDir === 'desc' ? -1 : 1;
   const card = typeof cardOf === 'function' ? cardOf : (x => x || {});
+  const pricePrimary = deckStackSort === 'price' && typeof getPrimaryPriceVendor === 'function'
+    ? getPrimaryPriceVendor()
+    : null;
   const tieName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
   return items.slice().sort((x, y) => {
     const a = card(x);
@@ -2484,7 +2511,7 @@ function _deckStackSortCards(items, cardOf) {
       cmp = (a.cmc || 0) - (b.cmc || 0);
       if (cmp === 0) cmp = String(a.mana || '').localeCompare(String(b.mana || ''));
     } else if (deckStackSort === 'price') {
-      cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
+      cmp = _deckCardSortPrice(a, pricePrimary) - _deckCardSortPrice(b, pricePrimary);
     } else if (deckStackSort === 'badge') {
       cmp = _deckCardBadgeSortKey(a).localeCompare(_deckCardBadgeSortKey(b), undefined, { sensitivity: 'base' });
     } else if (deckStackSort === 'coloring') {
@@ -5012,12 +5039,13 @@ function renderActiveDeck() {
   document.getElementById('activeDeckName').textContent = deck.name;
   document.getElementById('activeDeckFormat').textContent = deck.format;
   const total = deck.cards.reduce((s,c) => s + c.qty, 0);
-  const totalTcg = (deck.cards || []).reduce((sum, c) => {
-    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
-    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
-  }, 0);
+  const totalValue = _deckPrimaryValue(deck.cards);
   const topValueEl = document.getElementById('activeDeckValue');
-  if (topValueEl) topValueEl.textContent = `$${totalTcg.toFixed(2)}`;
+  if (topValueEl) {
+    topValueEl.textContent = `$${totalValue.toFixed(2)}`;
+    // The markup's static title said TCG; the badge follows the displayed-price setting.
+    topValueEl.title = `Total ${_primaryVendorLabel()} value of main deck cards`;
+  }
   const target = FORMAT_RULES[deck.format]?.min || 60;
   const max    = FORMAT_RULES[deck.format]?.max;
   const countOk = total >= target && (!max || total <= max);
@@ -17030,13 +17058,14 @@ async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
     const currentCard = _resolveVersionPickerCurrentCard(mode, deckId, cardUid);
 
     let prints = [];
+    // Both lookups go through our own endpoints so every printing arrives priced off the
+    // price log; picking a version writes that price onto the deck card below.
     if (currentCard?.scryfallId) {
       // Fetch the card to get oracle_id → finds ALL printings including renamed SL versions
-      const cardRes = await fetch(`https://api.scryfall.com/cards/${currentCard.scryfallId}`);
-      const cardData = await cardRes.json();
-      const oracleId = cardData.oracle_id;
+      const cardData = await fetchCardById(currentCard.scryfallId);
+      const oracleId = cardData?.oracle_id || cardData?.oracleId;
       if (oracleId) {
-        const res = await fetch(`https://api.scryfall.com/cards/search?q=oracleid%3A${oracleId}&unique=prints&order=released`);
+        const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent('oracleid:' + oracleId)}&unique=prints&order=released`);
         const data = await res.json();
         prints = data.data || [];
       }
@@ -17044,7 +17073,7 @@ async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
     // Fallback: search by front-face name only (handles DFCs like "Realm-Cloaked Giant // Cast Off")
     if (!prints.length) {
       const searchName = cardName.includes('//') ? cardName.split('//')[0].trim() : cardName;
-      const res = await fetch(`https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(searchName)}"&unique=prints&order=released`);
+      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent('!"' + searchName + '"')}&unique=prints&order=released`);
       const data = await res.json();
       prints = data.data || [];
     }
@@ -17080,8 +17109,9 @@ function _applyScryfallPrintingFields(card, sc) {
   if (!card || !sc) return;
   const foil = !!card.foil;
   const qty = card.qty || 1;
+  let entry = null;
   if (typeof cardToEntry === 'function' && typeof applyEntryMetadataToCard === 'function') {
-    const entry = cardToEntry(sc, qty);
+    entry = cardToEntry(sc, qty);
     applyEntryMetadataToCard(card, entry);
     card.scryfallId = sc.id;
     card.uid = sc.id + (foil ? '_f' : '_n');
@@ -17101,10 +17131,14 @@ function _applyScryfallPrintingFields(card, sc) {
     card.number = sc.collector_number || card.number;
     card.rarity = sc.rarity || card.rarity;
   }
-  const usd = parseFloat(sc.prices?.usd || 0);
-  const usdFoil = parseFloat(sc.prices?.usd_foil || 0);
-  if (Number.isFinite(usd)) card.priceTCG = usd;
-  if (Number.isFinite(usdFoil)) card.priceTCGFoil = usdFoil;
+  // A version change is a different printing, so its price replaces the old printing's
+  // outright — including when we don't know it yet (null), which the price-log pass then
+  // fills. This used to read sc.prices directly and set priceTCG = 0 on every printing
+  // Scryfall had no usd for, because parseFloat(undefined || 0) is a finite 0.
+  card.priceTCG = entry ? (entry.priceTCG ?? null) : null;
+  card.priceTCGFoil = entry ? (entry.priceTCGFoil ?? null) : null;
+  card.priceCK = entry ? (entry.priceCK ?? null) : null;
+  card.priceCKFoil = entry ? (entry.priceCKFoil ?? null) : null;
 }
 
 /** When a deck printing changes, update the matching collection row to the same printing. */
