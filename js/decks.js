@@ -1973,7 +1973,7 @@ let _tagOverridesByOracleId = new Map();  // oracleId -> { addTags:string[], rem
 let _tagOverridesLoaded = false;
 let _tagOverridesLoadPromise = null;
 let _tagSettingsTarget = null;            // { oracleId, cardName, defaultTags:Set, add:Set, remove:Set }
-const _SCRY_TAG_SCHEMA_VERSION = '4';
+const _SCRY_TAG_SCHEMA_VERSION = '5';
 function _isUuidLike(v) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || '').trim());
 }
@@ -5704,7 +5704,7 @@ function _archMenuPosition(menu, anchor) {
 function _openArchitectureSubsectionMenu(category, subsectionId, anchor) {
   _closeArchitectureMenu();
   if (!category || !subsectionId || !anchor) return;
-  anchor.closest?.('.arch-sub')?.classList.add('arch-sub--menu-open');
+  anchor.closest?.('.arch-sub, .arch-strategy-band--flat')?.classList.add('arch-sub--menu-open');
   const menu = document.createElement('div');
   menu.id = 'archPlacementMenu';
   menu.className = 'arch-menu';
@@ -6267,12 +6267,18 @@ function _archResetStuckHover(root) {
   });
 }
 
+/** Leaf pile: nested .arch-sub, or a flattened strategy band that carries data-arch-sub without the arch-sub class. */
+function _archPileEl(fromEl) {
+  if (!fromEl || !fromEl.closest) return null;
+  return fromEl.closest('.arch-sub[data-arch-sub], .arch-strategy-band--flat[data-arch-sub]');
+}
+
 function _archCardSourcePlacement(cardEl) {
   if (!cardEl) return { fromCat: null, fromSub: null, fromUnassigned: false };
   if (cardEl.closest('.arch-unassigned')) {
     return { fromCat: null, fromSub: null, fromUnassigned: true };
   }
-  const sub = cardEl.closest('.arch-sub[data-arch-sub]');
+  const sub = _archPileEl(cardEl);
   const panel = cardEl.closest('.arch-panel[data-arch-cat]');
   return {
     fromCat: panel?.dataset?.archCat || null,
@@ -6287,7 +6293,7 @@ function _archDropTargetFromPoint(clientX, clientY) {
   if (!under) return null;
   const un = under.closest('.arch-unassigned');
   if (un) return { kind: 'unassigned', highlight: un, cat: null, sub: null };
-  const sub = under.closest('.arch-sub[data-arch-sub]');
+  const sub = _archPileEl(under);
   if (!sub) return null;
   const panel = sub.closest('.arch-panel[data-arch-cat]');
   const cat = panel?.dataset?.archCat;

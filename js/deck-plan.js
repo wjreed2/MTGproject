@@ -365,22 +365,22 @@
     return out;
   }
 
-  /** localStorage key — `'1'` enables Plan identity; default off (absent / other → disabled). */
+  /** localStorage key — `'0'` hides Plan identity; default on (absent → enabled). */
   const PLAN_FEATURE_KEY = 'mtg_deck_plan';
   /** In-memory override for Node tests / callers without localStorage. null = read storage. */
   let _planFeatureOverride = null;
 
   /**
-   * Plan strategy/wincon/sub-tag identity is off by default. Catalogs and
-   * Commander Gameplan numbers stay available; flip on to restore wizard Plan.
+   * Plan strategy/wincon identity is on unless the user turns it off.
+   * Off hides the wizard and strips identity on read; stored deck.plan stays.
    */
   function isPlanFeatureEnabled() {
     if (_planFeatureOverride != null) return !!_planFeatureOverride;
     try {
-      if (typeof localStorage === 'undefined') return false;
-      return localStorage.getItem(PLAN_FEATURE_KEY) === '1';
+      if (typeof localStorage === 'undefined') return true;
+      return localStorage.getItem(PLAN_FEATURE_KEY) !== '0';
     } catch (_) {
-      return false;
+      return true;
     }
   }
 
@@ -436,25 +436,30 @@
     return isPlanDeclared(p) && !!p.planConfirmed;
   }
 
+  function syncDeckPlanWizardBtn() {
+    const wizardBtn = (typeof document !== 'undefined') ? document.getElementById('deckPlanWizardBtn') : null;
+    if (!wizardBtn) return;
+    const on = isPlanFeatureEnabled();
+    wizardBtn.hidden = !on;
+    wizardBtn.style.display = on ? '' : 'none';
+  }
+
   function renderDeckPlanSettingBtn() {
     const btn = (typeof document !== 'undefined') ? document.getElementById('settingsDeckPlanBtn') : null;
-    if (!btn) return;
     const on = isPlanFeatureEnabled();
-    btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 3.5h10v9H3z"/><path d="M5.5 6.5h5M5.5 9h3.5"/></svg>${on ? ' Deck Plan: on' : ' Deck Plan: off'}`;
-    btn.style.color = '';
-    btn.style.borderColor = '';
-    btn.classList.toggle('active', !!on);
+    if (btn) {
+      btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 3.5h10v9H3z"/><path d="M5.5 6.5h5M5.5 9h3.5"/></svg>${on ? ' Deck Plan: on' : ' Deck Plan: off'}`;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+      btn.classList.toggle('active', !!on);
+    }
+    syncDeckPlanWizardBtn();
   }
 
   function toggleDeckPlanSetting() {
     const next = !isPlanFeatureEnabled();
     setPlanFeatureEnabled(next);
     renderDeckPlanSettingBtn();
-    const wizardBtn = (typeof document !== 'undefined') ? document.getElementById('deckPlanWizardBtn') : null;
-    if (wizardBtn && !wizardBtn.hasAttribute('data-feature-off')) {
-      wizardBtn.hidden = !next;
-      wizardBtn.style.display = next ? '' : 'none';
-    }
     if (root && typeof root.showNotif === 'function') {
       root.showNotif(next
         ? 'Deck Plan enabled — strategy & win condition restore'

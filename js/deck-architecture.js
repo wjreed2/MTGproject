@@ -2046,10 +2046,15 @@
     for (const r of rows || []) {
       const cats = r.interactionGroups || [];
       if (!cats.length) { other.push(r); continue; }
+      const known = new Set(REMOVAL_GROUP_ORDER.map(g => g.id));
+      let matched = false;
       for (const cat of cats) {
+        if (!known.has(cat)) continue;
+        matched = true;
         if (!buckets.has(cat)) buckets.set(cat, []);
         buckets.get(cat).push(r);
       }
+      if (!matched) other.push(r);
     }
     if (!buckets.size) return null;
     const groups = REMOVAL_GROUP_ORDER

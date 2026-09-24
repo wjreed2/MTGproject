@@ -9071,6 +9071,13 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '5' } = {}) {
       });
     }
 
+    // No tag rows for this schema: leave existing percentiles alone. Wiping first
+    // and finding nothing re-triggers the boot backfill forever.
+    if (!rows.length) {
+      console.log(`[edhrec-pct] skip — no tag rows for schema ${schemaVersion}`);
+      return { roles: 0, updated: 0, withRank: Number(rankRow?.n || 0), skipped: true };
+    }
+
     // Clear then write (cards with no qualifying roles get NULL).
     await conn.query('UPDATE scryfall_oracle_cards SET edhrec_pct_json = NULL');
     const entries = [...pctByOracle.entries()];
@@ -9123,7 +9130,7 @@ async function backfillEdhrecPercentilesIfNeeded() {
     return;
   }
   console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
-  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: SCRY_TAG_SCHEMA_VERSION });
   console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
 }
 
@@ -11903,7 +11910,7 @@ app.get('/api/scryfall/search', async (req, res) => {
 });
 
 async function runScryfallImportEndpoint(req, res, mode) {
-  const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+  const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
   if (_scryfallImportProgress.running) {
     return res.status(409).json({ error: 'Scryfall import already running', progress: _scryfallImportProgress });
   }
@@ -12171,7 +12178,7 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
 /** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
 app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
   try {
-    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
     const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
     res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {

@@ -13007,15 +13007,17 @@ details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { 
   box-shadow: none !important;
   visibility: hidden;
   opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease;
+  transition: opacity 0.12s var(--ease), color 0.12s var(--ease);
 }
 @media (hover: hover) {
-  .arch-sub:hover > .arch-sub-head .arch-sub-menu { visibility: visible; opacity: 1; }
+  .arch-sub:hover > .arch-sub-head .arch-sub-menu,
+  .arch-strategy-band--flat:hover > .arch-sub-head .arch-sub-menu { visibility: visible; opacity: 1; }
 }
 @media (hover: none) {
   .arch-sub-menu { visibility: visible; opacity: 1; }
 }
 .arch-sub.arch-sub--menu-open > .arch-sub-head .arch-sub-menu,
+.arch-strategy-band--flat.arch-sub--menu-open > .arch-sub-head .arch-sub-menu,
 .arch-sub-menu:focus-visible { visibility: visible; opacity: 1; color: var(--text); }
 .arch-sub-menu:hover { color: var(--text); }
 .arch-sub-body { padding: 2px 0 6px 11px; }

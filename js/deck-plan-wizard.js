@@ -48,7 +48,11 @@
     }
     const count = typeof deckPlanCardCount === 'function' ? deckPlanCardCount(deck) : (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
     const path = count >= (typeof PLAN_WIZARD_ANALYZE_THRESHOLD === 'number' ? PLAN_WIZARD_ANALYZE_THRESHOLD : 80) ? 'B' : 'A';
-    const draft = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : (typeof emptyPlan === 'function' ? emptyPlan() : {});
+    // Stored plan, not getDeckPlan — that strips identity while the feature is off
+    // and a later save would erase wincon/strategies.
+    const draft = typeof normalizeDeckPlan === 'function'
+      ? normalizeDeckPlan(deck.plan)
+      : (typeof emptyPlan === 'function' ? emptyPlan() : {});
     const cmd = _pwCommanderCard(deck);
     const ranked = {
       strategies: path === 'B'
@@ -130,9 +134,22 @@
     const deck = _pwDeck();
     if (!deck || !_planWizard) return false;
     _planWizard.draft.planConfirmed = true;
-    deck.plan = typeof normalizeDeckPlan === 'function'
+    let next = typeof normalizeDeckPlan === 'function'
       ? normalizeDeckPlan(_planWizard.draft)
       : _planWizard.draft;
+    if (typeof isPlanFeatureEnabled === 'function' && !isPlanFeatureEnabled() && deck.plan) {
+      const stored = typeof normalizeDeckPlan === 'function' ? normalizeDeckPlan(deck.plan) : deck.plan;
+      next.winConditionId = stored.winConditionId;
+      next.primaryStrategyId = stored.primaryStrategyId;
+      next.secondaryStrategyId = stored.secondaryStrategyId;
+      next.tertiaryStrategyId = stored.tertiaryStrategyId;
+      next.planConfirmed = stored.planConfirmed;
+      next.planSubTags = stored.planSubTags;
+      next.planTypePicks = stored.planTypePicks;
+      next.planTypePickSources = stored.planTypePickSources;
+      next.typePicks = stored.typePicks;
+    }
+    deck.plan = next;
     if (typeof logDeckPlan === 'function') logDeckPlan('persist', deck.plan);
     if (typeof saveActiveDeck === 'function') saveActiveDeck(deck);
     else if (typeof save === 'function') save('decks');

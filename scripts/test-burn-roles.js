@@ -79,6 +79,37 @@ function findRow(model, name) {
     false,
     'ambiguous Burn with no damage-target signal is not interaction'
   );
+  assert.strictEqual(
+    burn.burnIndicatesInteraction(['Bounce'], 'Return target creature to its owner\'s hand.'),
+    false,
+    'bounce is not burn interaction'
+  );
+}
+
+// Non-burn interaction must not receive a Burn label (Architecture writes this into customTags).
+{
+  assert.strictEqual(
+    burn.preferredBurnInteractionLabel(['Bounce'], 'Return target creature to its owner\'s hand.'),
+    null,
+    'Unsummon-style bounce is not Burn.Creature'
+  );
+  assert.strictEqual(
+    burn.preferredBurnInteractionLabel(['Removal'], 'Exile target creature. Its controller gains life equal to its power.'),
+    null,
+    'Swords-style exile is not Burn.Creature'
+  );
+  assert.strictEqual(
+    burn.preferredBurnInteractionLabel(['Burn'], 'Flame Slash deals 4 damage to target creature.'),
+    'Burn.Creature'
+  );
+  assert.strictEqual(
+    burn.preferredBurnInteractionLabel(['Burn'], 'Lightning Bolt deals 3 damage to any target.'),
+    'Burn.Any'
+  );
+  assert.strictEqual(
+    burn.preferredBurnInteractionLabel([], 'Return target creature to its owner\'s hand.'),
+    null
+  );
 }
 
 // ── Architecture: Valakut Exploration not in interaction ─────────────────────

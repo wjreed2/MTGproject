@@ -40,6 +40,12 @@
     return String(text || '').toLowerCase();
   }
 
+  /** Damage-dealing text. "target creature" alone is not burn. */
+  function textIndicatesBurnDamage(oracleText) {
+    const t = _oracle(oracleText);
+    return /\bdamage\b/.test(t);
+  }
+
   /**
    * Classify burn target kinds from oracle text.
    * Returns a subset of: 'any' | 'creature' | 'player' | 'opponents'
@@ -123,6 +129,7 @@
     if (!set.has(BURN_PARENT) && !BURN_NON_INTERACTION_TAGS.some(t => set.has(t))) {
       return false;
     }
+    if (!textIndicatesBurnDamage(oracleText)) return false;
     const kinds = classifyBurnTargets(oracleText);
     if (kinds.includes('any') || kinds.includes('creature')) return true;
     return false;
@@ -133,6 +140,10 @@
     const set = new Set(_normTags(tags));
     if (set.has(BURN_ANY)) return BURN_ANY;
     if (set.has(BURN_CREATURE)) return BURN_CREATURE;
+    // Oracle fallback only when the card is actually burn. Bounce/exile that
+    // merely says "target creature" must not become Burn.Creature.
+    if (!tagListHasBurnFamily(tags) && !textIndicatesBurnDamage(oracleText)) return null;
+    if (!textIndicatesBurnDamage(oracleText)) return null;
     const kinds = classifyBurnTargets(oracleText);
     if (kinds.includes('any')) return BURN_ANY;
     if (kinds.includes('creature')) return BURN_CREATURE;
@@ -152,6 +163,7 @@
     classifyBurnTargets,
     burnSubtypeLabelsFromKinds,
     tagListHasBurnFamily,
+    textIndicatesBurnDamage,
     burnIndicatesInteraction,
     preferredBurnInteractionLabel,
   };
