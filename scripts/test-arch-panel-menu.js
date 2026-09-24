@@ -19,12 +19,12 @@ const {
   PAYOFF_FIXED_SUBS,
 } = arch;
 
-// Panel ⋮ appears when editable; vertical glyph.
+// Panel menu button appears when editable; inline-SVG kebab icon (ui-ruleset §9.6).
 {
   const model = classifyDeckArchitecture({ cards: [], plan: {} }, {}, { cards: [] });
   const editable = architectureViewHtml(model, { canEdit: true });
   assert.ok(editable.includes('data-arch-panel-menu'), 'editable view includes section ⋮');
-  assert.ok(editable.includes('>⋮</button>'), 'section menu uses vertical ellipsis');
+  assert.ok(/data-arch-panel-menu[^>]*><svg [^>]*aria-hidden="true"/.test(editable), 'section menu uses an inline-SVG icon');
   assert.ok(editable.includes('data-arch-cat="foundation"'), 'foundation panel menu');
   assert.ok(editable.includes('data-arch-cat="strategy"'), 'strategy panel menu');
   assert.ok(editable.includes('data-arch-cat="payoffs"'), 'payoffs panel menu');

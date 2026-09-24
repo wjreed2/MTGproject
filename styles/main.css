@@ -13311,12 +13311,16 @@ details.arch-strategy-band > .arch-strategy-band-head::-webkit-details-marker { 
 }
 .arch-menu-item-label { flex: 1; min-width: 0; }
 .arch-menu-item-hint { flex-shrink: 0; font-size: 0.65rem; color: var(--text3); }
-/* File-explorer › on parent Move-to / Also-place-in rows */
+/* File-explorer chevron on parent Move-to / Also-place-in rows */
 .arch-menu-item > .arch-menu-item-hint[aria-hidden="true"] {
   font-size: 0.85rem;
   line-height: 1;
   opacity: 0.75;
 }
+/* Inline-SVG icons in the architecture chrome (ui-ruleset §9.6: no glyph icons) */
+.arch-card-menu svg, .arch-sub-menu svg, .arch-panel-menu svg { width: 14px; height: 14px; display: block; }
+.arch-menu-item-hint svg { width: 12px; height: 12px; display: block; }
+.arch-menu-item-icon { width: 12px; height: 12px; flex-shrink: 0; align-self: center; }
 .arch-menu-item:hover { background: var(--bg3); color: var(--text); }
 .arch-menu-item--quiet { color: var(--text3); }
 .arch-menu-item--danger { color: var(--red); }

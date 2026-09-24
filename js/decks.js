@@ -5721,6 +5721,10 @@ function _openArchitectureSubsectionMenu(category, subsectionId, anchor) {
   setTimeout(() => document.addEventListener('click', _closeArchitectureMenuOnOutside, true), 0);
 }
 
+// Inline SVG icons for the architecture menus (ui-ruleset §9.6: no glyph icons).
+const _ARCH_ICON_BACK = '<svg class="arch-menu-item-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4L6 8l4 4"/></svg>';
+const _ARCH_ICON_CHEVRON_R = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
+
 function _archVisibleSubsForPanel(category, model) {
   if (category === 'foundation') {
     const hidden = new Set(((model && model.hiddenSubs) || []).filter(m => m.category === 'foundation').map(m => m.subsection));
@@ -5810,7 +5814,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
           return `<button type="button" class="arch-menu-item${on}" data-act="set-strategy" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`;
         }).join('');
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">Set primary strategy</div>
         <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No strategies</div>'}</div>`;
       return;
@@ -5845,7 +5849,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
           return `<button type="button" class="arch-menu-item${on}" data-act="set-secondary" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`;
         }).join('');
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">Set secondary strategy</div>
         <div class="arch-menu-scroll">${noneBtn}${rows || '<div class="arch-menu-item arch-menu-item--quiet">No strategies</div>'}</div>`;
       return;
@@ -5869,7 +5873,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
         rows.push(`<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-promoted-strategy" data-id="${_archSectionMenuEsc(id)}">Promoted · ${_archSectionMenuEsc(label)}</button>`);
       }
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">Remove strategy</div>
         <div class="arch-menu-scroll">${rows.join('') || '<div class="arch-menu-item arch-menu-item--quiet">No strategies set</div>'}</div>`;
       return;
@@ -5887,7 +5891,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
           return `<button type="button" class="arch-menu-item${on}" data-act="set-payoffs" data-id="${_archSectionMenuEsc(w.id)}">${_archSectionMenuEsc(w.label)}</button>`;
         }).join('');
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">Set payoffs</div>
         <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No options</div>'}</div>`;
       return;
@@ -5899,7 +5903,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
         `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove-sub" data-id="${_archSectionMenuEsc(s.id)}">${_archSectionMenuEsc(s.label)}</button>`
       ).join('');
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">Remove subsection</div>
         <div class="arch-menu-scroll">${rows || '<div class="arch-menu-item arch-menu-item--quiet">No subsections</div>'}</div>`;
       return;
@@ -5931,7 +5935,7 @@ function _openArchitectureSectionMenu(category, anchor, model) {
         }).join('');
       const subTitle = category === 'strategy' ? 'Add subsection' : 'Set subsection';
       menu.innerHTML = `
-        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">← Back</button>
+        <button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="root">${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>
         <div class="arch-menu-title">${subTitle}</div>
         <input type="search" class="arch-menu-search" placeholder="Search subsections…" value="${_archSectionMenuEsc(filterText || '')}" autocomplete="off">
         <div class="arch-menu-scroll">
@@ -6045,10 +6049,10 @@ function _openArchitectureMenu(key, anchor, model) {
   menu.id = 'archPlacementMenu';
   menu.className = 'arch-menu arch-menu--section';
 
-  const chevron = '<span class="arch-menu-item-hint" aria-hidden="true">›</span>';
+  const chevron = '<span class="arch-menu-item-hint" aria-hidden="true">' + _ARCH_ICON_CHEVRON_R + '</span>';
   const quiet = (msg) => `<div class="arch-menu-item arch-menu-item--quiet">${_archSectionMenuEsc(msg)}</div>`;
   const back = (nav, attrs) =>
-    `<button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="${_archSectionMenuEsc(nav)}"${attrs || ''}>← Back</button>`;
+    `<button type="button" class="arch-menu-item arch-menu-item--quiet" data-nav="${_archSectionMenuEsc(nav)}"${attrs || ''}>${_ARCH_ICON_BACK}<span class="arch-menu-item-label">Back</span></button>`;
 
   const leafButtons = (mode, cat, subs) => {
     const act = mode === 'move' ? 'primary' : 'extra';

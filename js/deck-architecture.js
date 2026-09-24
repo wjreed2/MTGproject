@@ -1822,6 +1822,10 @@
       .replace(/"/g, '&quot;');
   }
 
+  // Inline SVG icons for the architecture chrome (ui-ruleset §9.6: no glyph icons).
+  const _ICON_ELLIPSIS_H = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>';
+  const _ICON_KEBAB_V = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3.5" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="12.5" r="1.3" fill="currentColor"/></svg>';
+
   function _cardRowHtml(row, opts) {
     if (opts && typeof opts.cardHtml === 'function') {
       const custom = opts.cardHtml(row, opts);
@@ -1844,7 +1848,7 @@
     if (opts && typeof opts.manaHtml === 'function') mana = opts.manaHtml(c) || '';
     const qtyHtml = Number(qty) > 1 ? `<span class="deck-list-qty">×${qty}</span>` : '';
     const menu = (opts && opts.canEdit)
-      ? `<button type="button" class="btn btn-ghost btn-sm arch-card-menu" data-arch-menu="${key}" title="Architecture placement">⋯</button>`
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-card-menu" data-arch-menu="${key}" title="Architecture placement" aria-label="Architecture placement">${_ICON_ELLIPSIS_H}</button>`
       : '';
     // Two fixed slots at the row end keep the mana cost and the badges each in their
     // own column across every row; the ⋯ sits on top of the mana cost.
@@ -2010,7 +2014,7 @@
     const bodyCls = grouped ? 'arch-sub-body arch-sub-body--grouped' : (bodyClass || 'arch-sub-body');
     const c = chrome || { classes: '', dataAttrs: '' };
     const menu = (menuOpts && menuOpts.canEdit && menuOpts.category && menuOpts.subId)
-      ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="${_esc(menuOpts.category)}" data-arch-sub="${_esc(menuOpts.subId)}" title="Subsection options" aria-label="Subsection options">⋮</button>`
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="${_esc(menuOpts.category)}" data-arch-sub="${_esc(menuOpts.subId)}" title="Subsection options" aria-label="Subsection options">${_ICON_KEBAB_V}</button>`
       : '';
     const promote = (menuOpts && menuOpts.canEdit && menuOpts.promoteStrategyId)
       ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-promote" data-arch-promote-strategy="${_esc(menuOpts.promoteStrategyId)}" title="Promote to a strategy" aria-label="Promote ${_esc(title)} to a strategy">Promote</button>`
@@ -2136,7 +2140,7 @@
           kids = band.subs.map(sub => renderStratSub(sub, nSubs, false, promoteBand ? (_bandIdForSub(sub) || sub.strategyId) : null, !promoteBand)).join('');
         }
         const headMenu = (flatten && canEdit && only)
-          ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="strategy" data-arch-sub="${_esc(only.id)}" title="Subsection options" aria-label="Subsection options">⋮</button>`
+          ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="strategy" data-arch-sub="${_esc(only.id)}" title="Subsection options" aria-label="Subsection options">${_ICON_KEBAB_V}</button>`
           : `<span class="arch-sub-menu-slot" aria-hidden="true"></span>`;
         const head = `<span class="arch-sub-title">${_esc(band.label)}</span><span class="arch-sub-head-end"><span class="arch-sub-count">${qty}</span>${headMenu}</span>`;
         const attrs = `class="arch-strategy-band arch-strategy-band--${band.role}${flatten ? ' arch-strategy-band--flat' : ''} ${chrome.classes}" data-arch-strategy-band="${band.role}" ${band.strategyId ? `data-arch-strategy-id="${_esc(band.strategyId)}"` : ''}${flatten && only ? ` data-arch-sub="${_esc(only.id)}"` : ''}`;
@@ -2191,7 +2195,7 @@
         <details class="arch-panel-details"><summary class="arch-expand">Show all cards</summary><div class="arch-panel-body">${body}</div></details>`
         : `<div class="arch-panel-body">${body}</div>`;
       const panelMenu = canEdit
-        ? `<button type="button" class="btn btn-ghost btn-sm arch-panel-menu" data-arch-panel-menu data-arch-cat="${_esc(cat)}" title="Section options" aria-label="Section options">⋮</button>`
+        ? `<button type="button" class="btn btn-ghost btn-sm arch-panel-menu" data-arch-panel-menu data-arch-cat="${_esc(cat)}" title="Section options" aria-label="Section options">${_ICON_KEBAB_V}</button>`
         : '';
       return `<section class="arch-panel arch-panel--${cat}" data-arch-cat="${cat}">
         <header class="arch-panel-head">
