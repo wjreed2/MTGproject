@@ -10477,16 +10477,19 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
     // inspector never open for unowned cards in prod.)
     try {
       const local = await _lookupLocalCardById(cardId);
-      // A multi-faced card ("Front // Back") whose per-face data hasn't been backfilled yet
-      // (faces_json NULL — i.e. imported before that column existed) would serve only the front
-      // image, leaving the inspector unable to flip it. Skip local for these until the next cards
-      // re-import populates faces_json; rows that already have it serve straight from local.
-      const needsFacesFromScryfall = local
-        && local.row.faces_json == null
-        && / \/\/ /.test(String(local.row.name || ''));
+      // Two multi-faced ("Front // Back") cases local can't serve, both about per-face art:
+      // rows imported before faces_json existed carry none at all (the inspector couldn't flip
+      // them), and a row that HAS it holds the representative printing's faces — wrong for any
+      // other printing, and only the FRONT face's URL derives from a printing id. Go upstream
+      // for those; everything else serves straight from local.
+      const multiFaced = !!local
+        && (local.row.faces_json != null || / \/\/ /.test(String(local.row.name || '')));
+      const needsFacesFromScryfall = !!local && multiFaced
+        && (local.row.faces_json == null || !!local.printing);
       if (local && !needsFacesFromScryfall) {
         const card = _localRowToScryfallCard(local.row);
         if (local.scryfallId) card.id = local.scryfallId;
+        if (local.printing) _applyPrintingIdentity(card, local.scryfallId, local.printing);
         await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
         if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
         return res.json(card);
@@ -11638,15 +11641,39 @@ async function _lookupLocalCardById(cardId) {
     return { row: direct, scryfallId: direct.scryfall_id === cardId ? cardId : (direct.scryfall_id || null) };
   }
   const [[pr]] = await db().query(
-    'SELECT name FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
+    'SELECT name, set_code, number, rarity FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
   );
   if (pr?.name) {
     const [[byName]] = await db().query(
       `SELECT ${cols} FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`, [pr.name]
     );
-    if (byName) return { row: byName, scryfallId: cardId };
+    // `printing` set = the oracle row we found describes a DIFFERENT printing than the one
+    // asked for, so its art/set/number belong to that other printing, not to this id.
+    if (byName) return { row: byName, scryfallId: cardId, printing: pr };
   }
   return null;
+}
+
+/**
+ * The oracle table keeps ONE representative printing per card, so a lookup for any other
+ * printing answers with that one's art, set and collector number under the requested id.
+ * Clients that build a card from the answer (the deck/commander pickers, metadata hydrates)
+ * then quietly replace the printing the user chose. Overlay the printing's own identity —
+ * `mtgjson_printing` has set/number/rarity, and Scryfall's image CDN is addressed by printing
+ * id, so the art URL derives from the id itself (same construction as the printings search).
+ */
+function _applyPrintingIdentity(card, scryfallId, printing) {
+  if (!card || !scryfallId || !printing) return;
+  const setCode = String(printing.set_code || '').toLowerCase();
+  if (setCode) { card.set = setCode; card.set_name = setCode; }
+  card.collector_number = printing.number || null;
+  if (printing.rarity) card.rarity = printing.rarity;
+  const [a, b] = [scryfallId[0], scryfallId[1]];
+  card.image_uris = {
+    small: `https://cards.scryfall.io/small/front/${a}/${b}/${scryfallId}.jpg`,
+    normal: `https://cards.scryfall.io/normal/front/${a}/${b}/${scryfallId}.jpg`,
+    large: `https://cards.scryfall.io/large/front/${a}/${b}/${scryfallId}.jpg`,
+  };
 }
 
 // ── Local-first Scryfall-syntax search (deck "replacements" panel) ───────────

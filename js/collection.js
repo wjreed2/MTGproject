@@ -1865,7 +1865,15 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   if (shown.length) {
     return shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
   }
-  return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
+  // Nothing to show here is two different things: the tags haven't loaded yet (hold the space
+  // with a placeholder), or this card genuinely has no unpromoted default tag (show nothing).
+  // Rendering the placeholder for the second case left a grey block sitting in front of the
+  // first MY TAGS chip — and which of the two async tag loads finished last decided whether
+  // it appeared, so it came and went.
+  const resolved = typeof _defaultTagsResolvedForCard === 'function'
+    ? _defaultTagsResolvedForCard(card)
+    : true;
+  return resolved ? '' : '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
 }
 
 function _getCardDetailCollectionNavState(currentUid) {

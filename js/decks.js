@@ -3311,9 +3311,27 @@ function _sortUserTagsForDisplay(tags, card) {
   });
 }
 
+/**
+ * Name for the leftover bucket in tag grouping. Only "All tags" looks at every tag a card
+ * carries, so only it can honestly call a card untagged. The tier-scoped modes group by one
+ * slice of a card's tags, and a card whose tags are all in another slice used to land under
+ * "Untagged" — which reads as if the tag you just added never took.
+ */
+function _deckTagGroupLeftoverLabel(groupBy) {
+  if (groupBy === 'tag_default') return 'No default tag';
+  if (groupBy === 'tag_primary') return 'No primary tag';
+  if (groupBy === 'tag_secondary') return 'No secondary tag';
+  return 'Untagged';
+}
+
+function _isDeckTagLeftoverLabel(key) {
+  return key === 'Untagged' || key === 'No default tag'
+    || key === 'No primary tag' || key === 'No secondary tag';
+}
+
 function _compareDeckTagGroupKeys(a, b) {
-  if (a === 'Untagged') return 1;
-  if (b === 'Untagged') return -1;
+  if (_isDeckTagLeftoverLabel(a)) return 1;
+  if (_isDeckTagLeftoverLabel(b)) return -1;
   if (a === 'Commander') return -1;
   if (b === 'Commander') return 1;
   return a.localeCompare(b);
@@ -4595,7 +4613,7 @@ async function _applyActiveDeckCommander(name, colors, imgUrl, scryfallId, foil,
   deck.commander = name;
   deck.commanderColorIdentity = colors;
   deck.commanderImage = imgUrl;
-  if (scryfallId) await addCommanderCardToDeck(deck, scryfallId, { foil, addToCollection: addColl });
+  if (scryfallId) await addCommanderCardToDeck(deck, scryfallId, { foil, addToCollection: addColl, image: imgUrl });
   saveActiveDeck(deck);
   _pendingActiveDeckCommander = null;
   closeCommanderEdit();
@@ -4689,6 +4707,17 @@ function closeCommanderEdit() {
 
 // ── Commander card helper ─────────────────────────────────────────────────────
 
+/**
+ * Scryfall serves each printing's art under that printing's own id, so the id inside an
+ * image URL says which printing the picture belongs to. That is how we tell art that really
+ * is this printing's from art a card lookup answered with for a *different* one.
+ */
+function _imageIsForPrinting(url, scryfallId) {
+  const u = String(url || '').toLowerCase();
+  const sid = String(scryfallId || '').toLowerCase();
+  return !!u && !!sid && u.includes(sid);
+}
+
 async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
   const foil = !!opts.foil;
   // Remove any existing commander card slot first
@@ -4711,6 +4740,14 @@ async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
   card.scryfallId = scryfallId;
   card.foil = foil;
   card.uid = scryfallId + (foil ? '_f' : '_n');
+  // The picker hands us the art of the printing the user actually clicked. A card lookup can
+  // answer with a *representative* printing's art instead (the oracle catalog stores one per
+  // card), which silently put the wrong picture on the commander slot — the deck tile and the
+  // inspector both read the slot, so the chosen printing never showed up.
+  if (opts.image && !_imageIsForPrinting(card.imageLarge || card.image, scryfallId)) {
+    card.image = opts.image;
+    card.imageLarge = opts.image;
+  }
 
   const newCmd = { ...card, qty: 1, isCommander: true };
   _applyGlobalCustomTagsToCard(newCmd);
@@ -4794,7 +4831,7 @@ async function submitNewDeck() {
   decks.push(deck); activeDeckId = deck.id;
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
-  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId, { foil: commanderFoil, addToCollection: commanderAddColl });
+  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId, { foil: commanderFoil, addToCollection: commanderAddColl, image: commanderImage });
   save('decks'); renderDecks();
 }
 
@@ -6025,6 +6062,19 @@ function _tieredDefaultTagsForCard(card) {
   return out;
 }
 
+/**
+ * Have this card's default tags actually been looked up yet? The Scryfall tag list arrives
+ * per oracle id and is cached; until it lands, "no default tags" and "not asked yet" look
+ * identical. The inspector needs to tell them apart so it only shows a loading placeholder
+ * for the second one.
+ */
+function _defaultTagsResolvedForCard(card) {
+  if (!card) return true;
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) return !card.scryfallId; // nothing to look up by — whatever we have is final
+  return _scryTagsByOracleId.has(oid);
+}
+
 function _applyGlobalCustomTagsToCard(card) {
   const globalTags = _getGlobalCustomTagsForCard(card);
   if (!globalTags.length) return false;
@@ -6804,10 +6854,11 @@ function _buildDeckGroups(cards, groupBy) {
     return withCommander(ordered);
   }
   if (_isTagGroupByMode(groupBy)) {
-    const groups = { Untagged: [] };
+    const leftover = _deckTagGroupLeftoverLabel(groupBy);
+    const groups = { [leftover]: [] };
     rest.forEach(c => {
       const tags = _tagsOnCardForGroupTier(c, groupBy);
-      if (!tags.length) { groups.Untagged.push(c); return; }
+      if (!tags.length) { groups[leftover].push(c); return; }
       const seenTagKeys = new Set();
       tags.forEach(t => {
         const tagKey = _tagTierKey(t);
@@ -15147,8 +15198,10 @@ async function _resolveOracleIdForCard(card) {
   }
   try {
     let sc = null;
+    let byOwnPrinting = false;
     if (sidCandidate) {
       sc = await fetchCardById(sidCandidate);
+      byOwnPrinting = !!sc;
     }
     if (!sc && card.set && card.number) {
       sc = await fetchCard(card.set, card.number);
@@ -15160,8 +15213,16 @@ async function _resolveOracleIdForCard(card) {
     if (sidCandidate) _scryOracleByPrintId.set(sidCandidate, oid);
     if (cacheKey && cacheKey !== sidCandidate) _scryOracleByPrintId.set(cacheKey, oid);
     if (sc) {
+      // This is an ORACLE lookup — we want the text, type and cmc. When the card already knows
+      // which printing it is and we asked by that id, the answer must not be allowed to move it
+      // to another printing: a card-id lookup can come back carrying a representative printing's
+      // art and set, which would swap the art under a printing the user deliberately chose.
+      const keepPrinting = (byOwnPrinting && (card.imageLarge || card.image))
+        ? { image: card.image, imageLarge: card.imageLarge, set: card.set, setName: card.setName, number: card.number, rarity: card.rarity }
+        : null;
       if (typeof applyEntryMetadataToCard === 'function' && typeof cardToEntry === 'function') {
         applyEntryMetadataToCard(card, cardToEntry(sc, card.qty || 1));
+        if (keepPrinting) Object.assign(card, keepPrinting);
       } else if (typeof ensureCardMetadata === 'function') {
         ensureCardMetadata({ ...card, ...sc, card_faces: sc?.card_faces, cardFaces: card.cardFaces });
       }
