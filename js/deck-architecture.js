@@ -19,9 +19,13 @@
 
   let planApi = root && root.getDeckPlan ? root : null;
   let themesApi = root && root.analyzeDeckThemes ? root : null;
+  let burnApi = root && root.burnIndicatesInteraction ? root : null;
+  let removalApi = root && root.classifyRemovalTargets ? root : null;
   if (typeof require === 'function') {
     try { if (!planApi || !planApi.getDeckPlan) planApi = require('./deck-plan.js'); } catch (_) { /* bundled */ }
     try { if (!themesApi || !themesApi.analyzeDeckThemes) themesApi = require('./deck-themes.js'); } catch (_) { /* bundled */ }
+    try { if (!burnApi || !burnApi.burnIndicatesInteraction) burnApi = require('./burn-roles.js'); } catch (_) { /* bundled */ }
+    try { if (!removalApi || !removalApi.classifyRemovalTargets) removalApi = require('./removal-roles.js'); } catch (_) { /* bundled */ }
   }
 
   const ARCH_CATEGORIES = Object.freeze(['foundation', 'strategy', 'payoffs', 'manabase']);
@@ -36,6 +40,15 @@
     Object.freeze({ id: 'ramp', label: 'Ramp', blurb: 'Ways the deck accelerates mana.' }),
     Object.freeze({ id: 'basics', label: 'Basics', blurb: 'Basic lands.' }),
     Object.freeze({ id: 'nonbasics', label: 'Nonbasics', blurb: 'Nonbasic lands.' }),
+  ]);
+
+  /** Fixed Payoffs piles (Architecture view). Plan payoff-ish sub-tags are separate catalog entries. */
+  const PAYOFF_FIXED_SUBS = Object.freeze([
+    Object.freeze({ id: 'win_condition', label: 'Win Condition' }),
+    Object.freeze({ id: 'combo', label: 'Combo Pieces' }),
+    Object.freeze({ id: 'token_swarm', label: 'Token / Swarm Payoffs' }),
+    Object.freeze({ id: 'value_finishers', label: 'Value Finishers' }),
+    Object.freeze({ id: 'threats', label: 'Threats / Bombs' }),
   ]);
 
   const CATEGORY_META = Object.freeze({
@@ -63,13 +76,46 @@
 
   const PAYOFF_SUBTAG_RE = /\.(payoffs|finish|finishers)$|^(ss\.finish|tribal\.finishers)$/;
   const STAPLE_ONLY = Object.freeze(['Ramp', 'Card Draw', 'Removal', 'Board Wipe', 'Land', 'Commander', 'Wheel']);
-  const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn']);
+  // Plain `Burn` is NOT interaction — only Burn.Any / Burn.Creature (see burn-roles.js).
+  const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn.Any', 'Burn.Creature']);
+  // Interaction / Removal drill-down groups, in display order — all CardIR-derived
+  // (removal-roles.js: target-type categories plus 'counterspell' for a
+  // counter_spell effect). Cards with no CardIR match (bounce, burn, or coverage
+  // gaps) fall into "Other Interaction".
+  const REMOVAL_GROUP_ORDER = Object.freeze([
+    Object.freeze({ id: 'counterspell', label: 'Counterspell' }),
+    Object.freeze({ id: 'creature', label: 'Creature Removal' }),
+    Object.freeze({ id: 'artifact', label: 'Artifact Removal' }),
+    Object.freeze({ id: 'enchantment', label: 'Enchantment Removal' }),
+    Object.freeze({ id: 'planeswalker', label: 'Planeswalker Removal' }),
+    Object.freeze({ id: 'battle', label: 'Battle Removal' }),
+    Object.freeze({ id: 'land', label: 'Land Removal' }),
+    Object.freeze({ id: 'permanent', label: 'Permanent Removal' }),
+  ]);
   const DRAW_TAGS = Object.freeze(['Card Draw', 'Wheel']);
   const LIGHT_MIN = 5;
   // Below this the engine is guessing; fall back to detected themes instead.
   const GOAL_MIN_CONFIDENCE = 0.35;
   const GOAL_MAX_SUBS = 3;
   const ARCH_SUB_TINT_STEPS = 5;
+
+  function _burnInteraction(card, tags) {
+    if (burnApi && typeof burnApi.burnIndicatesInteraction === 'function') {
+      return !!burnApi.burnIndicatesInteraction(tags, _oracle(card));
+    }
+    const set = new Set(tags || []);
+    return set.has('Burn.Any') || set.has('Burn.Creature');
+  }
+
+  function _preferredBurnInteractionLabel(card, tags) {
+    if (burnApi && typeof burnApi.preferredBurnInteractionLabel === 'function') {
+      return burnApi.preferredBurnInteractionLabel(tags, _oracle(card));
+    }
+    const set = new Set(tags || []);
+    if (set.has('Burn.Any')) return 'Burn.Any';
+    if (set.has('Burn.Creature')) return 'Burn.Creature';
+    return null;
+  }
 
   function _subsectionSlug(subId) {
     return String(subId || '').replace(/[^a-z0-9_-]/gi, '_');
@@ -157,20 +203,50 @@
     return String(card && (card.oracleText || card.oracle_text) || '').toLowerCase();
   }
 
-  function _roles(card, deck) {
+  function _roles(card, deck, irProjectTags) {
+    let out = null;
     if (root && typeof root._probTagsOnCard === 'function') {
-      try { return root._probTagsOnCard(card, deck) || []; } catch (_) { /* fall through */ }
+      try { out = (root._probTagsOnCard(card, deck) || []).slice(); } catch (_) { out = null; }
     }
-    const out = [];
-    if (_isLand(card)) out.push('Land');
-    if (card && card.isCommander) out.push('Commander');
-    (card && card.roleTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
-    (card && card.customTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+    if (!out) {
+      out = [];
+      if (_isLand(card)) out.push('Land');
+      if (card && card.isCommander) out.push('Commander');
+      (card && card.roleTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+      (card && card.customTags || []).forEach(t => { if (t && !out.includes(t)) out.push(t); });
+    }
+    // Analyze sends project-tag labels derived from CardIR. Deck cards themselves
+    // never carry ir, so this is the only way those roles reach placement.
+    const extra = irProjectTags && card && card.name ? irProjectTags[card.name] : null;
+    if (Array.isArray(extra)) {
+      for (const t of extra) if (t && !out.includes(t)) out.push(t);
+    }
     return out;
   }
 
   function _ir(card) {
     return (card && (card.ir || card.cardIR)) || null;
+  }
+
+  /**
+   * Interaction/Removal drill-down categories (creature/artifact/enchantment/…
+   * removal, counterspell) — all CardIR-derived, none from project tags, so
+   * this group is only as good as CardIR coverage (see removal-roles.js).
+   * The server-computed map (from /api/decks/analyze, keyed by card name) is
+   * preferred — it's derived from the full CardIR corpus without shipping raw
+   * effect data to the client. Falls back to classifying card.ir directly when
+   * present (Foundation Lab, tests). Returns [] with no CardIR either way —
+   * the card lands in "Other Interaction", same as any other coverage gap.
+   */
+  function _removalTargetsForCard(card, ctx) {
+    const map = ctx && ctx.removalTargets;
+    const name = card && card.name;
+    if (map && name && Array.isArray(map[name])) return map[name];
+    const ir = _ir(card);
+    if (ir && removalApi && typeof removalApi.classifyRemovalTargets === 'function') {
+      return removalApi.classifyRemovalTargets(ir);
+    }
+    return [];
   }
 
   function _cmc(card) {
@@ -179,15 +255,36 @@
   }
 
   function emptyArchitectureOverrides() {
-    return { byKey: {} };
+    return {
+      byKey: {},
+      hiddenSubs: [],
+      pinnedSubs: [],
+      primaryStrategyId: null,
+      secondaryStrategyId: null,
+      promotedStrategyIds: [],
+      winConditionId: null,
+    };
   }
 
   function normalizeArchitectureOverrides(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
     const byKey = src.byKey && typeof src.byKey === 'object' ? src.byKey : src;
-    const out = { byKey: {} };
+    const out = {
+      byKey: {},
+      hiddenSubs: [],
+      pinnedSubs: [],
+      primaryStrategyId: null,
+      secondaryStrategyId: null,
+      promotedStrategyIds: [],
+      winConditionId: null,
+    };
     for (const [k, v] of Object.entries(byKey || {})) {
       if (!k || !v || typeof v !== 'object') continue;
+      // Legacy shapes stored memberships at the top level; skip list/identity keys.
+      if (k === 'hiddenSubs' || k === 'pinnedSubs' || k === 'promotedStrategyIds'
+          || k === 'primaryStrategyId' || k === 'secondaryStrategyId' || k === 'winConditionId') {
+        continue;
+      }
       out.byKey[k] = {
         primary: v.primary && v.primary.category ? _normMem(v.primary) : null,
         extrasRemoved: Array.isArray(v.extrasRemoved) ? _dedupeMems(v.extrasRemoved) : [],
@@ -197,7 +294,345 @@
         prevPrimaryTag: v.prevPrimaryTag || null,
       };
     }
+    out.hiddenSubs = _dedupeMems(Array.isArray(src.hiddenSubs) ? src.hiddenSubs : []);
+    out.pinnedSubs = _dedupeMems(Array.isArray(src.pinnedSubs) ? src.pinnedSubs : []);
+    out.primaryStrategyId = src.primaryStrategyId ? String(src.primaryStrategyId) : null;
+    out.secondaryStrategyId = src.secondaryStrategyId ? String(src.secondaryStrategyId) : null;
+    out.promotedStrategyIds = Array.isArray(src.promotedStrategyIds)
+      ? [...new Set(src.promotedStrategyIds.map(String).filter(Boolean))]
+      : [];
+    out.winConditionId = src.winConditionId ? String(src.winConditionId) : null;
     return out;
+  }
+
+  function isArchitectureSubsectionHidden(overrides, category, subsection) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const mem = _normMem({ category, subsection });
+    if (!mem) return false;
+    const key = _memKey(mem);
+    return ov.hiddenSubs.some(m => _memKey(m) === key);
+  }
+
+  function isArchitectureSubsectionPinned(overrides, category, subsection) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const mem = _normMem({ category, subsection });
+    if (!mem) return false;
+    const key = _memKey(mem);
+    return ov.pinnedSubs.some(m => _memKey(m) === key);
+  }
+
+  function hideArchitectureSubsection(overrides, category, subsection) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const mem = _normMem({ category, subsection });
+    if (!mem) return ov;
+    const key = _memKey(mem);
+    if (!ov.hiddenSubs.some(m => _memKey(m) === key)) ov.hiddenSubs.push(mem);
+    ov.pinnedSubs = ov.pinnedSubs.filter(m => _memKey(m) !== key);
+    return ov;
+  }
+
+  /** Unhide a subsection (and keep it pinned so empty / off-plan piles still render). */
+  function showArchitectureSubsection(overrides, category, subsection) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const mem = _normMem({ category, subsection });
+    if (!mem) return ov;
+    const key = _memKey(mem);
+    ov.hiddenSubs = ov.hiddenSubs.filter(m => _memKey(m) !== key);
+    if (!ov.pinnedSubs.some(m => _memKey(m) === key)) ov.pinnedSubs.push(mem);
+    return ov;
+  }
+
+  function pinArchitectureSubsection(overrides, category, subsection) {
+    return showArchitectureSubsection(overrides, category, subsection);
+  }
+
+  function unpinArchitectureSubsection(overrides, category, subsection) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const mem = _normMem({ category, subsection });
+    if (!mem) return ov;
+    const key = _memKey(mem);
+    ov.pinnedSubs = ov.pinnedSubs.filter(m => _memKey(m) !== key);
+    return ov;
+  }
+
+  /** Drop hidden piles from the model and strip matching memberships so orphans land in Unassigned. */
+  function applyHiddenArchitectureSubsections(model, overrides) {
+    if (!model) return model;
+    const ov = normalizeArchitectureOverrides(overrides);
+    model.pinnedSubs = ov.pinnedSubs.slice();
+    if (!ov.hiddenSubs.length) {
+      model.hiddenSubs = [];
+      return model;
+    }
+    const hidden = new Set(ov.hiddenSubs.map(_memKey));
+    const isHid = (cat, id) => hidden.has(cat + '::' + id);
+
+    model.strategySubs = (model.strategySubs || []).filter(s => !isHid('strategy', s.id));
+    model.payoffSubs = (model.payoffSubs || []).filter(s => !isHid('payoffs', s.id));
+    model.hiddenSubs = ov.hiddenSubs.slice();
+
+    model.rows = (model.rows || []).map(row => {
+      const foundationFns = (row.foundationFns || []).filter(id => !isHid('foundation', id));
+      const strategySubs = (row.strategySubs || []).filter(id => !isHid('strategy', id));
+      const payoffSubs = (row.payoffSubs || []).filter(id => !isHid('payoffs', id));
+      const manabaseSubs = (row.manabaseSubs || []).filter(id => !isHid('manabase', id));
+      if (foundationFns.length === (row.foundationFns || []).length
+          && strategySubs.length === (row.strategySubs || []).length
+          && payoffSubs.length === (row.payoffSubs || []).length
+          && manabaseSubs.length === (row.manabaseSubs || []).length) {
+        return row;
+      }
+      const categories = [];
+      if (foundationFns.length) categories.push('foundation');
+      if (strategySubs.length) categories.push('strategy');
+      if (payoffSubs.length) categories.push('payoffs');
+      if (manabaseSubs.length) categories.push('manabase');
+      return Object.assign({}, row, {
+        foundationFns,
+        strategySubs,
+        payoffSubs,
+        manabaseSubs,
+        categories,
+        ambiguous: categories.length === 0,
+      });
+    });
+    model.counts = _counts(model.rows, model.strategySubs, model.payoffSubs);
+    model.unassigned = model.rows.filter(r => !(r.categories && r.categories.length));
+    model.multiRole = model.rows.filter(r => (r.categories || []).length >= 2);
+    return model;
+  }
+
+  function _lookupPlanSubtagRow(subtagId) {
+    const api = _plan();
+    const defs = api.PLAN_THEME_SUBTAG_DEFAULTS || {};
+    for (const [strategyId, rows] of Object.entries(defs)) {
+      const row = (rows || []).find(r => r.id === subtagId);
+      if (row) {
+        return {
+          id: row.id,
+          label: row.label,
+          projectTags: (row.projectTags || []).slice(),
+          target: row.target,
+          strategyId,
+        };
+      }
+    }
+    return null;
+  }
+
+  function _isStrategyCatalogSubtag(subtagId, winConditionId) {
+    return !!subtagId && !_isPayoffSubtag(subtagId, winConditionId);
+  }
+
+  /** Full Add-subsection catalog for a panel (no freeform ids). */
+  function architectureSubsectionCatalog(category, plan) {
+    const winId = plan && plan.winConditionId;
+    const api = _plan();
+    const th = _themes();
+    if (category === 'foundation') {
+      return FOUNDATION_FNS.map(fn => ({
+        id: fn.id,
+        label: fn.label,
+        kind: 'fixed',
+        inferredHint: false,
+      }));
+    }
+    if (category === 'manabase') {
+      return MANABASE_SUBS.map(sub => ({
+        id: sub.id,
+        label: sub.label,
+        kind: 'fixed',
+        inferredHint: false,
+      }));
+    }
+    if (category === 'payoffs') {
+      const out = PAYOFF_FIXED_SUBS.map(sub => ({
+        id: sub.id,
+        label: sub.label,
+        kind: 'fixed',
+        inferredHint: false,
+      }));
+      const defs = api.PLAN_THEME_SUBTAG_DEFAULTS || {};
+      for (const rows of Object.values(defs)) {
+        for (const row of rows || []) {
+          if (!_isPayoffSubtag(row.id, winId) && row.id !== 'sac.drain') continue;
+          if (out.some(o => o.subtagId === row.id)) continue;
+          out.push({
+            id: 'subtag:' + row.id,
+            label: row.label,
+            kind: 'subtag',
+            subtagId: row.id,
+            inferredHint: false,
+          });
+        }
+      }
+      return out;
+    }
+    if (category === 'strategy') {
+      const out = [];
+      const defs = api.PLAN_THEME_SUBTAG_DEFAULTS || {};
+      for (const [strategyId, rows] of Object.entries(defs)) {
+        const stratLabel = (typeof api.strategyLabel === 'function')
+          ? api.strategyLabel(strategyId)
+          : strategyId;
+        for (const row of rows || []) {
+          if (!_isStrategyCatalogSubtag(row.id, winId)) continue;
+          out.push({
+            id: 'subtag:' + row.id,
+            label: row.label,
+            kind: 'subtag',
+            subtagId: row.id,
+            strategyId,
+            strategyLabel: stratLabel,
+            group: stratLabel,
+            inferredHint: false,
+          });
+        }
+      }
+      const themes = (th.THEME_CATALOG || []).filter(t => t && t.id && t.id !== 'strategy.other');
+      for (const t of themes) {
+        out.push({
+          id: 'theme:' + t.id,
+          label: t.label || t.id,
+          kind: 'theme',
+          themeId: t.id,
+          group: 'Themes',
+          inferredHint: true,
+        });
+      }
+      return out;
+    }
+    return [];
+  }
+
+  /**
+   * Suggested Set-subsection options: currently hidden piles, plus Light+ themes
+   * not already shown (Strategy) and fixed Payoffs piles not on screen.
+   */
+  function architectureInferredSubsectionOptions(category, model, overrides) {
+    const ov = normalizeArchitectureOverrides(overrides || {});
+    const hidden = (ov.hiddenSubs || []).filter(m => m.category === category);
+    const catalog = architectureSubsectionCatalog(category, model && model.plan);
+    const byId = new Map(catalog.map(c => [c.id, c]));
+    const present = new Set();
+    if (category === 'foundation') {
+      FOUNDATION_FNS.forEach(fn => {
+        if (!hidden.some(h => h.subsection === fn.id)) present.add(fn.id);
+      });
+    }
+    if (category === 'manabase') {
+      MANABASE_SUBS.forEach(sub => {
+        if (!hidden.some(h => h.subsection === sub.id)) present.add(sub.id);
+      });
+    }
+    if (category === 'strategy') (model && model.strategySubs || []).forEach(s => present.add(s.id));
+    if (category === 'payoffs') (model && model.payoffSubs || []).forEach(s => present.add(s.id));
+
+    const inferred = [];
+    const seen = new Set();
+    const push = (id, reason) => {
+      if (!id || seen.has(id) || present.has(id)) return;
+      const base = byId.get(id) || { id, label: id, kind: 'fixed' };
+      seen.add(id);
+      inferred.push(Object.assign({}, base, { reason }));
+    };
+    for (const h of hidden) push(h.subsection, 'hidden');
+
+    if (category === 'strategy') {
+      const themes = ((model && model.themeAnalysis && model.themeAnalysis.themes) || []);
+      for (const t of themes) {
+        if (!t || !t.id || t.id === 'strategy.goodstuff' || t.id === 'strategy.other') continue;
+        if ((t.supportCount || 0) < LIGHT_MIN) continue;
+        push('theme:' + t.id, 'theme');
+      }
+    }
+    if (category === 'payoffs') {
+      for (const sub of PAYOFF_FIXED_SUBS) push(sub.id, 'fixed');
+    }
+    return inferred;
+  }
+
+  function _resolvePinnedStrategySub(subsectionId, plan) {
+    if (String(subsectionId).startsWith('subtag:')) {
+      const subtagId = String(subsectionId).slice('subtag:'.length);
+      const row = _lookupPlanSubtagRow(subtagId);
+      if (!row) return null;
+      const api = _plan();
+      const label = (typeof api.resolvePlanSubtagLabel === 'function')
+        ? api.resolvePlanSubtagLabel(row.label, subtagId, plan)
+        : row.label;
+      return {
+        id: subsectionId,
+        label,
+        source: 'declared',
+        projectTags: row.projectTags || [],
+        themeId: null,
+        subtagId,
+        strategyId: (typeof api.subtagStrategyId === 'function' ? api.subtagStrategyId(subtagId) : null) || null,
+      };
+    }
+    if (String(subsectionId).startsWith('theme:')) {
+      const themeId = String(subsectionId).slice('theme:'.length);
+      const th = _themes();
+      const hit = (th.THEME_CATALOG || []).find(t => t.id === themeId);
+      return {
+        id: subsectionId,
+        label: (hit && hit.label) || themeId,
+        source: 'inferred',
+        projectTags: [],
+        themeId,
+        subtagId: null,
+        strategyId: String(themeId).startsWith('tribal:')
+          ? 'strategy.tribal'
+          : (String(themeId).startsWith('strategy.typal.') ? themeId : themeId),
+      };
+    }
+    return null;
+  }
+
+  function _resolvePinnedPayoffSub(subsectionId) {
+    const fixed = PAYOFF_FIXED_SUBS.find(s => s.id === subsectionId);
+    if (fixed) {
+      return { id: fixed.id, label: fixed.label, source: 'declared' };
+    }
+    if (String(subsectionId).startsWith('subtag:')) {
+      const subtagId = String(subsectionId).slice('subtag:'.length);
+      const row = _lookupPlanSubtagRow(subtagId);
+      if (!row) return null;
+      return {
+        id: subsectionId,
+        label: row.label,
+        source: 'declared',
+        projectTags: row.projectTags || [],
+        subtagId,
+      };
+    }
+    return null;
+  }
+
+  function _mergePinnedSubsIntoLists(strategySubs, payoffSubs, overrides, plan) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const strat = (strategySubs || []).slice();
+    const pay = (payoffSubs || []).slice();
+    const stratIds = new Set(strat.map(s => s.id));
+    const payIds = new Set(pay.map(s => s.id));
+    for (const mem of ov.pinnedSubs) {
+      if (mem.category === 'strategy' && !stratIds.has(mem.subsection)) {
+        const resolved = _resolvePinnedStrategySub(mem.subsection, plan);
+        if (resolved) {
+          strat.push(resolved);
+          stratIds.add(resolved.id);
+        }
+      }
+      if (mem.category === 'payoffs' && !payIds.has(mem.subsection)) {
+        const resolved = _resolvePinnedPayoffSub(mem.subsection);
+        if (resolved) {
+          pay.push(resolved);
+          payIds.add(resolved.id);
+        }
+      }
+    }
+    return { strategySubs: strat, payoffSubs: pay };
   }
 
   function _normMem(m) {
@@ -245,6 +680,8 @@
       if (subsection === 'board_wipes') return 'Board Wipe';
       if (subsection === 'interaction') {
         const tags = new Set(_roles(card, deck));
+        const burnLabel = _preferredBurnInteractionLabel(card, [...tags]);
+        if (burnLabel) return burnLabel;
         for (const t of INTERACTION_TAGS) {
           if (t !== 'Removal' && tags.has(t)) return t;
         }
@@ -257,7 +694,9 @@
 
   // Goals whose plan is "attack with the thing" — for these the commander is the
   // deck's stated way to close, which is what Win Condition is asking.
-  const COMBAT_GOALS = Object.freeze(['voltron', 'stompy', 'counters', 'tokens', 'equipment', 'aristocrats', 'combo']);
+  // engine2 template keys, verbatim — `tokens-wide`, not `tokens`, which never matched
+  // and so never let a token-swarm deck imply a commander wincon.
+  const COMBAT_GOALS = Object.freeze(['voltron', 'stompy', 'counters', 'tokens-wide', 'equipment', 'aristocrats', 'combo', 'combat']);
 
   function _goalImpliesCommanderWincon(goals) {
     const top = (goals || [])[0];
@@ -283,7 +722,8 @@
     'wincon.lock': Object.freeze(['Stax']),
   });
 
-  function _cardHasWinconSignal(card, plan, deck, goals) {
+  function _cardHasWinconSignal(card, plan, deck, goals, irWincon) {
+    if (irWincon && card && card.name && irWincon[card.name]) return true;
     if (card && card.isCommander && _goalImpliesCommanderWincon(goals)) return true;
     const ir = _ir(card);
     if (ir && ir.wincon) return true;
@@ -331,7 +771,7 @@
       fns.push('card_advantage');
       reasons.push(tagSet.has('Wheel') ? 'tag:Wheel' : 'tag:Card Draw');
     }
-    if (INTERACTION_TAGS.some(t => tagSet.has(t))) {
+    if (INTERACTION_TAGS.some(t => tagSet.has(t)) || _burnInteraction(card, tags)) {
       fns.push('interaction');
       reasons.push('tag:interaction');
     }
@@ -347,10 +787,26 @@
    * ships English only (evidence and axis tokens are stripped server-side), so
    * card placement is resolved client-side from role tags the deck already has.
    */
+  /**
+   * engine2 goal key → project role tags used to PLACE cards into that goal's pile.
+   *
+   * KEYS MUST MATCH `engine2/goal-templates.js` EXACTLY. `deck-goals.js:255` emits the
+   * raw template key — `tokens-wide`, not `tokens` — and a key that misses here
+   * resolves to `[]`, which makes the goal's Architecture subsection permanently
+   * unfillable: membership is `sub.projectTags.some(...)`, so with no tags no card ever
+   * joins, and the near-duplicate drop rule is guarded by `if (tags.length && …)` so the
+   * empty pile is not collapsed away either. Six goals were in that state, token swarm
+   * among them (strategy-gap-audit.md §2.4). `scripts/test-deck-architecture.js` now
+   * fails the build on any future drift.
+   *
+   * Broad on purpose: this map only places cards into an already-chosen pile, it never
+   * picks the goal, so supporter-grade tags are the right granularity here.
+   */
   const GOAL_ROLE_TAGS = Object.freeze({
     aristocrats: ['Sac Outlet', 'Death Trigger', 'Sac Synergy', 'Token Maker', 'Recursion', 'Reanimate', 'Lifegain', 'Drain'],
-    tokens: ['Token Maker', 'Anthem', 'Copy'],
+    'tokens-wide': ['Token Maker', 'Anthem', 'Copy'],
     spellslinger: ['Counterspell', 'Burn', 'Copy', 'Card Draw'],
+    impulse: ['Treasure', 'Graveyard Cast', 'Burn', 'Burn.Any', 'Card Draw'],
     reanimator: ['Reanimate', 'Recursion', 'Self-Mill', 'Mill', 'Discard'],
     blink: ['Blink', 'Copy', 'Card Draw'],
     lifegain: ['Lifegain', 'Drain'],
@@ -360,20 +816,48 @@
     enchantress: ['Card Draw', 'Recursion'],
     artifacts: ['Treasure', 'Copy', 'Recursion'],
     control: ['Counterspell', 'Removal', 'Board Wipe', 'Bounce', 'Card Draw'],
-    stax: ['Stax', 'Hatebear', 'Tax'],
+    stax: ['Stax', 'Hatebear'],
+    goad: ['Stax', 'Protection', 'Removal'],
+    mill: ['Mill', 'Graveyard Cast', 'Control'],
     voltron: ['Protection', 'Evasion', 'Pump', 'Extra Combat'],
-    equipment: ['Protection', 'Evasion', 'Pump'],
-    pump: ['Ramp', 'Treasure'],
+    'big-mana': ['Ramp', 'Treasure', 'Card Draw'],
     wheels: ['Wheel', 'Discard', 'Card Draw'],
     graveyard: ['Recursion', 'Reanimate', 'Self-Mill', 'Graveyard Cast', 'Mill'],
-    group_slug: ['Group Slug', 'Burn', 'Ping'],
+    'group-slug': ['Group Slug', 'Burn', 'Burn.Player', 'Burn.Opponents', 'Ping'],
     combo: ['Tutor', 'Copy', 'Recursion'],
+    combat: ['Attack Trigger', 'Saboteur', 'Extra Combat', 'Combat Trick', 'Evasion', 'Anthem', 'Pump', 'Haste Enabler'],
+    // Forward-compatible: engine2 has no template with these keys today. They cost
+    // nothing and are correct the day it gains one.
+    equipment: ['Protection', 'Evasion', 'Pump'],
+    vehicles: ['Pump', 'Evasion', 'Ramp'],
+    food: ['Token Maker', 'Lifegain', 'Sac Outlet'],
   });
 
   // A lower-confidence goal whose tag list mostly restates a higher one's is
   // the same pile twice under a second name (Lifegain inside Aristocrats,
   // Graveyard beside Reanimator) — drop it at this overlap or above.
   const GOAL_SUB_OVERLAP_DROP = 0.75;
+
+  /**
+   * Stable band key for Strategy grouping. Tribal goals stay distinct
+   * (`tribal:warrior`) so they do not collapse under generic Typal.
+   */
+  function _bandIdForSub(sub) {
+    if (!sub) return null;
+    if (sub.bandId) return String(sub.bandId);
+    if (sub.goalKey) {
+      const key = String(sub.goalKey);
+      if (key.startsWith('tribal:')) return key;
+      return _strategyIdForSub(sub) || key;
+    }
+    if (sub.themeId) {
+      const tid = String(sub.themeId);
+      if (tid.startsWith('tribal:')) return tid;
+      if (tid.startsWith('strategy.typal.')) return tid;
+      return _strategyIdForSub(sub) || tid;
+    }
+    return _strategyIdForSub(sub);
+  }
 
   /**
    * Strategy subsections named by the deck's inferred semantic goal.
@@ -400,6 +884,9 @@
         continue;
       }
       seen.add(id);
+      const strategyId = key.startsWith('tribal:')
+        ? 'strategy.tribal'
+        : (GOAL_KEY_STRATEGY[base] || ('strategy.' + base));
       out.push({
         id,
         label: g.label || key,
@@ -408,17 +895,22 @@
         goalKey: key,
         themeId: null,
         subtagId: null,
+        strategyId,
+        bandId: key.startsWith('tribal:') ? key : strategyId,
       });
       if (out.length >= GOAL_MAX_SUBS) break;
     }
     return out;
   }
 
-  function _buildStrategySubs(plan, themeAnalysis, declaredIds, goals) {
-    // The semantic engine's goal is a better statement of what the deck is
-    // trying to do than the generic theme vocabulary, so it wins when present.
-    const goalSubs = _buildGoalSubs(goals);
-    if (goalSubs.length) return goalSubs;
+  function _isCombatStrategyId(id) {
+    return id === 'strategy.combat' || String(id || '').startsWith('strategy.combat.');
+  }
+
+  // Declared sub-tag rows + theme-vocabulary rows for a plan. This is the
+  // generic (non-engine2) source of Architecture strategy subthemes — see
+  // _buildStrategySubs for how it composes with engine2 goals.
+  function _themeVocabStrategySubs(plan, themeAnalysis, declaredIds) {
     const api = _plan();
     const winId = plan && plan.winConditionId;
     const subs = [];
@@ -439,6 +931,8 @@
         projectTags: row.projectTags || [],
         themeId: null,
         subtagId: row.id,
+        strategyId: (typeof api.subtagStrategyId === 'function' ? api.subtagStrategyId(row.id) : null) || null,
+        bandId: (typeof api.subtagStrategyId === 'function' ? api.subtagStrategyId(row.id) : null) || null,
       });
     }
     const themes = (themeAnalysis && themeAnalysis.themes) || [];
@@ -451,6 +945,12 @@
       const id = 'theme:' + t.id;
       if (seen.has(id)) continue;
       seen.add(id);
+      const strategyId = String(t.id).startsWith('tribal:')
+        ? 'strategy.tribal'
+        : t.id;
+      const bandId = String(t.id).startsWith('tribal:')
+        ? String(t.id)
+        : strategyId;
       subs.push({
         id,
         label: t.label || t.id,
@@ -458,9 +958,288 @@
         projectTags: [],
         themeId: t.id,
         subtagId: null,
+        strategyId,
+        bandId,
       });
     }
     return subs;
+  }
+
+  function _buildStrategySubs(plan, themeAnalysis, declaredIds, goals) {
+    // The semantic engine's goal is a better statement of what the deck is
+    // trying to do than the generic theme vocabulary, so it wins when present.
+    const goalSubs = _buildGoalSubs(goals);
+    if (goalSubs.length) {
+      // ── COMBAT SUBTHEME WORKAROUND ── TEMPORARY. See docs/23-semantics-holes.md,
+      // "engine2 has no `combat` goal template". engine2 never emits a `combat` goal
+      // key (GOAL_KEY_STRATEGY.combat is inert — nothing calls it), so _buildGoalSubs
+      // above never produces a strategy.combat.* sub, and because this function used
+      // to return goalSubs outright whenever ANY engine2 goal existed (true for
+      // nearly every deck), the theme-vocabulary rows that carry Combat's drilldown
+      // children (Attack triggers / Saboteur / Extra combats) never got a chance to
+      // run either. Splice those rows in by hand, scoped to the combat family only,
+      // so engine2's goal read still wins everywhere else.
+      //
+      // DELETE this block (and _isCombatStrategyId's use here) the day engine2 ships
+      // a `combat` goal template: at that point GOAL_KEY_STRATEGY.combat stops being
+      // inert, _buildGoalSubs supplies combat subs on its own, and this splice would
+      // just duplicate them.
+      const seen = new Set(goalSubs.map(s => s.id));
+      const combatSubs = _themeVocabStrategySubs(plan, themeAnalysis, declaredIds)
+        .filter(s => _isCombatStrategyId(s.strategyId) && !seen.has(s.id));
+      return combatSubs.length ? goalSubs.concat(combatSubs) : goalSubs;
+    }
+    return _themeVocabStrategySubs(plan, themeAnalysis, declaredIds);
+  }
+
+  /**
+   * engine2 goal key → plan strategy id. Same contract as GOAL_ROLE_TAGS: the keys are
+   * `engine2/goal-templates.js` keys, verbatim. A missing key used to fall through to
+   * `'strategy.' + key`, inventing ids like `strategy.tokens-wide` and
+   * `strategy.big-mana` that exist nowhere in PLAN_STRATEGIES — so every lookup that
+   * joins back to the catalog (labels, sub-tag targets, Adds scoring, the shortlist)
+   * silently missed. Eight of the 22 templates were in that state, and it stayed
+   * invisible because the subsection heading reads from the goal's own label
+   * (strategy-gap-audit.md §2.4).
+   */
+  const GOAL_KEY_STRATEGY = Object.freeze({
+    aristocrats: 'strategy.sacrifice',
+    'tokens-wide': 'strategy.tokens.go_wide',
+    go_wide: 'strategy.tokens.go_wide',
+    tokens: 'strategy.tokens',
+    spellslinger: 'strategy.spellslinger',
+    impulse: 'strategy.impulse',
+    reanimator: 'strategy.reanimator',
+    blink: 'strategy.blink',
+    counters: 'strategy.counters',
+    landfall: 'strategy.landfall',
+    enchantress: 'strategy.auras',
+    auras: 'strategy.auras',
+    artifacts: 'strategy.artifacts',
+    control: 'strategy.control',
+    stax: 'strategy.stax',
+    // Owner lock #4: goad-as-politics lives with Stax, not with Combat.
+    goad: 'strategy.stax',
+    mill: 'strategy.mill',
+    voltron: 'strategy.voltron',
+    stompy: 'strategy.stompy',
+    'big-mana': 'strategy.big_mana',
+    wheels: 'strategy.wheels',
+    // The catalog row is literally "Reanimator / Graveyard" — no second row needed.
+    graveyard: 'strategy.reanimator',
+    'group-slug': 'strategy.group_slug',
+    equipment: 'strategy.equipment',
+    vehicles: 'strategy.vehicles',
+    food: 'strategy.food',
+    lifegain: 'strategy.lifegain',
+    combo: 'strategy.combo',
+    // Inert until engine2 ships a 'combat' goal template (that change needs partner sign-off
+    // — strategy-combat-research.md §6); harmless and forward-compatible meanwhile. Because
+    // this never fires, _buildStrategySubs' COMBAT SUBTHEME WORKAROUND block carries Combat's
+    // subthemes client-side in the meantime — see that comment for the deletion contract.
+    combat: 'strategy.combat',
+  });
+
+  function _canonicalStrategyId(id) {
+    if (!id) return id;
+    if (root && typeof root.canonicalizeStrategyId === 'function') {
+      return root.canonicalizeStrategyId(id);
+    }
+    if (id === 'strategy.enchantress') return 'strategy.auras';
+    if (id === 'theme.lifegain') return 'strategy.lifegain';
+    return id;
+  }
+
+  function _strategyIdForSub(sub) {
+    if (!sub) return null;
+    if (sub.strategyId) return _canonicalStrategyId(sub.strategyId);
+    if (sub.subtagId) {
+      const api = _plan();
+      if (typeof api.subtagStrategyId === 'function') {
+        return _canonicalStrategyId(api.subtagStrategyId(sub.subtagId) || null);
+      }
+    }
+    if (sub.themeId) {
+      if (String(sub.themeId).startsWith('tribal:')) return 'strategy.tribal';
+      if (String(sub.themeId).startsWith('strategy.typal.')) return sub.themeId;
+      return _canonicalStrategyId(sub.themeId);
+    }
+    if (sub.goalKey) {
+      const key = String(sub.goalKey);
+      if (key.startsWith('tribal:')) return 'strategy.tribal';
+      if (key.startsWith('strategy.typal.')) return key;
+      const base = key.startsWith('strategy.') ? key : (GOAL_KEY_STRATEGY[key] || ('strategy.' + key));
+      return _canonicalStrategyId(base);
+    }
+    return null;
+  }
+
+  function _strategyLabel(strategyId) {
+    const api = _plan();
+    if (typeof api.strategyLabel === 'function') return api.strategyLabel(strategyId);
+    return strategyId || '';
+  }
+
+  function _identityLabel(bandId, subs) {
+    if (!bandId) return '';
+    const match = (subs || []).find(s => _bandIdForSub(s) === bandId);
+    if (match && match.label) return match.label;
+    const api = _plan();
+    if (typeof api.strategyLabel === 'function' && String(bandId).startsWith('strategy.')) {
+      return api.strategyLabel(bandId);
+    }
+    if (String(bandId).startsWith('tribal:')) {
+      const type = bandId.slice('tribal:'.length);
+      if (type) return type.charAt(0).toUpperCase() + type.slice(1) + ' typal';
+    }
+    return bandId;
+  }
+
+  /**
+   * Architecture strategy/wincon identity: overrides → top goals → Light+ themes.
+   * Independent of Plan (Plan may be feature-off).
+   */
+  function resolveArchitectureIdentity(overrides, strategySubs, goals, themeAnalysis) {
+    const ov = normalizeArchitectureOverrides(overrides);
+    const subs = strategySubs || [];
+    let primary = ov.primaryStrategyId || null;
+    let secondary = ov.secondaryStrategyId || null;
+    const winConditionId = ov.winConditionId || null;
+
+    const inferred = [];
+    const seen = new Set();
+    const push = (id) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      inferred.push(id);
+    };
+    for (const sub of subs) {
+      if (sub.source === 'goal' || sub.goalKey) push(_bandIdForSub(sub));
+    }
+    if (!inferred.length) {
+      for (const g of (goals || [])) {
+        if (!g || !g.goal) continue;
+        if ((g.confidence || 0) < GOAL_MIN_CONFIDENCE) continue;
+        const key = String(g.goal);
+        push(key.startsWith('tribal:') ? key : (GOAL_KEY_STRATEGY[key] || ('strategy.' + key)));
+        if (inferred.length >= 2) break;
+      }
+    }
+    if (!inferred.length) {
+      for (const sub of subs) push(_bandIdForSub(sub));
+    }
+    if (!inferred.length) {
+      const themes = (themeAnalysis && themeAnalysis.themes) || [];
+      for (const t of themes) {
+        if (!t || !t.id) continue;
+        if (t.id === 'strategy.goodstuff' || t.id === 'strategy.other') continue;
+        if ((t.supportCount || 0) < LIGHT_MIN) continue;
+        const tid = String(t.id);
+        push(tid.startsWith('tribal:') ? tid : tid);
+        if (inferred.length >= 2) break;
+      }
+    }
+
+    if (!primary && inferred[0]) primary = inferred[0];
+    if (!secondary && inferred[1] && inferred[1] !== primary) secondary = inferred[1];
+    if (secondary && secondary === primary) secondary = null;
+
+    return {
+      primaryStrategyId: primary,
+      secondaryStrategyId: secondary,
+      winConditionId,
+      primaryLabel: _identityLabel(primary, subs),
+      secondaryLabel: _identityLabel(secondary, subs),
+    };
+  }
+
+  /**
+   * Bucket Strategy piles under primary / secondary identity so the panel can
+   * title those strategies. Leftovers (inferred off-identity themes) sit last as
+   * "Detected themes" and render collapsed. When neither identity is set,
+   * returns null — caller keeps a flat list.
+   */
+  function architectureStrategyBands(model) {
+    const list = (model && model.strategySubs) || [];
+    const identity = (model && model.architectureIdentity)
+      || resolveArchitectureIdentity(
+        model && model.architectureOverrides,
+        list,
+        model && model.goals,
+        model && model.themeAnalysis,
+      );
+    const primaryId = identity.primaryStrategyId || null;
+    const secondaryId = identity.secondaryStrategyId || null;
+    const ov = normalizeArchitectureOverrides(model && model.architectureOverrides);
+    const promotedIds = (ov.promotedStrategyIds || [])
+      .filter(id => id && id !== primaryId && id !== secondaryId);
+    if (!primaryId && !secondaryId && !promotedIds.length) return null;
+    const used = new Set();
+    const take = (bandId) => {
+      const subs = [];
+      for (const sub of list) {
+        if (used.has(sub.id)) continue;
+        if (_bandIdForSub(sub) === bandId) {
+          used.add(sub.id);
+          subs.push(sub);
+        }
+      }
+      return subs;
+    };
+    const bands = [];
+    if (primaryId) {
+      bands.push({
+        role: 'primary',
+        strategyId: primaryId,
+        bandId: primaryId,
+        label: identity.primaryLabel || _identityLabel(primaryId, list),
+        subs: take(primaryId),
+      });
+    }
+    if (secondaryId && secondaryId !== primaryId) {
+      bands.push({
+        role: 'secondary',
+        strategyId: secondaryId,
+        bandId: secondaryId,
+        label: identity.secondaryLabel || _identityLabel(secondaryId, list),
+        subs: take(secondaryId),
+      });
+    }
+    // Promoted via the "Detected themes" Promote button — additive: each gets
+    // its own strong header alongside primary/secondary, not swapped in for them.
+    for (const promotedId of promotedIds) {
+      bands.push({
+        role: 'promoted',
+        strategyId: promotedId,
+        bandId: promotedId,
+        label: _identityLabel(promotedId, list),
+        subs: take(promotedId),
+      });
+    }
+    const rest = list.filter(s => !used.has(s.id));
+    const tagSubs = rest.filter(s => s.source === 'tag');
+    const otherSubs = rest.filter(s => s.source !== 'tag');
+    if (tagSubs.length) {
+      bands.push({
+        role: 'tags',
+        strategyId: null,
+        bandId: null,
+        label: 'Tags',
+        collapsed: false,
+        subs: tagSubs,
+      });
+    }
+    if (otherSubs.length) {
+      bands.push({
+        role: 'other',
+        strategyId: null,
+        bandId: null,
+        label: 'Detected themes',
+        collapsed: true,
+        subs: otherSubs,
+      });
+    }
+    return bands;
   }
 
   function _buildPayoffSubs(plan, themeAnalysis, declaredIds) {
@@ -471,14 +1250,20 @@
       ? api.activePlanSubTags(plan, parentTarget)
       : [];
     const themeIds = new Set(((themeAnalysis && themeAnalysis.themes) || []).map(t => t.id));
-    const hasTokens = declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal')
-      || [...themeIds].some(id => id === 'strategy.tokens' || String(id).startsWith('tribal:'));
+    // "Token / Swarm Payoffs" is about board width, so it keys off the go-wide
+    // half of the tokens family plus typal — not off Treasure or Clues, which
+    // make tokens but never a swarm. The umbrella still counts: an unsplit
+    // Tokens pick means the deck makes tokens and has not said which kind.
+    const SWARM_STRATEGY_IDS = ['strategy.tokens', 'strategy.tokens.go_wide', 'strategy.tribal'];
+    const swarmDeclared = SWARM_STRATEGY_IDS.some(id => declaredIds.has(id));
+    const hasTokens = swarmDeclared
+      || [...themeIds].some(id => SWARM_STRATEGY_IDS.includes(id) || String(id).startsWith('tribal:'));
     // Each pile answers a distinct question ("Win Condition Payoffs" was a
     // literal duplicate of Win Condition — same predicate — and is gone).
     const out = [];
     out.push({ id: 'win_condition', label: 'Win Condition', source: winId ? 'declared' : 'inferred' });
     if (winId === 'wincon.combo') out.push({ id: 'combo', label: 'Combo Pieces', source: 'declared' });
-    if (hasTokens) out.push({ id: 'token_swarm', label: 'Token / Swarm Payoffs', source: declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal') ? 'declared' : 'inferred' });
+    if (hasTokens) out.push({ id: 'token_swarm', label: 'Token / Swarm Payoffs', source: swarmDeclared ? 'declared' : 'inferred' });
     if (winId === 'wincon.value' || rows.some(r => /payoff/i.test(r.label || '') || /payoff/.test(r.id || ''))) {
       out.push({ id: 'value_finishers', label: 'Value Finishers', source: winId === 'wincon.value' ? 'declared' : 'inferred' });
     }
@@ -519,11 +1304,56 @@
         hit.push(sub.id);
         reasons.push('theme:' + sub.themeId);
       }
+      // Role-tag homes: a tag the open piles don't already claim still files
+      // the card, so a tagged card is not left in Unassigned.
+      if (sub.source === 'tag' && (sub.projectTags || []).some(t => tagSet.has(t))) {
+        hit.push(sub.id);
+        reasons.push('roleTag:' + (sub.projectTags || [])[0]);
+      }
     }
     return { hit, reasons };
   }
 
-  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals) {
+  /** Tags that already place a card in Foundation or Mana Sources. */
+  const _PLACED_WITHOUT_STRATEGY = new Set([
+    'Card Draw', 'Wheel', 'Removal', 'Counterspell', 'Bounce', 'Bite',
+    'Burn.Any', 'Burn.Creature', 'Board Wipe', 'Ramp', 'Land', 'Commander',
+  ]);
+
+  /**
+   * One Strategy pile per role tag that no current subsection claims.
+   * Goal piles omit themes (equipment, protection, …), which left tagged
+   * cards in Unassigned even though the badge showed the tag.
+   */
+  function _tagHomeSubs(strategySubs, cards, deck, irProjectTags) {
+    const covered = new Set();
+    for (const sub of strategySubs || []) {
+      for (const t of sub.projectTags || []) if (t) covered.add(t);
+    }
+    const seen = new Set();
+    const extra = [];
+    for (const card of cards || []) {
+      for (const tag of _roles(card, deck, irProjectTags)) {
+        const t = String(tag || '').trim();
+        if (!t || covered.has(t) || _PLACED_WITHOUT_STRATEGY.has(t) || seen.has(t)) continue;
+        seen.add(t);
+        extra.push({
+          id: 'tag:' + t,
+          label: t,
+          source: 'tag',
+          projectTags: [t],
+          themeId: null,
+          subtagId: null,
+          goalKey: null,
+          strategyId: null,
+          bandId: 'tag:' + t,
+        });
+      }
+    }
+    return extra;
+  }
+
+  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals, irWincon) {
     const hit = [];
     const reasons = [];
     const tagSet = new Set(tags);
@@ -547,7 +1377,7 @@
     // Pieces is the more specific statement of it in a combo deck, Token /
     // Swarm pays off going wide short of winning outright, Value Finishers
     // grind the plan's payoffs out, Threats / Bombs is off-plan muscle.
-    const isWincon = _cardHasWinconSignal(card, plan, deck, ctxGoals);
+    const isWincon = _cardHasWinconSignal(card, plan, deck, ctxGoals, irWincon);
     let comboReason = '';
     if (payoffSubs.some(s => s.id === 'combo') && (isWincon || tagSet.has('Tutor'))) {
       if (_ir(card) && _ir(card).wincon && _ir(card).wincon.kind === 'combo_piece') comboReason = 'ir:combo';
@@ -557,7 +1387,10 @@
     for (const sub of payoffSubs) {
       // Win Condition moved out of Foundation: "does this deck close games" is a
       // payoff question, and its finishers already live here.
-      if (sub.id === 'win_condition' && isWincon && !comboReason) {
+      if (sub.subtagId && (sub.projectTags || []).some(t => tagSet.has(t))) {
+        hit.push(sub.id);
+        reasons.push('planSubtag:' + sub.subtagId);
+      } else if (sub.id === 'win_condition' && isWincon && !comboReason) {
         hit.push(sub.id);
         reasons.push('wincon');
       } else if (sub.id === 'combo' && comboReason) {
@@ -594,7 +1427,7 @@
 
   function classifyCardArchitecture(card, ctx) {
     const { deck, plan, strategySubs, payoffSubs } = ctx;
-    const tags = _roles(card, deck);
+    const tags = _roles(card, deck, ctx && ctx.irProjectTags);
     const categories = new Set();
     const reasons = [];
     let ambiguous = false;
@@ -619,7 +1452,7 @@
     s.reasons.forEach(r => reasons.push(r));
     if (s.hit.length) categories.add('strategy');
 
-    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctx.goals);
+    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctx.goals, ctx.irWincon);
     p.reasons.forEach(r => reasons.push(r));
     if (p.hit.length) categories.add('payoffs');
 
@@ -646,12 +1479,13 @@
       fullName,
       qty: _qty(card),
       card,
-      categories: [...categories],
-      foundationFns: f.fns.slice(),
-      strategySubs: s.hit.slice(),
-      payoffSubs: p.hit.slice(),
-      manabaseSubs,
-      reasons,
+      categories: _uniqIds([...categories]),
+      foundationFns: _uniqIds(f.fns),
+      strategySubs: _uniqIds(s.hit),
+      payoffSubs: _uniqIds(p.hit),
+      manabaseSubs: _uniqIds(manabaseSubs),
+      interactionGroups: f.fns.includes('interaction') ? _uniqIds(_removalTargetsForCard(card, ctx)) : [],
+      reasons: _uniqIds(reasons),
       ambiguous,
       primary: null,
       source: 'inferred',
@@ -662,6 +1496,65 @@
   function _isBasicLandCard(card) {
     const t = _typeLine(card);
     return t.includes('basic') && t.includes('land');
+  }
+
+  /**
+   * One Architecture line per card identity (`architectureCardKey`). Duplicate
+   * deck slots for the same oracle (commander + extra copy, sync doubles, …)
+   * must not render twice inside the same subsection.
+   */
+  function _uniqIds(list) {
+    const out = [];
+    const seen = new Set();
+    for (const id of list || []) {
+      if (id == null || id === '') continue;
+      const k = String(id);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(id);
+    }
+    return out;
+  }
+
+  function _mergeArchitectureRowsByKey(rows) {
+    const out = [];
+    const byKey = new Map();
+    for (const row of rows || []) {
+      if (!row || !row.key) {
+        if (row) out.push(row);
+        continue;
+      }
+      const seen = byKey.get(row.key);
+      if (!seen) {
+        const copy = {
+          ...row,
+          qty: row.qty || 1,
+          categories: _uniqIds(row.categories),
+          foundationFns: _uniqIds(row.foundationFns),
+          strategySubs: _uniqIds(row.strategySubs),
+          payoffSubs: _uniqIds(row.payoffSubs),
+          manabaseSubs: _uniqIds(row.manabaseSubs),
+          reasons: _uniqIds(row.reasons),
+        };
+        byKey.set(row.key, copy);
+        out.push(copy);
+        continue;
+      }
+      seen.qty = (seen.qty || 1) + (row.qty || 1);
+      seen.foundationFns = _uniqIds([...(seen.foundationFns || []), ...(row.foundationFns || [])]);
+      seen.strategySubs = _uniqIds([...(seen.strategySubs || []), ...(row.strategySubs || [])]);
+      seen.payoffSubs = _uniqIds([...(seen.payoffSubs || []), ...(row.payoffSubs || [])]);
+      seen.manabaseSubs = _uniqIds([...(seen.manabaseSubs || []), ...(row.manabaseSubs || [])]);
+      seen.categories = _uniqIds([...(seen.categories || []), ...(row.categories || [])]);
+      seen.reasons = _uniqIds([...(seen.reasons || []), ...(row.reasons || [])]);
+      if (row.card && row.card.isCommander) seen.card = row.card;
+      if (row.primary && (!seen.primary || row.source === 'override')) {
+        seen.primary = row.primary;
+        if (row.source === 'override') seen.source = 'override';
+      }
+      seen.ambiguous = !(seen.categories && seen.categories.length);
+    }
+    return out;
   }
 
   /**
@@ -756,6 +1649,24 @@
     return ov;
   }
 
+  /**
+   * Drag / Move-to between piles: strip only the source membership, then set
+   * primary on the destination. Other panels' memberships stay. No-op when
+   * from and to are the same pile.
+   */
+  function moveArchitectureMembership(overrides, cardKey, fromCat, fromSub, toCat, toSub) {
+    let ov = normalizeArchitectureOverrides(overrides);
+    if (!cardKey || !toCat) return ov;
+    const toSubId = toSub || '';
+    const same = fromCat && fromSub != null
+      && fromCat === toCat && String(fromSub) === String(toSubId);
+    if (same) return ov;
+    if (fromCat && fromSub != null && String(fromSub) !== '') {
+      ov = removeArchitectureMembership(ov, cardKey, fromCat, fromSub);
+    }
+    return setArchitecturePrimary(ov, cardKey, toCat, toSubId);
+  }
+
   function addArchitectureExtra(overrides, cardKey, category, subsection) {
     const ov = normalizeArchitectureOverrides(overrides);
     const rec = ov.byKey[cardKey] || { primary: null, extrasRemoved: [], extrasAdded: [], unassigned: false };
@@ -842,8 +1753,12 @@
       ? th.userThemesFromPlan(resolvedPlan)
       : [];
     const declaredIds = new Set(declaredList.map(t => t.id));
+    const goals = (opts && opts.goals) || null;
+    const irProjectTags = (opts && opts.irProjectTags) || null;
+    const irWincon = (opts && opts.irWincon) || null;
+    const overrides = (opts && opts.overrides) || (deck && deck.architectureOverrides);
 
-    let strategySubs = _buildStrategySubs(resolvedPlan, themeAnalysis, declaredIds, (opts && opts.goals) || null);
+    let strategySubs = _buildStrategySubs(resolvedPlan, themeAnalysis, declaredIds, goals);
     if (!strategySubs.length) {
       const apiPlan = _plan();
       const anyMatch = cards.some(c => typeof apiPlan.planMatchScore === 'function' && apiPlan.planMatchScore(c, resolvedPlan, deck) > 0 && !_isStapleOnly(_roles(c, deck)));
@@ -855,27 +1770,54 @@
           projectTags: [],
           themeId: null,
           subtagId: null,
+          bandId: 'theme:fallback_enablers',
         }];
       }
     }
 
-    const payoffSubsAll = _buildPayoffSubs(resolvedPlan, themeAnalysis, declaredIds);
-    const ctx = { deck, plan: resolvedPlan, strategySubs, payoffSubs: payoffSubsAll, goals: (opts && opts.goals) || null };
+    const architectureIdentity = resolveArchitectureIdentity(overrides, strategySubs, goals, themeAnalysis);
+    // Payoffs / card context see Architecture wincon (overrides) when Plan identity is off.
+    const effectivePlan = Object.assign({}, resolvedPlan, {
+      winConditionId: architectureIdentity.winConditionId || resolvedPlan.winConditionId || null,
+      primaryStrategyId: architectureIdentity.primaryStrategyId || resolvedPlan.primaryStrategyId || null,
+      secondaryStrategyId: architectureIdentity.secondaryStrategyId || resolvedPlan.secondaryStrategyId || null,
+    });
+
+    let payoffSubsAll = _buildPayoffSubs(effectivePlan, themeAnalysis, declaredIds);
+    const merged = _mergePinnedSubsIntoLists(strategySubs, payoffSubsAll, overrides, effectivePlan);
+    strategySubs = merged.strategySubs.concat(_tagHomeSubs(merged.strategySubs, cards, deck, irProjectTags));
+    payoffSubsAll = merged.payoffSubs;
+
+    const ctx = {
+      deck, plan: effectivePlan, strategySubs, payoffSubs: payoffSubsAll, goals,
+      removalTargets: (opts && opts.removalTargets) || null,
+      irProjectTags, irWincon,
+    };
     let rows = cards.map(c => classifyCardArchitecture(c, ctx));
-    rows = applyArchitectureOverrides(rows, (opts && opts.overrides) || (deck && deck.architectureOverrides));
+    rows = applyArchitectureOverrides(rows, overrides);
+    rows = _mergeArchitectureRowsByKey(rows);
     rows = _mergeBasicLandRows(rows);
 
     const usedPayoff = new Set();
     rows.forEach(r => r.payoffSubs.forEach(id => usedPayoff.add(id)));
-    const payoffSubs = payoffSubsAll.filter(s => usedPayoff.has(s.id));
+    const pinnedPay = new Set(
+      normalizeArchitectureOverrides(overrides).pinnedSubs
+        .filter(m => m.category === 'payoffs')
+        .map(m => m.subsection),
+    );
+    const payoffSubs = payoffSubsAll.filter(s => usedPayoff.has(s.id) || pinnedPay.has(s.id));
 
     const counts = _counts(rows, strategySubs, payoffSubs);
-    const winLabel = (typeof api.winconLabel === 'function' && resolvedPlan.winConditionId)
-      ? api.winconLabel(resolvedPlan.winConditionId)
-      : (resolvedPlan.winConditionId ? resolvedPlan.winConditionId : 'Not set');
+    const winId = effectivePlan.winConditionId;
+    const winLabel = (typeof api.winconLabel === 'function' && winId)
+      ? api.winconLabel(winId)
+      : (winId ? winId : 'Not set');
 
-    return {
-      plan: resolvedPlan,
+    return applyHiddenArchitectureSubsections({
+      plan: effectivePlan,
+      architectureOverrides: normalizeArchitectureOverrides(overrides),
+      architectureIdentity,
+      goals: goals || [],
       winConditionLabel: winLabel,
       rows,
       strategySubs,
@@ -885,7 +1827,7 @@
       unassigned: rows.filter(r => !r.categories.length),
       multiRole: rows.filter(r => r.categories.length >= 2),
       themeAnalysis,
-    };
+    }, overrides);
   }
 
   function _esc(s) {
@@ -896,6 +1838,10 @@
       .replace(/"/g, '&quot;');
   }
 
+  // Inline SVG icons for the architecture chrome (ui-ruleset §9.6: no glyph icons).
+  const _ICON_ELLIPSIS_H = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>';
+  const _ICON_KEBAB_V = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3.5" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="12.5" r="1.3" fill="currentColor"/></svg>';
+
   function _cardRowHtml(row, opts) {
     if (opts && typeof opts.cardHtml === 'function') {
       const custom = opts.cardHtml(row, opts);
@@ -905,19 +1851,24 @@
     const key = _esc(row.key);
     const name = _esc(row.name);
     const qty = row.qty;
-    const primaryMark = row.primary ? ' is-arch-primary' : '';
-    const src = row.source === 'override' ? ' <span class="arch-pill arch-pill--override">Set</span>' : '';
+    const o = opts || {};
+    // Only mark the home pile instance — row.primary is an object whenever an
+    // override exists, so a truthy check painted every copy (and looked like hover).
+    const primaryHere = !!(row.primary && o.placeCat
+      && row.primary.category === o.placeCat
+      && String(row.primary.subsection || '') === String(o.placeSub || ''));
+    const primaryMark = primaryHere ? ' is-arch-primary' : '';
     let badge = '';
     if (opts && typeof opts.badgeHtml === 'function') badge = opts.badgeHtml(c) || '';
     let mana = '';
     if (opts && typeof opts.manaHtml === 'function') mana = opts.manaHtml(c) || '';
     const qtyHtml = Number(qty) > 1 ? `<span class="deck-list-qty">×${qty}</span>` : '';
     const menu = (opts && opts.canEdit)
-      ? `<button type="button" class="btn btn-ghost btn-sm arch-card-menu" data-arch-menu="${key}" title="Architecture placement">⋯</button>`
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-card-menu" data-arch-menu="${key}" title="Architecture placement" aria-label="Architecture placement">${_ICON_ELLIPSIS_H}</button>`
       : '';
     // Two fixed slots at the row end keep the mana cost and the badges each in their
     // own column across every row; the ⋯ sits on top of the mana cost.
-    const badges = `${src}${badge}${qtyHtml}`.trim();
+    const badges = `${badge}${qtyHtml}`.trim();
     const titleAttr = row.fullName && row.fullName !== row.name ? ` title="${_esc(row.fullName)}"` : '';
     return `<div class="arch-card-row deck-card-row${primaryMark}" data-arch-key="${key}" data-card-name-key="${_esc(String(c.name || '').trim().toLowerCase())}" data-uid="${_esc(c.uid || c.scryfallId || '')}">
       <span class="deck-card-name"${titleAttr}>${name}</span><span class="arch-row-end"><span class="arch-row-mana">${mana}</span>${menu}</span><span class="arch-row-badges">${badges}</span>
@@ -933,11 +1884,13 @@
   const ARCH_STACK_COL_GAP = 36;
 
   function architectureMaxSubCount(model) {
+    const hidden = new Set(((model && model.hiddenSubs) || []).map(_memKey));
+    const vis = (cat, id) => !hidden.has(cat + '::' + id);
     return Math.max(
-      FOUNDATION_FNS.length,
+      FOUNDATION_FNS.filter(fn => vis('foundation', fn.id)).length || 1,
       ((model && model.strategySubs) || []).length || 1,
       ((model && model.payoffSubs) || []).length || 1,
-      MANABASE_SUBS.length,
+      MANABASE_SUBS.filter(sub => vis('manabase', sub.id)).length || 1,
     );
   }
 
@@ -1032,54 +1985,111 @@
     }</div>`;
   }
 
-  // Card order and any group headers inside a subsection come from the caller,
-  // so the deck toolbar's Sort / Group By controls apply here too. Group labels
-  // are siblings of the cards: they stack in the text body and span the full row
-  // in the visual grid. Stacked + card-image mode wraps piles in Visual-view
-  // overlapping stacks (`visualStackCols` 1 or 2).
+  // Card order and Group By buckets come from the caller so the deck toolbar
+  // applies here too. Non-Architecture Group By nests as collapsible drills
+  // under the subsection (same header chrome as that subsection). Architecture
+  // Group By skips the extra split — panels/subsections already are it.
+  // Stacked + card-image mode wraps each pile in Visual-view overlapping stacks.
+  function _cardsHtml(rows, opts) {
+    const o = opts || {};
+    const stackCols = o.visualStackCols > 0 ? Math.max(1, Math.min(2, o.visualStackCols | 0)) : 0;
+    if (!stackCols) return (rows || []).map(r => _cardRowHtml(r, o)).join('');
+    return _archStacksWrapHtml(
+      architectureSplitRows(rows, stackCols).map(col => _archPileHtml(col, o)),
+    );
+  }
+
+  function _groupDrillHtml(title, count, innerHtml, bodyClass) {
+    const bodyCls = bodyClass || 'arch-sub-body';
+    return `<details class="arch-sub arch-sub--drill" open>
+      <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span><span class="arch-sub-head-end"><span class="arch-sub-count">${count}</span><span class="arch-sub-menu-slot" aria-hidden="true"></span></span></summary>
+      <div class="${bodyCls}">${innerHtml || '<div class="arch-empty">None yet</div>'}</div>
+    </details>`;
+  }
+
   function _cardsBodyHtml(rows, opts) {
     const o = opts || {};
     const ordered = (typeof o.sortRows === 'function' && o.sortRows(rows)) || rows;
     const groups = typeof o.groupRows === 'function' ? o.groupRows(ordered) : null;
-    const stackCols = o.visualStackCols > 0 ? Math.max(1, Math.min(2, o.visualStackCols | 0)) : 0;
-    if (!stackCols) {
-      if (!groups || !groups.length) return ordered.map(r => _cardRowHtml(r, o)).join('');
-      return groups.map(g => {
+    const innerBody = o.cardMode === 'visual' ? 'arch-sub-body arch-sub-body--visual' : 'arch-sub-body';
+    if (!groups || !groups.length) return { html: _cardsHtml(ordered, o), grouped: false };
+    return {
+      grouped: true,
+      html: groups.map(g => {
         const qty = g.rows.reduce((s, r) => s + r.qty, 0);
-        return `<div class="arch-sub-group-label">${_esc(g.label)}<span class="arch-sub-group-count">${qty}</span></div>`
-          + g.rows.map(r => _cardRowHtml(r, o)).join('');
-      }).join('');
-    }
-    if (!groups || !groups.length) {
-      return _archStacksWrapHtml(
-        architectureSplitRows(ordered, stackCols).map(col => _archPileHtml(col, o)),
-      );
-    }
-    return _archStacksWrapHtml(_packGroupsIntoStacks(groups, stackCols).map(col =>
-      col.map(g => {
-        const qty = g.rows.reduce((s, r) => s + r.qty, 0);
-        return `<div class="arch-sub-group-label">${_esc(g.label)}<span class="arch-sub-group-count">${qty}</span></div>`
-          + _archPileHtml(g.rows, o);
+        return _groupDrillHtml(g.label, qty, _cardsHtml(g.rows, o), innerBody);
       }).join(''),
-    ));
+    };
   }
 
-  function _subSectionHtml(title, count, source, cardsHtml, chrome, bodyClass) {
+  function _subSectionHtml(title, count, source, body, chrome, bodyClass, menuOpts) {
     const src = source === 'inferred'
       ? '' : '';  // Plan / Inferred pills retired with the Plan wizard
-    const bodyCls = bodyClass || 'arch-sub-body';
+    const grouped = !!(body && typeof body === 'object' && body.grouped);
+    const cardsHtml = body && typeof body === 'object' && 'html' in body ? body.html : body;
+    const bodyCls = grouped ? 'arch-sub-body arch-sub-body--grouped' : (bodyClass || 'arch-sub-body');
     const c = chrome || { classes: '', dataAttrs: '' };
-    return `<details class="arch-sub ${c.classes}" ${c.dataAttrs} open>
-      <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-count">${count}</span></summary>
+    const menu = (menuOpts && menuOpts.canEdit && menuOpts.category && menuOpts.subId)
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="${_esc(menuOpts.category)}" data-arch-sub="${_esc(menuOpts.subId)}" title="Subsection options" aria-label="Subsection options">${_ICON_KEBAB_V}</button>`
+      : '';
+    const promote = (menuOpts && menuOpts.canEdit && menuOpts.promoteStrategyId)
+      ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-promote" data-arch-promote-strategy="${_esc(menuOpts.promoteStrategyId)}" title="Promote to a strategy" aria-label="Promote ${_esc(title)} to a strategy">Promote</button>`
+      : '';
+    const groupedCls = grouped ? 'arch-sub--grouped ' : '';
+    const strongCls = (menuOpts && menuOpts.strong) ? 'arch-sub--strong ' : '';
+    const openAttr = (menuOpts && menuOpts.startOpen === false) ? '' : ' open';
+    return `<details class="arch-sub ${strongCls}${groupedCls}${c.classes}" ${c.dataAttrs}${openAttr}>
+      <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-head-end"><span class="arch-sub-count">${count}</span>${promote}${menu}</span></summary>
       <div class="${bodyCls}">${cardsHtml || '<div class="arch-empty">None yet</div>'}</div>
     </details>`;
+  }
+
+  /**
+   * groupRows for the Interaction/Removal foundation subsection — drill-down
+   * groups by interaction type (Counterspell, Creature/Artifact/Enchantment/…
+   * Removal), sourced from row.interactionGroups. A card answering more than
+   * one type (Withering Torment: creature or enchantment) appears in each
+   * group it matches. Cards matching none of these (bounce, burn, or CardIR
+   * coverage gaps) land in "Other Interaction".
+   *
+   * Renders grouped as soon as ANY card matches a recognized category — even
+   * a deck whose interaction is entirely Counterspells (nothing left over for
+   * "Other Interaction") still gets a labeled Counterspell group, since a
+   * label naming what's there is the point. Only returns null — "render
+   * flat, no groups" — when nothing at all was recognized (no CardIR
+   * coverage for any interaction card in the deck), so a deck with no
+   * groupable interaction renders exactly as it did before this existed.
+   */
+  function _interactionGroupRows(rows) {
+    const buckets = new Map();
+    const other = [];
+    for (const r of rows || []) {
+      const cats = r.interactionGroups || [];
+      if (!cats.length) { other.push(r); continue; }
+      const known = new Set(REMOVAL_GROUP_ORDER.map(g => g.id));
+      let matched = false;
+      for (const cat of cats) {
+        if (!known.has(cat)) continue;
+        matched = true;
+        if (!buckets.has(cat)) buckets.set(cat, []);
+        buckets.get(cat).push(r);
+      }
+      if (!matched) other.push(r);
+    }
+    if (!buckets.size) return null;
+    const groups = REMOVAL_GROUP_ORDER
+      .filter(g => buckets.has(g.id))
+      .map(g => ({ label: g.label, rows: buckets.get(g.id) }));
+    if (other.length) groups.push({ label: 'Other Interaction', rows: other });
+    return groups;
   }
 
   function architectureViewHtml(model, opts) {
     const o = opts || {};
     const panelLayout = o.panelLayout === 'vertical' ? 'vertical' : 'horizontal';
     const cardMode = o.cardMode === 'visual' ? 'visual' : 'text';
-    const viewCls = `arch-view--layout-${panelLayout} arch-view--cards-${cardMode}`;
+    const canEdit = !!o.canEdit;
+    const viewCls = `arch-view--layout-${panelLayout} arch-view--cards-${cardMode}${canEdit ? ' arch-view--can-edit' : ''}`;
     const gridCls = panelLayout === 'vertical' ? 'arch-grid arch-grid--vertical' : 'arch-grid arch-grid--horizontal';
     const subBodyCls = cardMode === 'visual' ? 'arch-sub-body arch-sub-body--visual' : 'arch-sub-body';
     const stackedVisual = panelLayout === 'vertical' && cardMode === 'visual';
@@ -1099,41 +2109,95 @@
     const byStrat = (id) => model.rows.filter(r => r.strategySubs.includes(id));
     const byPay = (id) => model.rows.filter(r => r.payoffSubs.includes(id));
     const byMana = (id) => model.rows.filter(r => r.manabaseSubs.includes(id));
+    const hidden = new Set(((model && model.hiddenSubs) || []).map(_memKey));
+    const isHid = (cat, id) => hidden.has(cat + '::' + id);
+    const menuFor = (cat, subId) => ({ canEdit, category: cat, subId });
+    const placeOpts = (cat, subId, nSubs) => Object.assign({}, stackOpts(nSubs), { placeCat: cat, placeSub: subId });
 
-    const foundationSubs = FOUNDATION_FNS.map(fn => {
+    const foundationList = FOUNDATION_FNS.filter(fn => !isHid('foundation', fn.id));
+    const foundationSubs = foundationList.map(fn => {
       const rows = byFn(fn.id);
       const label = fn.id === 'win_condition'
         ? `${fn.label} (${model.winConditionLabel || 'Not set'})`
         : fn.label;
-      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', _cardsBodyHtml(rows, stackOpts(FOUNDATION_FNS.length)), _subsectionChrome('foundation', fn.id), subBodyCls);
+      const fnOpts = placeOpts('foundation', fn.id, foundationList.length || 1);
+      if (fn.id === 'interaction') fnOpts.groupRows = _interactionGroupRows;
+      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', _cardsBodyHtml(rows, fnOpts), _subsectionChrome('foundation', fn.id), subBodyCls, menuFor('foundation', fn.id));
     }).join('');
 
-    const strategyHtml = (model.strategySubs || []).map(sub => {
+    const strategyList = model.strategySubs || [];
+    const renderStratSub = (sub, nSubs, strong, promoteStrategyId, startOpen) => {
       const rows = byStrat(sub.id);
-      return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, stackOpts((model.strategySubs || []).length || 1)), _subsectionChrome('strategy', sub.id), subBodyCls);
-    }).join('') || '<div class="arch-empty">No strategy engines stood out yet. Set a Plan to name them.</div>';
+      const menu = Object.assign(menuFor('strategy', sub.id), { strong: !!strong, promoteStrategyId: promoteStrategyId || null, startOpen: startOpen !== false });
+      return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, placeOpts('strategy', sub.id, nSubs)), _subsectionChrome('strategy', sub.id), subBodyCls, menu);
+    };
+    const bands = architectureStrategyBands(model);
+    let strategyHtml;
+    if (bands && bands.length) {
+      strategyHtml = bands.map(band => {
+        const nSubs = Math.max(1, band.subs.length);
+        const qty = band.subs.reduce((s, sub) => s + ((counts.strategy && counts.strategy[sub.id]) || 0), 0);
+        const chrome = _subsectionChrome('strategy', band.strategyId || ('other:' + band.role));
+        // Single engine matching the band identity → cards under the strong band head.
+        const only = band.subs.length === 1 ? band.subs[0] : null;
+        const flatten = !band.collapsed && only && (
+          _bandIdForSub(only) === (band.bandId || band.strategyId)
+          || String(only.label || '').toLowerCase() === String(band.label || '').toLowerCase()
+        );
+        let kids;
+        if (!band.subs.length) {
+          kids = '<div class="arch-empty">None yet</div>';
+        } else if (flatten) {
+          kids = _cardsBodyHtml(byStrat(only.id), placeOpts('strategy', only.id, 1)).html
+            || '<div class="arch-empty">None yet</div>';
+        } else {
+          const promoteBand = band.role === 'other';
+          // Detected themes list collapsed (title only); the band head selects cards into view.
+          kids = band.subs.map(sub => renderStratSub(sub, nSubs, false, promoteBand ? (_bandIdForSub(sub) || sub.strategyId) : null, !promoteBand)).join('');
+        }
+        const headMenu = (flatten && canEdit && only)
+          ? `<button type="button" class="btn btn-ghost btn-sm arch-sub-menu" data-arch-sub-menu data-arch-cat="strategy" data-arch-sub="${_esc(only.id)}" title="Subsection options" aria-label="Subsection options">${_ICON_KEBAB_V}</button>`
+          : `<span class="arch-sub-menu-slot" aria-hidden="true"></span>`;
+        const head = `<span class="arch-sub-title">${_esc(band.label)}</span><span class="arch-sub-head-end"><span class="arch-sub-count">${qty}</span>${headMenu}</span>`;
+        const attrs = `class="arch-strategy-band arch-strategy-band--${band.role}${flatten ? ' arch-strategy-band--flat' : ''} ${chrome.classes}" data-arch-strategy-band="${band.role}" ${band.strategyId ? `data-arch-strategy-id="${_esc(band.strategyId)}"` : ''}${flatten && only ? ` data-arch-sub="${_esc(only.id)}"` : ''}`;
+        // Every band title is selectable to collapse its cards. Detected
+        // (off-identity) themes start collapsed so primary strategies stay
+        // the focus; primary/secondary/promoted bands start open.
+        const openAttr = band.collapsed ? '' : ' open';
+        return `<details ${attrs}${openAttr}>
+          <summary class="arch-sub-head arch-strategy-band-head">${head}</summary>
+          <div class="arch-strategy-band-body">${kids}</div>
+        </details>`;
+      }).join('');
+    } else {
+      // Flat list: top-level strategy piles get strong chrome (same as Foundation).
+      strategyHtml = strategyList.map(sub => renderStratSub(sub, strategyList.length || 1, true)).join('')
+        || '<div class="arch-empty">No strategy engines stood out yet.</div>';
+    }
 
-    const payoffHtml = (model.payoffSubs || []).map(sub => {
+    const payoffList = model.payoffSubs || [];
+    const payoffHtml = payoffList.map(sub => {
       const rows = byPay(sub.id);
-      return _subSectionHtml(sub.label, (counts.payoffs && counts.payoffs[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, stackOpts((model.payoffSubs || []).length || 1)), _subsectionChrome('payoffs', sub.id), subBodyCls);
+      return _subSectionHtml(sub.label, (counts.payoffs && counts.payoffs[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, placeOpts('payoffs', sub.id, payoffList.length || 1)), _subsectionChrome('payoffs', sub.id), subBodyCls, menuFor('payoffs', sub.id));
     }).join('') || '<div class="arch-empty">No payoffs classified yet.</div>';
 
-    const landHtml = MANABASE_SUBS.map(sub => {
+    const manaList = MANABASE_SUBS.filter(sub => !isHid('manabase', sub.id));
+    const landHtml = manaList.map(sub => {
       const rows = byMana(sub.id);
-      return _subSectionHtml(sub.label, (counts.manabase && counts.manabase[sub.id]) || 0, 'declared', _cardsBodyHtml(rows, stackOpts(MANABASE_SUBS.length)), _subsectionChrome('manabase', sub.id), subBodyCls);
+      return _subSectionHtml(sub.label, (counts.manabase && counts.manabase[sub.id]) || 0, 'declared', _cardsBodyHtml(rows, placeOpts('manabase', sub.id, manaList.length || 1)), _subsectionChrome('manabase', sub.id), subBodyCls, menuFor('manabase', sub.id));
     }).join('');
 
     const compactChips = (cat) => {
       if (cat === 'foundation') {
-        return FOUNDATION_FNS.map(fn => _chipHtml('foundation', fn.id, fn.label, counts.foundationFns[fn.id] || 0)).join('');
+        return foundationList.map(fn => _chipHtml('foundation', fn.id, fn.label, counts.foundationFns[fn.id] || 0)).join('');
       }
       if (cat === 'strategy') {
-        return (model.strategySubs || []).map(s => _chipHtml('strategy', s.id, s.label, (counts.strategy && counts.strategy[s.id]) || 0)).join('');
+        return strategyList.map(s => _chipHtml('strategy', s.id, s.label, (counts.strategy && counts.strategy[s.id]) || 0)).join('');
       }
       if (cat === 'payoffs') {
-        return (model.payoffSubs || []).map(s => _chipHtml('payoffs', s.id, s.label, (counts.payoffs && counts.payoffs[s.id]) || 0)).join('');
+        return payoffList.map(s => _chipHtml('payoffs', s.id, s.label, (counts.payoffs && counts.payoffs[s.id]) || 0)).join('');
       }
-      return MANABASE_SUBS.map(sub => _chipHtml('manabase', sub.id, sub.label, (counts.manabase && counts.manabase[sub.id]) || 0)).join('');
+      return manaList.map(sub => _chipHtml('manabase', sub.id, sub.label, (counts.manabase && counts.manabase[sub.id]) || 0)).join('');
     };
     const compactTops = (cat) => {
       const pool = model.rows.filter(r => r.categories.includes(cat));
@@ -1146,16 +2210,23 @@
         ? `<div class="arch-compact-chips">${compactChips(cat)}</div><div class="arch-compact-tops">${compactTops(cat)}</div>
         <details class="arch-panel-details"><summary class="arch-expand">Show all cards</summary><div class="arch-panel-body">${body}</div></details>`
         : `<div class="arch-panel-body">${body}</div>`;
+      const panelMenu = canEdit
+        ? `<button type="button" class="btn btn-ghost btn-sm arch-panel-menu" data-arch-panel-menu data-arch-cat="${_esc(cat)}" title="Section options" aria-label="Section options">${_ICON_KEBAB_V}</button>`
+        : '';
       return `<section class="arch-panel arch-panel--${cat}" data-arch-cat="${cat}">
         <header class="arch-panel-head">
           <h3 class="arch-panel-title">${meta.label}</h3>
-          <span class="arch-panel-count">${n} cards</span>
+          <span class="arch-panel-head-end"><span class="arch-panel-count">${n} cards</span>${panelMenu}</span>
         </header>
         ${compact}
       </section>`;
     };
 
-    const un = _cardsBodyHtml(model.unassigned || [], o);
+    const unBody = _cardsBodyHtml(model.unassigned || [], o);
+    const un = unBody.html;
+    const unBodyCls = unBody.grouped
+      ? 'arch-unassigned-body arch-sub-body--grouped'
+      : `arch-unassigned-body ${cardMode === 'visual' ? 'arch-sub-body--visual' : ''}`;
 
     return `<div class="arch-view ${viewCls}" id="deckArchitectureView">
       <div class="${gridCls}">
@@ -1166,7 +2237,7 @@
       </div>
       <section class="arch-unassigned">
         <h3 class="arch-unassigned-title">Unassigned <span class="arch-panel-count">${(model.unassigned || []).reduce((s, r) => s + r.qty, 0)} cards</span></h3>
-        <div class="arch-unassigned-body ${cardMode === 'visual' ? 'arch-sub-body--visual' : ''}">${un || '<div class="arch-empty">Every card found a place.</div>'}</div>
+        <div class="${unBodyCls}">${un || '<div class="arch-empty">Every card found a place.</div>'}</div>
       </section>
       <footer class="arch-legend">
         <span><strong>Foundation</strong> ${CATEGORY_META.foundation.legend}</span>
@@ -1186,6 +2257,8 @@
   function architectureGroupBuckets(model) {
     if (!model) return [];
     const rows = model.rows || [];
+    const hidden = new Set(((model && model.hiddenSubs) || []).map(_memKey));
+    const isHid = (cat, id) => hidden.has(cat + '::' + id);
     const labelOf = (cat, subId) => {
       const catLabel = (CATEGORY_META[cat] && CATEGORY_META[cat].label) || cat;
       let subLabel = subId;
@@ -1212,6 +2285,7 @@
       out.push({ id, label, keys: matched.map(r => r.key) });
     };
     for (const fn of FOUNDATION_FNS) {
+      if (isHid('foundation', fn.id)) continue;
       push(`foundation::${fn.id}`, labelOf('foundation', fn.id), rows.filter(r => r.foundationFns.includes(fn.id)));
     }
     for (const sub of model.strategySubs || []) {
@@ -1221,6 +2295,7 @@
       push(`payoffs::${sub.id}`, labelOf('payoffs', sub.id), rows.filter(r => r.payoffSubs.includes(sub.id)));
     }
     for (const sub of MANABASE_SUBS) {
+      if (isHid('manabase', sub.id)) continue;
       push(`manabase::${sub.id}`, labelOf('manabase', sub.id), rows.filter(r => r.manabaseSubs.includes(sub.id)));
     }
     push('unassigned', 'Unassigned', rows.filter(r => !(r.categories && r.categories.length)));
@@ -1245,15 +2320,26 @@
     ARCH_CATEGORIES,
     FOUNDATION_FNS,
     MANABASE_SUBS,
+    PAYOFF_FIXED_SUBS,
     CATEGORY_META,
     architectureCardKey,
     mappedRoleForPlacement,
     emptyArchitectureOverrides,
     normalizeArchitectureOverrides,
+    hideArchitectureSubsection,
+    showArchitectureSubsection,
+    pinArchitectureSubsection,
+    unpinArchitectureSubsection,
+    isArchitectureSubsectionHidden,
+    isArchitectureSubsectionPinned,
+    architectureSubsectionCatalog,
+    architectureInferredSubsectionOptions,
+    applyHiddenArchitectureSubsections,
     classifyCardArchitecture,
     classifyDeckArchitecture,
     applyArchitectureOverrides,
     setArchitecturePrimary,
+    moveArchitectureMembership,
     addArchitectureExtra,
     removeArchitectureMembership,
     resetArchitectureCard,
@@ -1265,8 +2351,13 @@
     architectureMaxSubCount,
     architectureSplitRows,
     architectureGroupBuckets,
+    architectureStrategyBands,
+    resolveArchitectureIdentity,
     representativeCards,
     ARCH_SUB_TINT_STEPS,
+    // Exported for the engine2 goal-key contract guard in test-deck-architecture.js.
+    GOAL_ROLE_TAGS,
+    GOAL_KEY_STRATEGY,
     _subsectionSlug,
     _subsectionTintIndex,
     _subsectionChrome,

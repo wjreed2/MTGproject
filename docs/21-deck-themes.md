@@ -106,11 +106,52 @@ Copy (9th-grade, public):
 
 ## Theme catalog
 
-Plan strategy catalog, 1:1 with user-set themes:
+Plan strategy catalog, 1:1 with user-set themes (Batch 1):
 
-Tokens, Sacrifice/Aristocrats, Spellslinger, Reanimator/Graveyard, Voltron, +1/+1 Counters, Landfall, Tribal (+ type picks as `Goblin tribal`), Artifacts, Enchantress, Control, Blink, Superfriends, Theft, Stax, Mill, Goodstuff.
+Tokens (umbrella — see below), Sacrifice/Aristocrats, Spellslinger, Reanimator/Graveyard, Voltron, +1/+1 Counters, Landfall, Typal (+ type picks as `Goblin typal`), Artifacts typal, Equipment typal, Auras typal (was Enchantress), Vehicles typal, Elf/Goblin/Zombie/Dragon typal (pinned), Lifegain, Combo, Control, Blink, Superfriends, Theft, Stax, Mill, Goodstuff.
 
-Plus **Lifegain** as a running theme (maps from `wincon.life_drain` when that is the wincon).
+`wincon.life_drain` maps to **`strategy.lifegain`**. Equipment/Aura type lines feed Equipment/Auras typal — they are a **signal** toward Voltron, not auto-identity.
+
+### Tokens is an umbrella
+
+`strategy.tokens` means "this deck makes tokens" and nothing sharper. What *kind*
+of token is the actual strategy, so each kind is its own row with
+`parent: 'strategy.tokens'`:
+
+| id | Label | What it means |
+| --- | --- | --- |
+| `strategy.tokens.go_wide` | Go Wide | Creature tokens, in volume — a board that wins by width |
+| `strategy.treasure` | Treasure | Treasure makers + Treasure payoffs |
+| `strategy.food` | Food | Food makers + Food payoffs |
+| `strategy.clues` | Clues | Clue makers, investigate, Clue payoffs |
+| `strategy.tokens.blood` | Blood | Blood makers + rummage payoffs |
+| `strategy.tokens.powerstone` | Powerstone | Powerstone makers + mana sinks |
+| `strategy.tokens.incubate` | Incubate | Incubate sources + transform payoffs |
+| `strategy.tokens.map` | Map | Map makers + explore payoffs |
+| `strategy.tokens.junk` | Junk | Junk makers + payoffs |
+| `strategy.tokens.role` | Role | Role (enchantment) tokens + enchanted payoffs |
+| `strategy.tokens.gold` | Gold | Gold makers + mana sinks |
+
+Only **Tokens** and **Go Wide** sit on the default shortlist; the rest are
+search-and-infer, per the ~24-chip rule in `strategy-catalog-research.md` §6a.
+
+**Roll-up.** A child's supporters count for the umbrella too, so a Treasure card
+counts for both Treasure and Tokens. It is a per-card boolean, so nothing is
+double-counted inside the umbrella's own total.
+
+**Hiding.** When a child reaches `umbrellaHideChildBand` (Focused), the umbrella
+row drops out of the readout — "Treasure (Focused)" already says what "Tokens
+(Focused)" would. A **user-set** umbrella is never hidden: a plan row that
+vanishes reads as a bug.
+
+**Go Wide is gated.** Creature-token makers always count. Go-wide *payoffs*
+(anthems, "for each creature you control", convoke) only count once the deck has
+`goWideMinTokenMakers` (5) creature-token makers — otherwise a Voltron deck with
+three anthems would read as a swarm.
+
+**Legacy ids.** `strategy.tokens` is unchanged, so plans saved before the split
+land on the umbrella. `strategy.go_wide` and `strategy.blood_matters` alias
+forward.
 
 Do not show generic Ramp / Card Draw / Removal as “themes.” Those are Foundation / staple roles.
 
@@ -121,11 +162,11 @@ A card supports a theme when any of these fire (qty-aware; union):
 - distinctive project role tags (Token Maker, Sac Outlet, Landfall, Blink, … — **not** Ramp/Draw/Removal/Pump)
 - distinctive Oracle patterns
 - existing CardIR `provides` axes when present (additive; no CardIR regen)
-- type line only where it is the theme (planeswalkers → Superfriends; Equipment/Aura → Voltron; creature subtypes → tribal)
+- type line only where it is the theme (planeswalkers → Superfriends; Equipment → Equipment typal; Aura/enchantment → Auras typal; creature subtypes → typal; Vehicle → Vehicles typal)
 
 Lands skipped except Landfall and token-making lands.
 
-Type-density themes (every artifact = Artifacts, every instant = Spellslinger) only after a small payoff gate so Sol Ring does not create an Artifacts theme.
+Type-density themes (every artifact = Artifacts) only after a small payoff gate so Sol Ring does not create an Artifacts theme. Spellslinger's instant/sorcery density gate is two-part: real cast-payoffs (magecraft/prowess/storm/cast-or-copy triggers, `spellslingerMinPayoffs`) AND a cheap (MV ≤ `spellslingerCheapMv`) instant/sorcery volume floor (`spellslingerMinVolume`) — a couple of prowess creatures next to generically-good removal is not a spellslinger deck without a real low-curve spell base to chain (`DECK_THEME_CONFIG` in `js/deck-themes.js`).
 
 No live Scryfall. No EDHREC. No runtime AI.
 

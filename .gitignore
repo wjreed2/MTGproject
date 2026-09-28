@@ -1,6 +1,8 @@
 .env
 node_modules/
 .claude
+# Agent-instruction files stay local (repo policy)
+CLAUDE.md
 .vs
 ios/
 android/

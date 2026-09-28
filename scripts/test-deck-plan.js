@@ -18,7 +18,14 @@ const {
   getDeckPlan,
   deckPlanCardCount,
   buildPlanWizardSteps,
+  isPlanFeatureEnabled,
+  setPlanFeatureEnabled,
+  stripPlanIdentity,
 } = plan;
+
+// Plan identity tests below need the feature on (default is off).
+setPlanFeatureEnabled(true);
+assert.strictEqual(isPlanFeatureEnabled(), true);
 
 // Case 2: Korvold-like sacrifice commander → sacrifice in top 6
 {
@@ -167,6 +174,162 @@ const {
   assert.ok(steps.indexOf('playstyle') === steps.indexOf('competition') + 1);
   assert.strictEqual(steps[steps.length - 1], 'tutorpref');
   console.log('[wizard] Foundation field order', steps.join(' → '));
+}
+
+// Batch 1 — catalog, shortlist, enchantress→auras migrate
+{
+  assert.ok(plan.PLAN_STRATEGIES.some(s => s.id === 'strategy.equipment'));
+  assert.ok(plan.PLAN_STRATEGIES.some(s => s.id === 'strategy.auras'));
+  assert.ok(plan.PLAN_STRATEGIES.some(s => s.id === 'strategy.lifegain'));
+  assert.ok(plan.PLAN_STRATEGIES.some(s => s.id === 'strategy.typal.elf'));
+  assert.ok(!plan.PLAN_STRATEGIES.some(s => s.id === 'strategy.enchantress'));
+  assert.ok(plan.PLAN_STRATEGY_SHORTLIST_IDS.includes('strategy.equipment'));
+  assert.ok(plan.PLAN_STRATEGY_SHORTLIST_IDS.includes('strategy.typal.dragon'));
+  assert.ok(!plan.PLAN_STRATEGY_SHORTLIST_IDS.includes('strategy.treasure'), 'treasure is search-only');
+  const migrated = normalizeDeckPlan({
+    primaryStrategyId: 'strategy.enchantress',
+    secondaryStrategyId: 'theme.lifegain',
+    planTypePicks: { 'strategy.enchantress': ['aura'] },
+  });
+  assert.strictEqual(migrated.primaryStrategyId, 'strategy.auras');
+  assert.strictEqual(migrated.secondaryStrategyId, 'strategy.lifegain');
+  assert.deepStrictEqual(migrated.planTypePicks['strategy.auras'], ['aura']);
+  assert.ok(!migrated.planTypePicks['strategy.enchantress']);
+  assert.strictEqual(plan.strategyLabel('strategy.tribal'), 'Typal');
+  assert.strictEqual(plan.canonicalizeStrategyId('strategy.enchantress'), 'strategy.auras');
+}
+
+// Plan feature off: identity stripped, Gameplan numbers kept; declared gate closed.
+{
+  setPlanFeatureEnabled(false);
+  assert.strictEqual(isPlanFeatureEnabled(), false);
+  const deck = {
+    plan: {
+      winConditionId: 'wincon.combat',
+      primaryStrategyId: 'strategy.tokens',
+      secondaryStrategyId: 'strategy.voltron',
+      planConfirmed: true,
+      planSubTags: { 'tokens.makers': { enabled: true, target: 10 } },
+      targetCastTurn: 4,
+      landIdeal: 36,
+      consistencyPct: 85,
+    },
+  };
+  const live = getDeckPlan(deck);
+  assert.strictEqual(live.primaryStrategyId, null, 'feature off clears primary');
+  assert.strictEqual(live.winConditionId, null, 'feature off clears wincon');
+  assert.strictEqual(live.planConfirmed, false);
+  assert.deepStrictEqual(live.planSubTags, {});
+  assert.strictEqual(live.targetCastTurn, 4, 'cast turn kept');
+  assert.strictEqual(live.landIdeal, 36, 'land ideal kept');
+  assert.strictEqual(isPlanDeclared(deck.plan), false, 'declared gate closed while off');
+  assert.strictEqual(shouldFetchPlanOnlyBackfill({ deficits: { Plan: 20, Ramp: 0 } }, deck.plan), false);
+
+  const stripped = stripPlanIdentity(normalizeDeckPlan(deck.plan));
+  assert.strictEqual(stripped.primaryStrategyId, null);
+  assert.strictEqual(stripped.targetCastTurn, 4);
+
+  // Disk unchanged — re-enable restores identity via getDeckPlan.
+  setPlanFeatureEnabled(true);
+  const restored = getDeckPlan(deck);
+  assert.strictEqual(restored.primaryStrategyId, 'strategy.tokens');
+  assert.strictEqual(restored.targetCastTurn, 4);
+}
+
+// COMBAT TWO-PILLAR GATE (TEMPORARY - delete with the pillar block in js/deck-themes.js).
+// A value deck that merely attacks must not be SUGGESTED combat; a real combat deck must.
+{
+  const c = (name, oracleText, type) => ({
+    name, qty: 1, type: type || 'Creature', typeLine: type || 'Creature',
+    oracleText, roleTags: [] });
+  const filler = n => Array.from({ length: n }, (_, i) => c('Filler ' + i, ''));
+
+  const valueDeck = { cards: [
+    c('Sidisi', 'Whenever Sidisi attacks, mill three cards.'),
+    c('Six', 'Whenever Six attacks, mill a card.'),
+    c('World Shaper', 'Whenever World Shaper attacks, mill three cards.'),
+    c('Teval', 'Whenever Teval attacks, mill two cards.'),
+    c('Hedge Shredder', 'Whenever Hedge Shredder attacks, mill two cards.'),
+    ...filler(60)] };
+  const gated = rankStrategiesForDeck(valueDeck).find(r => r.id === 'strategy.combat');
+  if (gated) {
+    assert.strictEqual(gated.raw, 0, 'gated combat scores zero');
+    assert.ok(gated.score < PLAN_INFERENCE_CONFIDENCE_MIN,
+      'gated combat must never clear the pre-select threshold');
+  }
+
+  const combatDeck = { cards: [
+    c('Yuriko', 'Whenever a Ninja you control deals combat damage to a player, reveal the top card.'),
+    c('Infiltrator', 'Whenever a Ninja you control deals combat damage to a player, draw a card.'),
+    c('Naga', 'Whenever Naga deals combat damage to a player, create a token copy of it.'),
+    c('Adeline', 'Whenever you attack, create a 1/1 white Human creature token for each opponent.'),
+    c('Warboss', 'Whenever Legion Warboss attacks, create a 1/1 red Goblin creature token.'),
+    c('World at War', 'After this main phase, there is an additional combat phase.', 'Sorcery'),
+    c('Cover of Darkness', 'Creatures you control have fear.', 'Enchantment'),
+    c('Mass Haste', 'Creatures you control gain haste until end of turn.', 'Instant'),
+    c('Trumpet Blast', 'Creatures you control get +2/+0 until end of turn.', 'Instant'),
+    ...filler(56)] };
+  const passed = rankStrategiesForDeck(combatDeck).find(r => r.id === 'strategy.combat');
+  assert.ok(passed && passed.raw > 0, 'a real combat deck keeps its combat score');
+}
+
+// The two-pillar gate covers the combat umbrella AND every child.
+{
+  const c = (name, oracleText, type) => ({
+    name, qty: 1, type: type || 'Creature', typeLine: type || 'Creature',
+    oracleText, roleTags: [] });
+  const filler = n => Array.from({ length: n }, (_, i) => c('Filler ' + i, ''));
+  const valueDeck = { cards: [
+    c('Sidisi', 'Whenever Sidisi attacks, mill three cards.'),
+    c('Six', 'Whenever Six attacks, mill a card.'),
+    c('World Shaper', 'Whenever World Shaper attacks, mill three cards.'),
+    c('Teval', 'Whenever Teval attacks, mill two cards.'),
+    c('Hedge Shredder', 'Whenever Hedge Shredder attacks, mill two cards.'),
+    ...filler(60)] };
+  const ranked = rankStrategiesForDeck(valueDeck);
+  for (const id of ['strategy.combat', 'strategy.combat.attacks',
+                    'strategy.combat.saboteur', 'strategy.combat.extra_combats']) {
+    const row = ranked.find(r => r.id === id);
+    if (row) assert.strictEqual(row.raw, 0, id + ' must be gated on a value deck');
+  }
+  // Every child is in the catalog and shortlisted.
+  for (const id of ['strategy.combat.attacks', 'strategy.combat.saboteur',
+                    'strategy.combat.extra_combats']) {
+    assert.ok(PLAN_STRATEGIES.some(s => s.id === id && s.parent === 'strategy.combat'),
+      id + ' is a combat child in PLAN_STRATEGIES');
+    assert.ok(PLAN_STRATEGY_SHORTLIST_IDS.includes(id), id + ' is shortlisted');
+  }
+}
+
+/**
+ * Contract guard: every engine2 WINCON_KIND must reach a real PLAN_WINCONS row.
+ *
+ * engine2 has emitted `wincon.kind` since v1, and for just as long the only client
+ * reading it was deck-architecture.js, for 'combo_piece' alone — so a card whose IR
+ * declared 'poison' or 'alt_win' contributed nothing to the plan's win condition, and
+ * two of the seven kinds had no row to land on at all.
+ * See Ready Prompts/strategy-gap-audit.md §2.6 and §9b.
+ */
+{
+  const { WINCON_KINDS } = require('../engine2/vocab.js');
+  const winconIds = new Set(plan.PLAN_WINCONS.map(w => w.id));
+  const irCard = (kind) => ({
+    name: 'IR probe', type_line: 'Creature', oracle_text: '', roleTags: [],
+    ir: { wincon: { kind } },
+  });
+  for (const kind of WINCON_KINDS) {
+    const matched = plan.PLAN_WINCONS.filter(w => plan.winconMatch(irCard(kind), w.id, { cards: [] }) === 1);
+    assert.ok(matched.length >= 1,
+      `engine2 wincon kind "${kind}" reaches no PLAN_WINCONS row — the IR bridge has drifted`);
+    for (const w of matched) {
+      assert.ok(winconIds.has(w.id), `wincon kind "${kind}" maps to unknown plan row "${w.id}"`);
+    }
+  }
+  // A declared IR wincon must outrank a bare text guess on the commander.
+  const poisonCmdr = Object.assign(irCard('poison'), { name: 'Poison Commander' });
+  const ranked = plan.rankWinConditionsForCommander(poisonCmdr).map(o => o.id);
+  assert.ok(ranked.includes('wincon.poison'),
+    `a commander whose IR declares poison should suggest wincon.poison, got ${ranked}`);
 }
 
 console.log('deck-plan: ok');

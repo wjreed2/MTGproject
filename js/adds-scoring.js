@@ -104,6 +104,8 @@
     // Tier 2
     'Counterspell',
     'Burn',
+    'Burn.Any',
+    'Burn.Creature',
     'Bounce',
     'Discard',
     // Tier 3 subset (locked by Ready Prompt)
@@ -117,6 +119,8 @@
     'Card Draw',
     'Anthem',
     'Group Slug',
+    'Burn.Player',
+    'Burn.Opponents',
     'Recursion',
     'Reanimate',
     'Plan',

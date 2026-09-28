@@ -467,7 +467,7 @@
       colorIdentity: ['G', 'W'],
       plan: {
         winConditionId: 'wincon.combat',
-        primaryStrategyId: 'strategy.enchantress',
+        primaryStrategyId: 'strategy.auras',
         competition: 'Focused',
         playstyleS: 0,
         targetCastTurn: 2,
