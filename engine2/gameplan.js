@@ -25,11 +25,11 @@ const isLand = c => /\bLand\b/.test(frontType(c)) && !/\bCreature\b/.test(frontT
 const isCreatureCard = c => /\bCreature\b/.test(frontType(c));
 const manaCostOf = c => String(c.ir?.faces?.[0]?.mana_cost || '');
 const hasX = c => /\{X\}/.test(manaCostOf(c));
-const provides = c => c.ir?.provides || [];
+const provides = c => c?.ir?.provides || [];
 const hasAxis = (c, re) => provides(c).some(p => (re instanceof RegExp ? re.test(p.axis) : p.axis === re));
-const abilities = c => R.abilitiesOf(c.ir);
-const allEffects = c => R.allEffects(c.ir);
-const typesOf = c => (c.ir?.tribal?.types || []).map(String);
+const abilities = c => R.abilitiesOf(c?.ir);
+const allEffects = c => R.allEffects(c?.ir);
+const typesOf = c => (c?.ir?.tribal?.types || []).map(String);
 const cmp = (a, op, b) => op === '>=' ? a >= b : op === '<=' ? a <= b : op === '>' ? a > b : op === '<' ? a < b : a === b;
 const CARD_TYPES = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'land', 'battle'];
 

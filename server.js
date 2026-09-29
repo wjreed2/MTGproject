@@ -6281,8 +6281,13 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     // spends its output on — every add and cut is judged against it, and a
     // commander-centric plan's DIRECTION (not the raw top goal) sets the category
     // targets the user's sliders then adjust.
-    const gameplan = engine2.gameplan.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
-    const planGoal = gameplan.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
+    // A plan-inference failure must never take suggestions down with it: fall back
+    // to goal-driven scoring (gameplan null is the pre-gameplan path everywhere).
+    let gameplan = null;
+    try {
+      gameplan = engine2.gameplan.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
+    } catch (e) { console.error('[analyze] gameplan inference failed — plain scoring', e); }
+    const planGoal = gameplan?.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
     const thresholds = engine2.thresholds.computeThresholds({
       goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
     });
