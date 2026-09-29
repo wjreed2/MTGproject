@@ -3,6 +3,10 @@
 //
 // computeInteractions(cards) → { edges, combos }
 //
+// Combos come from two sources: axis-signature rules (combo-rules.js) and the loop
+// detector (loops.js, faces layer). Edges are then passed through the rules layer
+// (rules.js), which voids, adds, or caveats edges per Magic rules.
+//
 // `cards` is an array of { name, ir } where ir carries the CardIR capability layer
 // (provides / needs / anti / roles / wincon / tribal). Faces are optional — everything
 // here reads the capability layer only, so minimal test fixtures work too.
@@ -13,6 +17,8 @@
 
 const COMBO_RULES = require('./combo-rules');
 const { isWildcardParam } = require('./vocab');
+const { detectLoops } = require('./loops');
+const { applyRules } = require('./rules');
 
 const RATE_MULT = { repeatable: 1.5, per_turn: 1.25, static: 1.25, once: 1.0 };
 const CRIT_MULT = { requires: 1.5, wants: 1.2, helps: 1.0 };
@@ -199,7 +205,18 @@ function computeInteractions(cards) {
     });
   }
 
-  return { edges, combos };
+  // loops: infinite combos read off the faces layer (engine2/loops.js) — resource
+  // accounting, not axis signatures, so they need no combo-rule entry per card pair.
+  const comboSets = new Set(combos.map(c => [...c.members].sort().join('|')));
+  for (const l of detectLoops(cards)) {
+    const k = [...l.members].sort().join('|');
+    if (comboSets.has(k)) continue;
+    comboSets.add(k);
+    combos.push(l);
+  }
+
+  // rules layer: Magic rules that make an edge real, void, or caveated (engine2/rules.js)
+  return applyRules(cards, { edges, combos });
 }
 
 // Sum of a card's incident edge strengths (nonbos negative) + combo membership bonus —
