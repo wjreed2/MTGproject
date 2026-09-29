@@ -716,6 +716,12 @@ function _applyFreshCardData(card, fresh) {
   return ((parseFloat(card.priceTCG) || 0) !== oldTCG || (parseFloat(card.priceTCGFoil) || 0) !== oldFoil) ? 1 : 0;
 }
 
+/**
+ * Backfill rows that still have no market price at all — a printing the price log has
+ * no row for yet (a set released since the last daily snapshot). Everything else is
+ * priced by the price-log pass in ensureCollectionPriceChangeData; this only covers
+ * its misses, through the server cascade so the number has a known origin.
+ */
 async function refreshMissingCollectionPrices() {
   if (isPriceRefreshRunning) return;
   const targets = collection.filter(c =>
@@ -736,7 +742,10 @@ async function refreshMissingCollectionPrices() {
       const slice = batchable.slice(i, i + BATCH);
       let freshCards = [];
       try {
-        const res = await fetch('https://api.scryfall.com/cards/collection', {
+        // Our own proxy, not api.scryfall.com: it runs the price-log-first cascade and
+        // marks what it priced, which is the only thing cardToEntry will store. Hitting
+        // Scryfall directly here wrote its numbers over price-log ones and skewed deltas.
+        const res = await fetch('/api/scryfall/collection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifiers: slice.map(c => ({ id: c.scryfallId })) }),

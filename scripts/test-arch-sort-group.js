@@ -40,11 +40,6 @@ const sandbox = Object.assign({
   _tagMatchesDeckGroupTier: (card, tag, tier) => tier === 'tag_default',
   normalizeDeckTagName: t => String(t || '').trim(),
   _tagTierKey: t => String(t || '').trim().toLowerCase(),
-  _compareDeckTagGroupKeys: (a, b) => {
-    if (a === 'Untagged') return 1;
-    if (b === 'Untagged') return -1;
-    return String(a).localeCompare(String(b));
-  },
 }, arch);
 vm.createContext(sandbox);
 vm.runInContext([
@@ -52,6 +47,9 @@ vm.runInContext([
   slice('// Architecture Group By — one classification', '\nfunction _archVisualTile'),
   slice('function _buildDeckGroups(cards, groupBy)', '\n// Precomputed ownership maps'),
   slice('function _allTagsOnCard(card)', '\nlet _deckListSearchDebounce'),
+  // Real leftover-bucket naming + comparator: each tier names its own leftovers,
+  // so the bucket cannot be asserted as a literal here without them.
+  slice('function _deckTagGroupLeftoverLabel(groupBy)', '\nfunction _tagMatchesDeckGroupTier'),
 ].join('\n'), sandbox);
 
 const { _archSortRows, _archGroupRows, _buildDeckGroups, _setArchGroupModel } = sandbox;
@@ -155,19 +153,28 @@ assert.strictEqual(_archGroupRows(rows), null);
 }
 
 // Primary is STRICT: only explicitly (or auto-) tiered tags group there. An
-// untiered role tag leaves its card in Untagged — the view exists to show what
-// still needs curation. The Default view still groups by the role tag itself.
+// untiered role tag leaves its card in the leftover bucket — the view exists to
+// show what still needs curation. The Default view still groups by the role tag.
+// Each tier names its own leftovers, because a card tagged at another tier is not
+// untagged; only All tags can say that.
 {
   const tagged = { name: 'Swiftfoot Boots', type: 'Artifact', roleTags: ['Protection'], isCommander: false };
   const bare = { name: 'Vanilla Bear', type: 'Creature', roleTags: [], isCommander: false };
   const primary = _buildDeckGroups([tagged, bare], 'tag_primary');
   assert.ok(!primary.Protection, 'an untiered role tag must not group under Primary');
-  assert.deepStrictEqual(names(primary.Untagged || []).sort(),
-    ['Swiftfoot Boots', 'Vanilla Bear'], 'both cards sit in Untagged under Primary');
+  assert.ok(!primary.Untagged, 'Primary must not claim a tagged card is untagged');
+  assert.deepStrictEqual(names(primary['No primary tag'] || []).sort(),
+    ['Swiftfoot Boots', 'Vanilla Bear'], 'both cards sit in No primary tag under Primary');
   const byDefault = _buildDeckGroups([tagged, bare], 'tag_default');
   assert.ok((byDefault.Protection || []).some(c => c.name === 'Swiftfoot Boots'),
     'the Default view still groups by the role tag');
-  assert.ok((byDefault.Untagged || []).some(c => c.name === 'Vanilla Bear'));
+  assert.ok((byDefault['No default tag'] || []).some(c => c.name === 'Vanilla Bear'));
+  // All tags is the one view that sees every tag, so it alone says Untagged.
+  const all = _buildDeckGroups([tagged, bare], 'tag_all');
+  assert.ok((all.Untagged || []).some(c => c.name === 'Vanilla Bear'),
+    'All tags still calls a genuinely untagged card Untagged');
+  assert.ok(!(all.Untagged || []).some(c => c.name === 'Swiftfoot Boots'),
+    'a card with a role tag is not untagged under All tags');
 }
 
 console.log('test-arch-sort-group: ok');

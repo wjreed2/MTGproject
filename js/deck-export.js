@@ -184,27 +184,57 @@ function _deckExportMainboardCards(deck, cardSelect) {
   return (deck.cards || []).map(c => ({ ...c }));
 }
 
+/** True when the output labels every zone, so a section can say what it is rather than
+ *  blending into the list above it: zone section headers, or CSV's own `zone` column. */
+function _deckExportZonesAreLabelled(prefs) {
+  return prefs.sectionHeader === 'zone' || prefs.exportType === 'csv';
+}
+
 function _deckExportZones(deck, prefs) {
   const zones = [];
   const select = prefs.cardSelect;
-  const swapsOnly = select === 'only_adds' || select === 'only_cuts';
+  const copy = list => (list || []).map(c => ({ ...c }));
 
-  if (!swapsOnly) {
-    zones.push({ key: 'main', label: 'Mainboard', cards: _deckExportMainboardCards(deck, select) });
-  } else if (select === 'only_adds') {
-    zones.push({ key: 'adds', label: 'Planned adds', cards: _deckExportMainboardCards(deck, select) });
-  } else if (select === 'only_cuts') {
-    zones.push({ key: 'cuts', label: 'Planned cuts', cards: _deckExportMainboardCards(deck, select) });
+  // "Only adds" / "Only cuts" export that pool and nothing else — the maybe board and the
+  // sideboard are neither, so they stay out however their checkboxes are set.
+  if (select === 'only_adds') {
+    return [{ key: 'adds', label: 'Planned adds', cards: _deckExportMainboardCards(deck, select) }];
+  }
+  if (select === 'only_cuts') {
+    return [{ key: 'cuts', label: 'Planned cuts', cards: _deckExportMainboardCards(deck, select) }];
   }
 
-  if (!swapsOnly && prefs.includeMaybeboard && typeof _deckMaybeBoard === 'function') {
+  // Adds and cuts are zones of the deck the way the maybe board is, and the builder draws
+  // them as such. "Including adds" used to hand back one projected list called Mainboard:
+  // a planned add already sitting on the sideboard appeared twice with nothing to say why,
+  // and the cut copies just went missing. Same cards, but each zone says what it is.
+  const splitPlan = select === 'including_adds';
+  zones.push({
+    key: 'main',
+    label: 'Mainboard',
+    cards: _deckExportMainboardCards(deck, splitPlan ? 'excluding_cuts' : select),
+  });
+
+  if (splitPlan) {
+    const adds = typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(deck) : [];
+    if (adds.length) zones.push({ key: 'adds', label: 'Planned adds', cards: copy(adds) });
+    // The cuts are already out of the mainboard list above, so this section only tells you
+    // what is leaving — it is not part of the export's card set. Without a zone label to
+    // carry that, the cards would read as deck cards again, so it needs one.
+    if (_deckExportZonesAreLabelled(prefs)) {
+      const cuts = typeof _effectivePlannedCuts === 'function' ? _effectivePlannedCuts(deck) : [];
+      if (cuts.length) zones.push({ key: 'cuts', label: 'Planned cuts', cards: copy(cuts), informational: true });
+    }
+  }
+
+  if (prefs.includeMaybeboard && typeof _deckMaybeBoard === 'function') {
     const mb = _deckMaybeBoard(deck);
-    if (mb.length) zones.push({ key: 'maybeboard', label: 'Maybe board', cards: mb.map(c => ({ ...c })) });
+    if (mb.length) zones.push({ key: 'maybeboard', label: 'Maybe board', cards: copy(mb) });
   }
-  if (!swapsOnly && prefs.includeSideboard && typeof _deckMatchSideboardEnabled === 'function'
+  if (prefs.includeSideboard && typeof _deckMatchSideboardEnabled === 'function'
       && _deckMatchSideboardEnabled(deck) && typeof _deckMatchSideboard === 'function') {
     const sb = _deckMatchSideboard(deck);
-    if (sb.length) zones.push({ key: 'sideboard', label: 'Sideboard', cards: sb.map(c => ({ ...c })) });
+    if (sb.length) zones.push({ key: 'sideboard', label: 'Sideboard', cards: copy(sb) });
   }
 
   return zones;
@@ -214,6 +244,7 @@ function _deckExportCountStats(zones) {
   let total = 0;
   const names = new Set();
   for (const z of zones) {
+    if (z.informational) continue; // listed for reference, not part of what you're exporting
     for (const c of z.cards) {
       const q = Number(c?.qty) || 1;
       total += q;
@@ -300,6 +331,9 @@ function _deckExportBuildTts(deck, prefs) {
   const main = [];
   const side = [];
   for (const zone of zones) {
+    // A reference-only cuts section names cards this export is deliberately without —
+    // TTS has nowhere to say that, and dropping them into Deck would put them back.
+    if (zone.informational) continue;
     for (const card of _deckExportSortCards(zone.cards, prefs.sortBy)) {
       if (zone.key === 'maybeboard' || zone.key === 'sideboard') side.push(card);
       else if (card?.isCommander) commanders.push(card);
