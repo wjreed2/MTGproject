@@ -50,6 +50,17 @@ const AXIS_LABELS = {
   'control.counter': 'counterspells',
   'lifegain.source': 'lifegain',
   'etb_value': 'ETB value',
+  // rules-layer axes (engine2/rules.js)
+  'etb.per_creature': 'per-creature enter triggers',
+  'opp.token_kill': 'tokens given to opponents dying',
+  'opp.creature_deaths': "opponents' creatures dying",
+  'untap.mana_creature': 'untapping mana creatures',
+  'protect.keeps_counters': 'protection that keeps counters',
+  'draw.amplified': 'bigger draws',
+  'draw.replacement': 'draw replacements',
+  'copy.trigger_source': 'nonlegendary copies',
+  'trigger.doubler_equipped': 'trigger doubling',
+  'lands.base_pt': 'land creature size',
 };
 
 function axisLabel(axis) {
