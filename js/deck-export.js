@@ -215,15 +215,24 @@ function _deckExportZones(deck, prefs) {
     cards: _deckExportMainboardCards(deck, splitPlan ? 'excluding_cuts' : select),
   });
 
-  if (splitPlan) {
+  // Whenever the deck has a plan, both planning zones show — not just in the modes that
+  // select adds or cuts. A zone whose cards this export actually ships counts toward the
+  // total; one that is only there to say what the plan is gets marked informational, so it
+  // stays out of the count and out of the Tabletop Simulator deck.
+  const swapsOn = typeof _deckSwapsEnabled !== 'function' || _deckSwapsEnabled();
+  const labelled = _deckExportZonesAreLabelled(prefs);
+  if (swapsOn) {
     const adds = typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(deck) : [];
-    if (adds.length) zones.push({ key: 'adds', label: 'Planned adds', cards: copy(adds) });
-    // The cuts are already out of the mainboard list above, so this section only tells you
-    // what is leaving — it is not part of the export's card set. Without a zone label to
-    // carry that, the cards would read as deck cards again, so it needs one.
-    if (_deckExportZonesAreLabelled(prefs)) {
-      const cuts = typeof _effectivePlannedCuts === 'function' ? _effectivePlannedCuts(deck) : [];
-      if (cuts.length) zones.push({ key: 'cuts', label: 'Planned cuts', cards: copy(cuts), informational: true });
+    // "Including adds" ships the adds, so they belong to the card set however the output is
+    // formatted. Shown for reference anywhere else, which needs a label to mean anything.
+    if (adds.length && (splitPlan || labelled)) {
+      zones.push({ key: 'adds', label: 'Planned adds', cards: copy(adds), informational: !splitPlan });
+    }
+    // The cut copies are never part of the set: either they are already gone from the
+    // mainboard list above, or they are still in it and this only says which ones are marked.
+    const cuts = typeof _effectivePlannedCuts === 'function' ? _effectivePlannedCuts(deck) : [];
+    if (cuts.length && labelled) {
+      zones.push({ key: 'cuts', label: 'Planned cuts', cards: copy(cuts), informational: true });
     }
   }
 
