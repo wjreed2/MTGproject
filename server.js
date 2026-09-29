@@ -6302,6 +6302,16 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
     const wantedMap = engine2.recommender.wantedAxes(scoringGoals[0]?.goal, goalsRes.histogram, index, templates, scoringGoals);
       const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
+    // The plan retrieves too (docs/24): its event fuel, what amplifies its output, thin
+    // must-draw pieces; land creatures by type/text for a Jyoti-class engine; and every
+    // category the user's sliders say is 3+ short — Thranduil's removal gap has to be
+    // IN the pool before it can be recommended.
+    const hints = gameplan ? engine2.gameplan.poolHints(gameplan) : { axes: [], landCreatures: false };
+    const planAxes = hints.axes.filter(a => !wanted.includes(a));
+    const gapRoles = Object.keys(engine2.thresholds.ROLE_TO_CATEGORY).filter(r => {
+      const cat = engine2.thresholds.ROLE_TO_CATEGORY[r];
+      return ((thresholds[cat] || 0) - (roleCounts[cat] || 0)) >= 3;
+    });
     // Category focus: the pool is normally gated by the deck's ~12 wanted axes, so
     // filtering it down to one category returns whatever happened to be in there —
     // usually nothing for Tutor/Counterspell/Protection. A focused run retrieves by
@@ -6312,7 +6322,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       ? Object.keys(ROLE_TO_CAT).filter(r => ROLE_TO_CAT[r] === focusCategory)
       : [];
     let adds = [];
-    if (wanted.length || focusRoles.length) {
+    if (wanted.length || focusRoles.length || planAxes.length || gapRoles.length || hints.landCreatures) {
       let ciColors = [];
       if (commanderName) {
         const [[cRow]] = await db().query(
@@ -6359,7 +6369,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
            LIMIT 400`;
         candParams = [cmdrSlug, ...focusRoles.map(r => JSON.stringify(r)), ...disallowed.map(d => JSON.stringify(d))];
       } else {
-        const candSub = wanted.map(() =>
+        const axesToPull = [...wanted, ...planAxes];
+        const candSub = axesToPull.map(() =>
           `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
                    st.inclusion_pct AS cmdr_pct
             FROM card_semantics_axes x
@@ -6371,8 +6382,27 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
               ${ciSql}
             ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
             LIMIT ${axisWindow})`).join(' UNION ALL ');
-        candSql = `SELECT DISTINCT * FROM (${candSub}) u`;
-        candParams = wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]);
+        const extraSub = [];
+        const extraParams = [];
+        const baseSel = `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                   st.inclusion_pct AS cmdr_pct
+            FROM card_semantics s
+            JOIN scryfall_oracle_cards c ON c.oracle_id = s.oracle_id
+            LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+            WHERE s.status IN ('valid','flagged','manual') AND c.legal_commander = 1 ${ciSql}`;
+        const rankOrder = `ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, (c.edhrec_rank IS NULL), c.edhrec_rank`;
+        if (gapRoles.length) {
+          extraSub.push(`(${baseSel} AND (${gapRoles.map(() => 'JSON_CONTAINS(s.roles_json, ?)').join(' OR ')}) ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...gapRoles.map(r => JSON.stringify(r)));
+        }
+        if (hints.landCreatures) {
+          extraSub.push(`(${baseSel} AND (c.type_line LIKE '%Land Creature%' OR c.oracle_text LIKE '%land creature%'
+              OR c.oracle_text LIKE '%lands you control are%' OR c.oracle_text LIKE '%Forests you control are%'
+              OR c.oracle_text LIKE '%becomes a %creature%still a land%' OR c.oracle_text LIKE '%are Forest lands%') ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        }
+        candSql = `SELECT DISTINCT * FROM (${[candSub, ...extraSub].filter(Boolean).join(' UNION ALL ')}) u`;
+        candParams = [...axesToPull.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]), ...extraParams];
       }
       const [candRows] = await db().query(candSql, candParams);
 

@@ -168,7 +168,9 @@ function outputsOf(cmdr) {
     if (a.kind !== 'triggered' && a.kind !== 'activated' && a.kind !== 'mana') continue;
     for (const e of R.effectsOf(a)) {
       if (e.op === 'create_token' && /creature/i.test(e.token?.types || '') && !['target_opponent', 'each_opponent'].includes(e.target?.who)) {
-        out.push({ kind: 'tokens', artifact: /artifact/i.test(e.token.types), label: `${/artifact/i.test(e.token.types) ? 'artifact ' : ''}creature tokens` });
+        const sub = (/—\s*(.+)$/.exec(e.token.types || '')?.[1] || '').split(/\s+/)[0] || null;
+        out.push({ kind: 'tokens', artifact: /artifact/i.test(e.token.types), land: /\bland\b/i.test(e.token.types), sub,
+          label: `${/artifact/i.test(e.token.types) ? 'artifact ' : ''}creature tokens` });
       } else if (e.op === 'put_counter' && e.counter_kind === '+1/+1') out.push({ kind: 'counters', label: '+1/+1 counters' });
       else if (e.op === 'add_mana' && a.kind === 'mana' && (e.n?.kind !== 'fixed')) out.push({ kind: 'mana', label: 'scaling mana' });
       else if (e.op === 'draw' && /opponent/.test(e.target?.who || '')) out.push({ kind: 'opp_draw', label: 'cards for opponents' });
@@ -218,7 +220,7 @@ const DIRECTION_AMPLIFIERS = {
   aristocrats: ['token.doubler'],
   'big-mana': ['mana.doubler'],
 };
-const STRUCTURAL_ANTI = new Set(['copy_not_cast', 'symmetric_benefit', 'legendary_copy', 'redundant_with_engine', 'off_color_cost_reducer', 'no_engine_target']);
+const STRUCTURAL_ANTI = new Set(['fights_fuel', 'copy_not_cast', 'symmetric_benefit', 'legendary_copy', 'redundant_with_engine', 'off_color_cost_reducer', 'no_engine_target']);
 const DIRECTION_SPECIFIC = {
   'tokens-wide': ['token.payoff', 'trigger.etb_payoff'],
   vehicles: ['vehicles.matter', 'vehicle.body'],
@@ -402,8 +404,11 @@ function evaluateCard(plan, card) {
   const ampAxes = plan.output.flatMap(o => AMPLIFIER_FOR_OUTPUT[o.kind] || []);
   let amp = !isCmdr && provides(card).some(p => ampAxes.includes(p.axis));
   if (!amp && !isCmdr && plan.fuel.some(s => s.kind === 'cast')) {
-    amp = abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && a.trigger.controller_scope !== 'opponent'
-      && R.effectsOf(a).some(e => (e.op === 'create_token' && plan.output.some(o => o.kind === 'tokens'))
+    // A second engine on the same fuel multiplies the output only when it makes the
+    // SAME kind of thing: Vraska's plan runs on artifact tokens (mana, artifact count),
+    // so a Spirit or Shark engine is just more bodies; a Rat engine is Rats.
+    amp = abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && a.trigger.controller_scope === 'you'
+      && R.effectsOf(a).some(e => (e.op === 'create_token' && plan.output.some(o => o.kind === 'tokens' && sameTokenKind(o, e.token)))
         || (e.op === 'put_counter' && plan.output.some(o => o.kind === 'counters'))));
   }
   if (!amp && !isCmdr && plan.engine) {
@@ -422,6 +427,13 @@ function evaluateCard(plan, card) {
       || engineEdges(plan, card).some(e => e.axis === 'copy.trigger_source');
   }
   if (amp) links.push('amplifier');
+  // Side engine: a second engine on the same fuel whose tokens AREN'T the engine's kind
+  // (Kykar's Spirits beside Vraska's Sculptures) — more bodies for go-wide payoffs, but
+  // no mana and no artifact count. Worth keeping; not worth leading the adds.
+  const sideEngine = !amp && !isCmdr && plan.fuel.some(s => s.kind === 'cast')
+    && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && a.trigger.controller_scope === 'you'
+      && R.effectsOf(a).some(e => e.op === 'create_token' && /creature/i.test(e.token?.types || '')));
+  if (sideEngine) links.push('side_engine');
 
   // converter: spends the output the way the chosen direction wins
   const convAxes = converterAxes(direction);
@@ -484,7 +496,7 @@ function evaluateCard(plan, card) {
     // no_fuel is LISTED only when nothing else ties the card to the plan (or it is a
     // copy card, whose "value" never reaches the engine); the mild point cost stays —
     // in a noncreature engine every creature slot is a turn the engine doesn't fire.
-    const tied = links.some(l => ['amplifier', 'converter', 'combo'].includes(l)) && !reasons.includes('copy_not_cast');
+    const tied = links.some(l => ['amplifier', 'side_engine', 'converter', 'combo'].includes(l)) && !reasons.includes('copy_not_cast');
     anti.push(...reasons.filter(r => !((r === 'no_fuel' || r === 'no_engine_target') && tied)));
   }
 
@@ -509,6 +521,7 @@ function evaluateCard(plan, card) {
     }
     if (links.includes('amplifier') && !structural) credit('plan_amplifier', 5, 5, { engine: plan.engine.card });
     if (links.includes('converter') && !structural) credit('plan_converter', 4, 4, { direction: plan.direction?.label || direction });
+    if (links.includes('side_engine') && !structural) credit('plan_side_engine', 2, 3, { engine: plan.engine.card });
     const bn = plan.bottleneck?.link;
     if (bn && (links.includes(bn) || (bn === 'fuel' && fuelHit))) credit('plan_bottleneck', 2.5, 1, { link: bn });
     // Mass protection saves a wide output; single-target protection saves the engine
@@ -522,6 +535,13 @@ function evaluateCard(plan, card) {
     if (combo) credit('plan_combo', 2, 4);
     if (critical) credit('plan_critical_add', 4, 0, { piece: critical });
     if (offDirection) credit('plan_off_direction', -1, -3, { direction: plan.direction?.label || direction });
+    // Token makers whose bodies the engine can't use: Jyoti pumps LAND creatures only;
+    // a 1/1 Soldier maker does nothing for her.
+    if (!fuelHit && plan.fuel.some(s => s.kind === 'land_creatures')
+      && allEffects(card).some(e => e.op === 'create_token' && /creature/i.test(e.token?.types || '') && !/\bland\b/i.test(e.token?.types || ''))
+      && !links.some(l => ['amplifier', 'converter'].includes(l))) {
+      credit('plan_wrong_bodies', -2, -1, { engine: plan.engine.card });
+    }
     const idle = !links.length && !riders.length && !isLand(card);
     if (idle) credit('plan_idle', 0, -1.5);
   }
@@ -559,6 +579,15 @@ function engineEdges(plan, card) {
   const res = { edges: [], combos: [] };
   R.applyRules([{ name: cmdr.name, ir: cmdr.ir }, { name: card.name, ir: card.ir }], res);
   return res.edges.filter(e => e.a === card.name && e.b === cmdr.name);
+}
+
+// Does a token spec match the engine's token output where it matters?
+function sameTokenKind(out, token) {
+  const types = String(token?.types || '');
+  if (out.artifact && !/artifact/i.test(types)) return false;
+  if (out.land && !/\bland\b/i.test(types)) return false;
+  if (out.sub && !out.artifact && !out.land && !new RegExp(`\\b${out.sub}\\b`, 'i').test(`${types} ${token?.name || ''}`)) return false;
+  return true;
 }
 
 // Does this card fill a plan-critical piece the deck is short on?
@@ -680,6 +709,10 @@ function antiPlan(plan, card, fuelHit) {
     const engineEtb = plan._cmdr && abilities(plan._cmdr).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb' && a.trigger.subject?.or_self && !(a.trigger.subject.sub || []).length);
     if (etbValue < 5 && !engineEtb) out.push('no_engine_target');
   }
+  // fights_fuel: counters/taxes the spells the engine runs on (Dovescape counters every
+  // noncreature spell — including yours)
+  if (castFuel && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell'
+    && a.trigger.controller_scope !== 'opponent' && R.effectsOf(a).some(e => e.op === 'counter_spell'))) out.push('fights_fuel');
   // tapped_mana: a nonland mana rock that enters tapped
   if (!isLand(card) && /artifact/.test(ft) && hasAxis(card, /^mana\.(rock|color_fix)/)
     && ((card.ir?.faces || []).some(f => (f.restrictions || []).some(r => r.kind === 'enters_tapped'))
@@ -693,10 +726,27 @@ function rebalance(trace) {
   let sum = 0;
   for (const t of trace) {
     if (typeof t.pts !== 'number') continue;
-    if (!/^(plan_|quality)/.test(String(t.kind))) t.pts = Math.round(t.pts * LEGACY_WEIGHT * 100) / 100;
+    // role_deficit is a gap against the user's slider target — sliders own the numbers.
+    if (!/^(plan_|quality|role_deficit)/.test(String(t.kind))) t.pts = Math.round(t.pts * LEGACY_WEIGHT * 100) / 100;
     sum += t.pts;
   }
   return Math.round(sum * 100) / 100;
+}
+
+// Axes the candidate pool should also retrieve by, beyond the goal's wanted axes: the
+// engine's event fuel, what amplifies its output, the removal a Vren-class engine eats,
+// thin must-draw pieces. `landCreatures` asks for a type/text query (no axis for it).
+function poolHints(plan) {
+  if (!plan?.commanderCentric) return { axes: [], landCreatures: false };
+  const axes = new Set();
+  for (const s of plan.fuel) {
+    if (s.kind === 'event') s.axes.forEach(a => axes.add(a));
+    if (s.kind === 'opp_leaves') ['removal.spot', 'removal.wipe'].forEach(a => axes.add(a));
+  }
+  for (const o of plan.output) (AMPLIFIER_FOR_OUTPUT[o.kind] || []).forEach(a => axes.add(a));
+  if (plan.critical?.haste_for_tokens && plan.critical.haste_for_tokens.counts.length < 4) axes.add('haste.enabler');
+  if (plan.critical?.wipe_turn_return && plan.critical.wipe_turn_return.counts.length < 6) axes.add('protection.single');
+  return { axes: [...axes].slice(0, 6), landCreatures: plan.fuel.some(s => s.kind === 'land_creatures') };
 }
 
 // Goals in the order scoring should read them: when the commander runs the deck, the
@@ -761,6 +811,8 @@ function planReason(t) {
     case 'plan_critical_add': return `Adds to a thin must-draw piece (${CRITICAL_TEXT[t.piece] || 'plan-critical'})`;
     case 'plan_off_direction': return `Built for a different plan than ${t.direction}`;
     case 'plan_idle': return "Doesn't do anything for the plan";
+    case 'plan_side_engine': return `More bodies off the same spells as ${t.engine} (a different token type)`;
+    case 'plan_wrong_bodies': return `Makes creatures ${t.engine} can't use`;
     case 'plan_creature_slot': return "A creature — casting it doesn't feed the engine";
     case 'plan_critical': return `One of only ${t.have} ${CRITICAL_TEXT[t.piece] || 'plan-critical pieces'}`;
     default: return null;
@@ -781,6 +833,7 @@ const ANTI_TEXT = {
   narrow: 'A small tax opponents can usually pay',
   no_engine_target: 'Nothing in the plan to re-trigger',
   tapped_mana: 'Enters tapped',
+  fights_fuel: 'Counters the very spells the engine runs on',
 };
 
-module.exports = { STRUCTURAL_ANTI, LEGACY_WEIGHT, rebalance, planGoals, engineSupplies, inferGameplan, evaluateCard, fuelSpecs, fuelTest, outputsOf, readout, planReason, pAtLeastOne, COMMANDER_CENTRAL };
+module.exports = { STRUCTURAL_ANTI, LEGACY_WEIGHT, rebalance, planGoals, poolHints, engineSupplies, inferGameplan, evaluateCard, fuelSpecs, fuelTest, outputsOf, readout, planReason, pAtLeastOne, COMMANDER_CENTRAL };
