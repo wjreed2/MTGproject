@@ -193,11 +193,15 @@
       "kind": "link",
       "card": "Kykar, Zephyr Awakener",
       "expect": {
-        "link": "amplifier"
+        "link": [
+          "amplifier",
+          "side_engine"
+        ]
       },
       "quote": "That doubles Vraska's output: two tokens per spell",
       "confidence": "high",
-      "principle": "P-FUEL"
+      "principle": "P-FUEL",
+      "note": "2026-09-29 feedback: Spirit/Shark engines beside Vraska read as 'weird' adds — they don't make Sculptures (no mana, no artifact count). Kykar stays a kept side engine (the chat's keep), but only same-kind token engines count as full amplifiers."
     },
     {
       "id": "VRA-10",

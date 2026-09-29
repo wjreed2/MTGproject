@@ -918,11 +918,13 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     let score = 0;
 
     // Card quality at its job, and whether it beats the deck's weakest card doing it.
+    let jobQ = null;
     {
       const cls = Q.classesOf(cand)[0];
       if (cls) {
         const ev = gameplan ? GP.evaluateCard(gameplan, cand) : null;
         const qc = Q.cardQuality(cand, cls, { riderReliable: (ev?.riders || []).some(r => r.reliability >= 0.5) }).q;
+        jobQ = qc;
         const list = qTable.get(cls) || [];
         const weakest = list[list.length - 1];
         // "An upgrade over X" only within a real JOB — 'Threat' is a catch-all for bodies.
@@ -1219,6 +1221,11 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     const fit = score - trace.reduce((s, t) => s + (PREF_KINDS.has(t.kind) ? (t.pts || 0) : 0), 0);
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100, fit,
+      // main job (engine2/quality.js) — what the card fills when a slider gap reserves slots
+      // Planeswalkers are value engines — a removal loyalty ability doesn't make removal
+      // their job, so they never close a slider gap (Vivien Reid, Garruk, Grist).
+      _job: /\bPlaneswalker\b/.test(String(cand.typeLine || '')) ? null : (Q.classesOf(cand)[0] || null),
+      _q: jobQ,
       owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
       scryfallId: cand.scryfallId || null, trace,
       // Display caveat only (no score effect): a good off-tribe creature is still a
@@ -1232,7 +1239,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
 
   scored.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
   // Tools (fixtures, previews) can read every scored candidate, unfloored and uncapped.
-  if (raw) return scored.map(({ fit, ...s }) => s);
+  if (raw) return scored.map(({ fit, _job, _q, ...s }) => s);
   // Quality floor on FIT: don't pad the list with filler the engine barely believes
   // in — fit below ~30% of the best fit (min 3) reads as noise to the user. Thin
   // pools with a modest leader keep their few genuine picks.
@@ -1303,7 +1310,45 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (isGenericTribal(chosen)) genericTribalPicks++;
     ordered.push(chosen);
   }
-  return ordered.slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
+  // Target-gap quota (sliders own the numbers): a category well short of the user's
+  // target reserves slots near the top, even when the plan's picks outscore it —
+  // Thranduil's Elf engine can't crowd out the removal the sliders ask for. Up to
+  // ceil(gap / 2) picks (max 3) per category short by 3+, drawn from every scored
+  // candidate that fills it (the quality floor doesn't hide a real gap), placed at
+  // every third slot.
+  if (!focusCat) {
+    const gaps = Object.keys(thresholds || {})
+      .map(cat => ({ cat, gap: (thresholds[cat] || 0) - (roleCounts?.[cat] || 0) }))
+      .filter(g => g.cat !== 'Plan' && g.gap >= 3)
+      .sort((a, b) => b.gap - a.gap);
+    const head = ordered.slice(0, ADD_COUNT);
+    const reserved = [];
+    for (const { cat, gap } of gaps) {
+      const want = Math.min(3, Math.ceil(gap / 2));
+      // Only cards whose MAIN job is the category fill it — a planeswalker with an
+      // incidental removal ability doesn't close a removal gap.
+      const fills = s => s._job === cat && (s.trace || []).some(t => t.kind === 'role_deficit' && t.cat === cat);
+      const have = head.slice(0, 12).filter(fills).length;
+      if (have >= want) continue;
+      // The gap is about the JOB: the best cards at it (quality) win the reserved slots,
+      // plan fit breaking ties — Infernal Grasp over a creature with a removal rider.
+      const fill = scored.filter(s => !head.slice(0, 12).includes(s) && !reserved.includes(s) && fills(s))
+        .sort((a, b) => ((b._q || 0) * 10 + b.score * 0.2) - ((a._q || 0) * 10 + a.score * 0.2))
+        .slice(0, want - have);
+      reserved.push(...fill);
+    }
+    if (reserved.length) {
+      const rest = ordered.filter(s => !reserved.includes(s));
+      const merged = [];
+      while (merged.length < ADD_COUNT && (rest.length || reserved.length)) {
+        if (reserved.length && (merged.length + 1) % 3 === 0) merged.push(reserved.shift());
+        else if (rest.length) merged.push(rest.shift());
+        else merged.push(reserved.shift());
+      }
+      return merged.map(({ fit, _job, _q, ...s }) => s);
+    }
+  }
+  return ordered.slice(0, ADD_COUNT).map(({ fit, _job, _q, ...s }) => s);
 }
 
 module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
