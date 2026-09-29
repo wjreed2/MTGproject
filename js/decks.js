@@ -10521,6 +10521,12 @@ function _renderDeckGoalReadout(deck, e2) {
   el.style.cssText = '';
   el.style.display = '';
 
+  // Game plan readout (server engine2/gameplan.js — English lines only): the engine,
+  // what the deck spends its output on, and the weakest link in that chain.
+  const planLines = (e2.gameplan && Array.isArray(e2.gameplan.lines)) ? e2.gameplan.lines.slice(0, 4) : [];
+  const planHtml = planLines.length
+    ? `<ul class="deck-goal-plan">${planLines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+    : '';
   const comboHtml = (e2.combos || []).slice(0, 2).map(c =>
     `<div class="deck-goal-combo">Combo detected: <span>${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
   ).join('');
@@ -10547,7 +10553,7 @@ function _renderDeckGoalReadout(deck, e2) {
     + `<span class="deck-goal-name">${escapeHtml(top.label || top.goal)}</span>`
     + matchHtml('', top.confidence)
     + `${projBit}${secondBit}</div>`
-    + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + comboHtml;
+    + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + planHtml + comboHtml;
 }
 
 // ── Semantic category targets (sliders dropdown on the Suggested Adds header) ─

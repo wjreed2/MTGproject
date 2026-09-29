@@ -14,4 +14,7 @@ module.exports = {
   goalTemplates: require('./goal-templates'),
   recommender: require('./recommender'),
   explain: require('./explain'),
+  gameplan: require('./gameplan'),
+  rules: require('./rules'),
+  loops: require('./loops'),
 };

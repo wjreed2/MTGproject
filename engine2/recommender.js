@@ -10,6 +10,15 @@
 const { computeInteractions, synergyDegree, paramOk } = require('./interactions');
 const { isWildcardParam, SYNTHESIZED_PROVIDE_AXES } = require('./vocab');
 const th = require('./thresholds');
+const GP = require('./gameplan');
+const Q = require('./quality');
+
+// Deck cards per quality class, strongest first (engine2/quality.js). A reliable
+// rider (from the gameplan) waives a card's conditionality penalty.
+function deckQualityTable(deckCards, gameplan) {
+  const riderOk = c => (gameplan?.deckEval?.get(c.name)?.riders || []).some(r => r.reliability >= 0.5);
+  return Q.classTable(deckCards.filter(c => c.ir && !isLandCard(c)), c => ({ riderReliable: riderOk(c) }));
+}
 
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
@@ -86,9 +95,16 @@ function strongNeed(criticality, weight) {
 // equip/crew activations on noncreature artifacts from counting.
 function synthesizedProvides(card) {
   const front = String(card.typeLine || '').split('//')[0];
-  if (!/\bCreature\b/.test(front)) return [];
-  const types = (card.ir?.tribal?.types || []).slice(0, 3);
+  const isCreature = /\bCreature\b/.test(front);
   const out = [];
+  // crew.source: anything that puts creature bodies on the table can crew Vehicles —
+  // a creature by existing, a token maker by its output (Vraska's Sculptures crew the
+  // turn they appear: crewing taps as a COST, so summoning sickness doesn't apply).
+  if (isCreature || (card.ir?.provides || []).some(p => /^token\.creature/.test(p.axis))) {
+    out.push({ axis: 'crew.source', param: null });
+  }
+  if (!isCreature) return out;
+  const types = (card.ir?.tribal?.types || []).slice(0, 3);
   const push = (axis) => {
     if (!types.length) { out.push({ axis, param: null }); return; }
     for (const t of types) out.push({ axis, param: t });
@@ -551,8 +567,32 @@ function poolAxes(wanted, index, cap = 12) {
   return axes;
 }
 
+// Synergy degree with each partner weighted by its role in the gameplan.
+function planSynergyDegree(name, result, plan) {
+  const weight = (other) => {
+    if (other === plan.engine?.card) return 1;
+    const ev = plan.deckEval?.get(other);
+    if (!ev) return 0.1;
+    // a partner that works against the plan lends it nothing
+    if (ev.anti.some(r => GP.STRUCTURAL_ANTI.has(r))) return 0;
+    if (ev.links.some(l => ['amplifier', 'converter', 'combo', 'critical'].includes(l))) return 0.6;
+    // fuel is the commodity in a cast-trigger deck (most of the list) — a light weight
+    return ev.links.includes('fuel') ? 0.2 : 0.1;
+  };
+  let s = 0;
+  for (const e of result.edges) {
+    if (e.a === name || e.b === name) s += (e.strength || 0) * weight(e.a === name ? e.b : e.a);
+    else if (e.type === 'engine' && e.members.includes(name)) {
+      const others = e.members.filter(m => m !== name);
+      s += (e.strength / e.members.length) * Math.max(...others.map(weight));
+    }
+  }
+  for (const c of result.combos) if (c.members.includes(name)) s += 8;
+  return Math.round(s * 100) / 100;
+}
+
 // ── cuts ─────────────────────────────────────────────────────────────────────
-function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
+function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gameplan, limit }) {
   const topGoal = goals?.[0] || null;
   const all = commander?.ir ? [...deckCards, { ...commander, qty: 1, isCommander: true }] : deckCards;
   const interactions = computeInteractions(all.map(c => ({ name: c.name, ir: c.ir })));
@@ -584,6 +624,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   }
   const massAggressor = (n) => (nonboCount.get(n) || 0) >= 3;
 
+  const qTable = deckQualityTable(deckCards, gameplan);
   const scored = [];
   for (const c of nonLand) {
     if (!c.ir) continue; // no semantics — never suggest cutting blind
@@ -594,7 +635,39 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     const trace = [];
     let score = 0;
 
-    let syn = synergyDegree(c.name, interactions);
+    // Gameplan (docs/24): what this card does for the engine — fuel, amplifier,
+    // converter — or against it. A plan-critical piece below its coverage target is
+    // shielded (INV-08: cuts never thin a must-draw piece).
+    if (gameplan) {
+      const ev = gameplan.deckEval?.get(c.name) || GP.evaluateCard(gameplan, c);
+      score += ev.cutPts;
+      trace.push(...ev.cutTrace);
+      for (const [piece, cov] of Object.entries(gameplan.critical || {})) {
+        if ((cov.counts || []).includes(c.name) && (cov.counts || []).length <= 5) {
+          score += 4; trace.push({ kind: 'plan_critical', piece, have: cov.counts.length, pts: 4 });
+        }
+      }
+    }
+
+    // Plan-weighted synergy (docs/24 §6.4): in a commander-centric plan an edge counts
+    // by its partner's role — the engine fully, chain pieces at 0.6, anything else 0.1.
+    // Card quality within its job (engine2/quality.js): with 3+ cards doing the same
+    // job, the weakest is the natural cut and the strongest is worth keeping.
+    {
+      const cls = Q.classesOf(c)[0];
+      const list = cls && qTable.get(cls);
+      if (list && list.length >= 3) {
+        const i = list.findIndex(x => x.name === c.name);
+        const mean = list.reduce((s, x) => s + x.q, 0) / list.length;
+        if (i >= 0) {
+          const pts = Math.round(Math.max(-3, Math.min(3, (list[i].q - mean) * 8)) * 100) / 100;
+          if (Math.abs(pts) >= 0.1) { score += pts; trace.push({ kind: 'quality', cls, q: list[i].q, rank: i + 1, of: list.length, pts }); }
+        }
+      }
+    }
+
+    let syn = gameplan?.commanderCentric ? planSynergyDegree(c.name, interactions, gameplan) : synergyDegree(c.name, interactions);
+    const antiPlan = !!gameplan && (gameplan.deckEval?.get(c.name)?.anti || []).some(r => r !== 'no_fuel');
     // Victims of a mass aggressor get their poisoned degree restored — their synergy
     // with the rest of the deck is real; the conflict is the aggressor's problem.
     if (!massAggressor(c.name)) {
@@ -629,7 +702,8 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
-      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
+      let have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
+      if (have < 2 && GP.engineSupplies(gameplan, nd.axis)) have = 2; // the engine itself feeds it
       if (have < 2) { const pts = -(have === 0 ? 6 : 2); score += pts; trace.push({ kind: 'dead_need', axis: nd.axis, have, pts }); }
     }
 
@@ -640,7 +714,9 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
     // shields
     const staple = Number(c.ir.power_level_hint) || 0;
-    if (staple >= 4) { score += 6; trace.push({ kind: 'shield_staple', hint: staple, pts: 6 }); }
+    // A card working against the plan isn't shielded for being a good card in general
+    // (Prismari is a fine storm card — and a 7-drop whose copies never trigger Vraska).
+    if (staple >= 4 && !antiPlan) { score += 6; trace.push({ kind: 'shield_staple', hint: staple, pts: 6 }); }
     if (tribalType && (c.ir.tribal?.types || []).includes(tribalType)) { score += 5; trace.push({ kind: 'shield_tribe', type: tribalType, pts: 5 }); }
     // Tribe-scoped SUPPORT shields like tribe membership does: a Zombie cost reducer
     // (Rooftop Storm, 91% of Wilhelt decks) has zero synergy edges because param'd
@@ -658,7 +734,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
       const pts = Math.min(8, 3 + wBest);
       score += pts; trace.push({ kind: 'shield_commander', pts });
     }
-    if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
+    if (c.ir.wincon && !antiPlan) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
       if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) {
         const other = e.a === c.name ? e.b : e.a;
@@ -677,6 +753,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
       }
     }
 
+    if (gameplan?.commanderCentric) score = GP.rebalance(trace);
     scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace, cats: [...cats] });
   }
 
@@ -700,13 +777,20 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     for (const cat of limited) if (capLeft[cat] > 0) capLeft[cat]--;
     kept.push(s);
   }
+  // A symmetric gift fills its role for every player, not for you — its Ramp/Draw
+  // credit is illusory, so the role floor never shields it (Rites of Flourishing).
+  for (const s of scored) {
+    if (kept.includes(s)) continue;
+    if (gameplan?.deckEval?.get(s.name)?.anti.includes('symmetric_benefit')) kept.push(s);
+  }
+  kept.sort((a, b) => a.contribution - b.contribution);
   const cuttable = kept;
   // A deck 16 over needs at least 16 candidates — the fixed count only fits mild
   // overages. Scale with how far over 100 the analyzed list is (cap keeps the
   // panel reviewable; the analyzed list already includes planned adds when the
   // caller analyzes the projected build).
   const deckTotal = deckCards.reduce((s, c) => s + (c.qty || 1), 0) + (commander ? 1 : 0);
-  const cutCount = Math.max(CUT_COUNT, Math.min(24, (deckTotal - 100) + 4));
+  const cutCount = limit || Math.max(CUT_COUNT, Math.min(24, (deckTotal - 100) + 4));
   // score IS the signed contribution (what the card does for this deck): most
   // negative first = strongest cut. The breakdown lines sum to exactly this
   // number — a "4.9" badge over lines summing to −4.9 read as a bug.
@@ -716,7 +800,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 // ── adds ─────────────────────────────────────────────────────────────────────
 // candidates: [{name, ir, cmc, typeLine, price, edhrecRank, owned}] — already
 // color-legal, commander-legal, and not in the deck (SQL enforces; re-checked here).
-function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates, focusCategory }) {
+function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates, focusCategory, gameplan, raw }) {
   const topGoal = goals?.[0] || null;
   // Focus mode: the user asked for ONE category, so every other candidate is
   // dropped and the survivors get a flat standing appetite. Without that credit
@@ -784,6 +868,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     s + (/\bArtifact\b/.test(String(c.typeLine || '')) ? (c.qty || 1) : 0), 0);
   const artifactSubstrate = Math.min(1, artifactCount / 15);
 
+  const qTable = deckQualityTable(deckCards, gameplan);
   const scored = [];
   for (const cand of candidates) {
     if (!cand.ir || deckNames.has(cand.name)) continue;
@@ -831,6 +916,36 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     const trace = [];
     const offPlanFeeds = [];
     let score = 0;
+
+    // Card quality at its job, and whether it beats the deck's weakest card doing it.
+    {
+      const cls = Q.classesOf(cand)[0];
+      if (cls) {
+        const ev = gameplan ? GP.evaluateCard(gameplan, cand) : null;
+        const qc = Q.cardQuality(cand, cls, { riderReliable: (ev?.riders || []).some(r => r.reliability >= 0.5) }).q;
+        const list = qTable.get(cls) || [];
+        const weakest = list[list.length - 1];
+        // "An upgrade over X" only within a real JOB — 'Threat' is a catch-all for bodies.
+        if (cls !== 'Threat' && weakest && list.length >= 2 && qc - weakest.q > 0.05) {
+          const pts = Math.round(Math.min(3, (qc - weakest.q) * 8) * 100) / 100;
+          score += pts; trace.push({ kind: 'quality_upgrade', cls, over: weakest.name, q: qc, pts });
+        }
+        // Absolute quality only for foundation jobs — a creature's worth is mostly its
+        // abilities (scored elsewhere); bodies are only compared against each other.
+        if (cls !== 'Threat') {
+          const abs = Math.round((qc - 0.55) * 3 * 100) / 100;
+          if (Math.abs(abs) >= 0.1) { score += abs; trace.push({ kind: 'quality', cls, q: qc, pts: abs }); }
+        }
+      }
+    }
+
+    // Gameplan first (docs/24): its reasons lead the Why panel — "Feeds Vraska —
+    // noncreature spells", "Bonus always on — Vraska is a Wizard", "Copies aren't cast".
+    if (gameplan) {
+      const ev = GP.evaluateCard(gameplan, cand);
+      score += ev.pts;
+      trace.push(...ev.trace);
+    }
 
     // capability fill: provides an axis the deck wants. Synthesized identity facts
     // (legendary body, activated ability — see synthesizedProvides) join the stored
@@ -991,7 +1106,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     let fedNeeds = 0, deadNeeds = 0, starvedWeight = 0;
     const starvedAxes = [];
     for (const nd of cand.ir.needs || []) {
-      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
+      let have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
+      if (have < 2 && GP.engineSupplies(gameplan, nd.axis)) have = 2; // the engine itself feeds it
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
       // A 'wants' need with NOTHING to feed it used to score exactly zero — neither
@@ -1090,8 +1206,12 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       if (flagAbove != null && cand.price > flagAbove) priceFlag = 'expensive';
     }
 
-    if (score <= 0.5) continue;
     trace.push(...offPlanFeeds); // off-plan feeds render last, after on-plan reasons
+    // Plan-first (docs/24 §5.2): when the commander runs the deck, plan fit is the
+    // primary signal — legacy axis/role credits drop to supporting weight. Trace lines
+    // are scaled with them, so the breakdown still sums to the badge.
+    if (gameplan?.commanderCentric) score = GP.rebalance(trace);
+    if (score <= 0.5) continue;
     // Fit = score minus preference nudges (owned / popularity / price). Preferences
     // may reorder genuinely good cards but must not lift filler over the quality
     // floor — an owned Bitterblossom is still a weak fit for a rat deck.
@@ -1111,6 +1231,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   }
 
   scored.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
+  // Tools (fixtures, previews) can read every scored candidate, unfloored and uncapped.
+  if (raw) return scored.map(({ fit, ...s }) => s);
   // Quality floor on FIT: don't pad the list with filler the engine barely believes
   // in — fit below ~30% of the best fit (min 3) reads as noise to the user. Thin
   // pools with a modest leader keep their few genuine picks.

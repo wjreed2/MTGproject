@@ -1,0 +1,4077 @@
+{
+ "note": "CardIRs for the quality orderings — refresh with --write-snapshot",
+ "cards": [
+  {
+   "name": "Swords to Plowshares",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 11,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "b1544f21-7e98-461b-aed5-e748b0168c52",
+    "name": "Swords to Plowshares",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Swords to Plowshares",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{W}",
+      "mana_value": 1,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "exile",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Exile target creature."
+         },
+         {
+          "op": "gain_life",
+          "n": {
+           "kind": "variable",
+           "formula": "equal to its power"
+          },
+          "target": {
+           "who": "controller"
+          },
+          "text": "Its controller gains life equal to its power."
+         }
+        ],
+        "text": "Exile target creature. Its controller gains life equal to its power."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "exile",
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283202,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Murder",
+   "typeLine": "Instant",
+   "cmc": 3,
+   "edhrecRank": 856,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
+    "name": "Murder",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Murder",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{B}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "trigger": null,
+        "cost": null,
+        "activation_limit": null,
+        "layer": null,
+        "applies_to": null,
+        "replaces": null,
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Destroy target creature."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 4
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784494147703,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Infernal Grasp",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 261,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "94f0a572-e91c-4b56-a5d1-6cbbeabd210d",
+    "name": "Infernal Grasp",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Infernal Grasp",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{B}",
+      "mana_value": 2,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Destroy target creature."
+         },
+         {
+          "op": "lose_life",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "You lose 2 life."
+         }
+        ],
+        "text": "Destroy target creature. You lose 2 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784489665886,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Terminate",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 224,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "6257c2fd-005f-41e3-8a72-af76df1eb134",
+    "name": "Terminate",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Terminate",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{B}{R}",
+      "mana_value": 2,
+      "colors": [
+       "B",
+       "R"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "trigger": null,
+        "cost": null,
+        "activation_limit": null,
+        "layer": null,
+        "applies_to": null,
+        "replaces": null,
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Destroy target creature."
+         },
+         {
+          "op": "restriction",
+          "text": "It can't be regenerated."
+         }
+        ],
+        "text": "Destroy target creature. It can't be regenerated."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 4
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784489338397,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Doom Blade",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 2201,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "59e7f2ae-4535-4191-98be-3e65b6b2befa",
+    "name": "Doom Blade",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Doom Blade",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{B}",
+      "mana_value": 2,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "text": "nonblack"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Destroy target nonblack creature."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784565445271,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Beast Within",
+   "typeLine": "Instant",
+   "cmc": 3,
+   "edhrecRank": 25,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "7735eeba-693b-47e2-bd51-414379cf1016",
+    "name": "Beast Within",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Beast Within",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{G}",
+      "mana_value": 3,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "permanent"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Destroy target permanent."
+         },
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Beast",
+           "types": "Creature — Beast",
+           "pt": "3/3",
+           "colors": [
+            "G"
+           ]
+          },
+          "target": {
+           "who": "controller",
+           "n_targets": 1
+          },
+          "text": "Its controller creates a 3/3 green Beast creature token."
+         }
+        ],
+        "text": "Destroy target permanent. Its controller creates a 3/3 green Beast creature token."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895285900,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Dreadbore",
+   "typeLine": "Sorcery",
+   "cmc": 2,
+   "edhrecRank": 4545,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "d685799f-cc1a-40d6-9df6-d05b8b1f5b13",
+    "name": "Dreadbore",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Dreadbore",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{B}{R}",
+      "mana_value": 2,
+      "colors": [
+       "B",
+       "R"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature",
+             "planeswalker"
+            ],
+            "text": "creature or planeswalker"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Destroy target creature or planeswalker."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top4500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784699666372,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Counterspell",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 16,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
+    "name": "Counterspell",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Counterspell",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{U}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Counter target spell."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895285924,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Cancel",
+   "typeLine": "Instant",
+   "cmc": 3,
+   "edhrecRank": 2067,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "7d00fb28-ea6c-49a9-b4af-ffb38860a9a7",
+    "name": "Cancel",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Cancel",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}{U}",
+      "mana_value": 3,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Counter target spell."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 1,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784541007363,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Mana Leak",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 1754,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "c61fe162-2202-4e56-9ba0-393547f9875f",
+    "name": "Mana Leak",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Mana Leak",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          },
+          "condition": {
+           "text": "unless its controller pays {3}"
+          },
+          "text": "Counter target spell unless its controller pays {3}."
+         }
+        ],
+        "text": "Counter target spell unless its controller pays {3}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "control.tax",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783949234723,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Essence Scatter",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 2691,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "46665089-aa3d-44c3-964d-6638dfbb5782",
+    "name": "Essence Scatter",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Essence Scatter",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature",
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Counter target creature spell."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": "creature",
+      "rate": "once",
+      "weight": 4
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top3500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784604987194,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Dazzling Denial",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 4253,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "6d56bd32-f47a-4e54-a88e-b69d16283ea4",
+    "name": "Dazzling Denial",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Dazzling Denial",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          },
+          "condition": {
+           "text": "unless its controller pays {2}"
+          },
+          "text": "Counter target spell unless its controller pays {2}."
+         },
+         {
+          "op": "branch",
+          "condition": {
+           "text": "If you control a Bird"
+          },
+          "sub": [
+           {
+            "op": "counter_spell",
+            "target": {
+             "who": "any",
+             "object": {
+              "types": [
+               "spell"
+              ]
+             },
+             "n_targets": 1
+            },
+            "condition": {
+             "text": "unless its controller pays {4}"
+            }
+           }
+          ],
+          "text": "If you control a Bird, counter that spell unless its controller pays {4} instead."
+         }
+        ],
+        "text": "Counter target spell unless its controller pays {2}. If you control a Bird, counter that spell unless its controller pays {4} instead."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "control.tax",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Bird",
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top4500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784697521618,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Negate",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 56,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "3407fe41-fdd3-4119-8f70-4bc4590a379f",
+    "name": "Negate",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Negate",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ],
+            "text": "noncreature spell"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Counter target noncreature spell."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895506815,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Spell Pierce",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 905,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "d64b0848-0193-4025-ba62-63ecd8fb9f50",
+    "name": "Spell Pierce",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Spell Pierce",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{U}",
+      "mana_value": 1,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ],
+            "text": "noncreature spell"
+           },
+           "n_targets": 1
+          },
+          "condition": {
+           "text": "unless its controller pays {2}"
+          },
+          "text": "Counter target noncreature spell unless its controller pays {2}."
+         }
+        ],
+        "text": "Counter target noncreature spell unless its controller pays {2}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.tax",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783926129629,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Arcane Denial",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 53,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "ab1cc360-b9de-48d9-9983-4dfe4a7d2a37",
+    "name": "Arcane Denial",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Arcane Denial",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "counter_spell",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "spell"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Counter target spell."
+         },
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "controller",
+           "up_to": true
+          },
+          "text": "Its controller may draw up to two cards at the beginning of the next turn's upkeep."
+         },
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "You draw a card at the beginning of the next turn's upkeep."
+         }
+        ],
+        "text": "Counter target spell. Its controller may draw up to two cards at the beginning of the next turn's upkeep.\nYou draw a card at the beginning of the next turn's upkeep."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895506826,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Sol Ring",
+   "typeLine": "Artifact",
+   "cmc": 1,
+   "edhrecRank": 1,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
+    "name": "Sol Ring",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Sol Ring",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}",
+      "mana_value": 1,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "mana": "C",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add {C}{C}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.rock",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_rock",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283197,
+     "validated": true,
+     "validation_score": 0.85,
+     "validation_flags": [
+      "numbers_ungrounded"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Mind Stone",
+   "typeLine": "Artifact",
+   "cmc": 2,
+   "edhrecRank": 32,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
+    "name": "Mind Stone",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Mind Stone",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}",
+      "mana_value": 2,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "layer": null,
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "{C}",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add {C}."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}",
+         "tap": true,
+         "sacrifice": {
+          "or_self": true,
+          "text": "this artifact"
+         },
+         "life": null,
+         "discard": null
+        },
+        "activation_limit": "any_time",
+        "layer": null,
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{1}, {T}, Sacrifice this artifact: Draw a card."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.rock",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_rock",
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895296640,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Arcane Signet",
+   "typeLine": "Artifact",
+   "cmc": 2,
+   "edhrecRank": 3,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+    "name": "Arcane Signet",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Arcane Signet",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}",
+      "mana_value": 2,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "mana": "any color in your commander's color identity",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add one mana of any color in your commander's color identity."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.rock",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_rock",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283187,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Charcoal Diamond",
+   "typeLine": "Artifact",
+   "cmc": 2,
+   "edhrecRank": 696,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "1386d111-a2a7-4df1-91d7-947664126989",
+    "name": "Charcoal Diamond",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Charcoal Diamond",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}",
+      "mana_value": 2,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "{B}",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add {B}."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "enters_tapped",
+        "text": "This artifact enters tapped."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.rock",
+      "param": "B",
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_rock",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 1,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784493080164,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Nature's Lore",
+   "typeLine": "Sorcery",
+   "cmc": 2,
+   "edhrecRank": 26,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "78826359-fe63-44ad-adc4-a17ffcd710e4",
+    "name": "Nature's Lore",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Nature's Lore",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": null,
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "land"
+            ],
+            "sub": [
+             "Forest"
+            ],
+            "text": "Forest card"
+           }
+          },
+          "zone_from": "library",
+          "zone_to": "battlefield",
+          "text": "Search your library for a Forest card, put that card onto the battlefield, then shuffle."
+         }
+        ],
+        "text": "Search your library for a Forest card, put that card onto the battlefield, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     },
+     {
+      "axis": "landfall.enabler",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "once",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895296632,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Rampant Growth",
+   "typeLine": "Sorcery",
+   "cmc": 2,
+   "edhrecRank": 27,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "8539f295-5d58-4436-a73a-b9277c4c7795",
+    "name": "Rampant Growth",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Rampant Growth",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": null,
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "land"
+            ],
+            "text": "basic land card"
+           }
+          },
+          "zone_from": "library",
+          "zone_to": "battlefield",
+          "text": "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle."
+         }
+        ],
+        "text": "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "landfall.enabler",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895296637,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Cultivate",
+   "typeLine": "Sorcery",
+   "cmc": 3,
+   "edhrecRank": 20,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "8b755881-a72d-4e21-a369-d2924eb4585a",
+    "name": "Cultivate",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Cultivate",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{G}",
+      "mana_value": 3,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you",
+           "up_to": true,
+           "object": {
+            "types": [
+             "land"
+            ],
+            "text": "basic land card"
+           }
+          },
+          "zone_from": "library",
+          "text": "Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle."
+         }
+        ],
+        "text": "Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "tutor.land",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895285908,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Explosive Vegetation",
+   "typeLine": "Sorcery",
+   "cmc": 4,
+   "edhrecRank": 1235,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "a0abd957-01a0-4aa9-8fc8-0e6840d21606",
+    "name": "Explosive Vegetation",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Explosive Vegetation",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{3}{G}",
+      "mana_value": 4,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "land"
+            ],
+            "text": "basic land"
+           },
+           "up_to": true
+          },
+          "zone_to": "battlefield",
+          "text": "Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle."
+         }
+        ],
+        "text": "Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784522201389,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Night's Whisper",
+   "typeLine": "Sorcery",
+   "cmc": 2,
+   "edhrecRank": 182,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
+    "name": "Night's Whisper",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Night's Whisper",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{B}",
+      "mana_value": 2,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "lose_life",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "You draw two cards and lose 2 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784489145588,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Divination",
+   "typeLine": "Sorcery",
+   "cmc": 3,
+   "edhrecRank": 6245,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "273b339c-964b-4a18-8eb5-ceb8abcdfd9e",
+    "name": "Divination",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Divination",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{U}",
+      "mana_value": 3,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "Draw two cards."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 1,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top-6400",
+     "prompt_version": "p6",
+     "extracted_at": 1785154218598,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Harmonize",
+   "typeLine": "Sorcery",
+   "cmc": 4,
+   "edhrecRank": 326,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "7eff84f1-f772-497a-b350-bbc93d0230f7",
+    "name": "Harmonize",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Harmonize",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{G}{G}",
+      "mana_value": 4,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 3
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "Draw three cards."
+         }
+        ],
+        "text": "Draw three cards."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "feedback-classes-p8",
+     "prompt_version": "p8",
+     "extracted_at": 1790098702119,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Toxic Deluge",
+   "typeLine": "Sorcery",
+   "cmc": 3,
+   "edhrecRank": 66,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "afaef788-34d1-460b-b884-9d7ae6ddeb18",
+    "name": "Toxic Deluge",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Toxic Deluge",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [
+        {
+         "kind": "pay_life",
+         "n": null,
+         "text": "As an additional cost to cast this spell, pay X life."
+        }
+       ],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "pump",
+          "n": {
+           "kind": "x"
+          },
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           },
+           "n_targets": null
+          },
+          "duration": "eot",
+          "text": "All creatures get -X/-X until end of turn."
+         }
+        ],
+        "text": "All creatures get -X/-X until end of turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "life.payment_engine",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "criticality": "helps",
+      "weight": 1
+     }
+    ],
+    "roles": [
+     "board_wipe"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895763254,
+     "validated": true,
+     "validation_score": 0.95,
+     "validation_flags": [
+      "cross_layer"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Languish",
+   "typeLine": "Sorcery",
+   "cmc": 4,
+   "edhrecRank": 5709,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "ef1a83f2-6707-41a2-b5ed-861c8e45ae07",
+    "name": "Languish",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Languish",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}{B}",
+      "mana_value": 4,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": -4,
+           "t": -4
+          },
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "duration": "eot"
+         }
+        ],
+        "text": "All creatures get -4/-4 until end of turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "board_wipe"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top-5900",
+     "prompt_version": "p6",
+     "extracted_at": 1785093247236,
+     "validated": true,
+     "validation_score": 0.95,
+     "validation_flags": [
+      "cross_layer"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wrath of God",
+   "typeLine": "Sorcery",
+   "cmc": 4,
+   "edhrecRank": 670,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "34515b16-c9a4-4f98-8c77-416a7a523407",
+    "name": "Wrath of God",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Wrath of God",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{W}{W}",
+      "mana_value": 4,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "text": "Destroy all creatures."
+         },
+         {
+          "op": "restriction",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "text": "They can't be regenerated."
+         }
+        ],
+        "text": "Destroy all creatures. They can't be regenerated."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "board_wipe"
+    ],
+    "anti": [
+     {
+      "axis": "token.creature_wide",
+      "scope": "all_players",
+      "note": "symmetrical destruction hits wide creature boards on both sides"
+     }
+    ],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784492590268,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Heroic Intervention",
+   "typeLine": "Instant",
+   "cmc": 2,
+   "edhrecRank": 30,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "24882fa2-3fe9-4c1b-aa3d-0e6488b9db27",
+    "name": "Heroic Intervention",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Heroic Intervention",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": null,
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Hexproof",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "permanent"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          },
+          "duration": "eot",
+          "text": "Permanents you control gain hexproof and indestructible until end of turn."
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Indestructible",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "permanent"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          },
+          "duration": "eot",
+          "text": "Permanents you control gain hexproof and indestructible until end of turn."
+         }
+        ],
+        "text": "Permanents you control gain hexproof and indestructible until end of turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.mass",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "protection"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895296623,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Tamiyo's Safekeeping",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 471,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "bb2b324c-970a-4920-884e-c92ba49669f0",
+    "name": "Tamiyo's Safekeeping",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Tamiyo's Safekeeping",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{G}",
+      "mana_value": 1,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Hexproof",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "permanent"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "text": "Target permanent you control gains hexproof"
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Indestructible",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "permanent"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "text": "and indestructible until end of turn."
+         },
+         {
+          "op": "gain_life",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "You gain 2 life."
+         }
+        ],
+        "text": "Target permanent you control gains hexproof and indestructible until end of turn. You gain 2 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "once",
+      "weight": 1
+     }
+    ],
+    "needs": [
+     {
+      "axis": "voltron.carrier",
+      "param": null,
+      "criticality": "helps",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "protection",
+     "combat_trick"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784491255281,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "typeLine": "Artifact — Equipment",
+   "cmc": 2,
+   "edhrecRank": 12,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "c8b143ad-43ec-4e0d-a440-e348daa31391",
+    "name": "Swiftfoot Boots",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Swiftfoot Boots",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{2}",
+      "mana_value": 2,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Equip",
+        "param": "{1}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "text": "equipped creature"
+        },
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Hexproof",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "text": "equipped creature"
+           }
+          }
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Haste",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "text": "equipped creature"
+           }
+          }
+         }
+        ],
+        "text": "Equipped creature has hexproof and haste."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {1}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "haste.enabler",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "protection",
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283214,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Whispersilk Cloak",
+   "typeLine": "Artifact — Equipment",
+   "cmc": 3,
+   "edhrecRank": 330,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "9ad4f730-a18e-4a7c-a468-a926c718c741",
+    "name": "Whispersilk Cloak",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Whispersilk Cloak",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{3}",
+      "mana_value": 3,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Equip",
+        "param": "{2}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 6,
+         "sublayer": null
+        },
+        "applies_to": {
+         "text": "equipped creature"
+        },
+        "effects": [
+         {
+          "op": "restriction",
+          "text": "can't be blocked"
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Shroud",
+          "text": "has shroud"
+         }
+        ],
+        "text": "Equipped creature can't be blocked and has shroud."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{2}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {2}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "evasion.grant",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "voltron.carrier",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "protection",
+     "evasion"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784489892134,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Teferi's Protection",
+   "typeLine": "Instant",
+   "cmc": 3,
+   "edhrecRank": 109,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "0d4ecdb1-ec90-497f-a7a4-1c68092b8757",
+    "name": "Teferi's Protection",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Teferi's Protection",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{W}",
+      "mana_value": 3,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "restriction",
+          "target": {
+           "who": "you"
+          },
+          "duration": "until_your_next_turn",
+          "text": "Until your next turn, your life total can't change"
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Protection",
+          "keyword_param": "from everything",
+          "target": {
+           "who": "you"
+          },
+          "duration": "until_your_next_turn",
+          "text": "you gain protection from everything"
+         },
+         {
+          "op": "phase_out",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "permanent"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          },
+          "text": "All permanents you control phase out."
+         },
+         {
+          "op": "exile",
+          "target": {
+           "who": "you",
+           "object": {
+            "named": "Teferi's Protection"
+           }
+          },
+          "zone_to": "exile",
+          "text": "Exile Teferi's Protection."
+         }
+        ],
+        "text": "Until your next turn, your life total can't change and you gain protection from everything. All permanents you control phase out.\nExile Teferi's Protection."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.mass",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "combat.fog_like",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "protection"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783896013002,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Path to Exile",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 15,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "d683d985-9888-4d21-8b5f-69e69ce4a03b",
+    "name": "Path to Exile",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Path to Exile",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{W}",
+      "mana_value": 1,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "exile",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Exile target creature."
+         },
+         {
+          "op": "search_library",
+          "target": {
+           "who": "controller"
+          },
+          "zone_to": "battlefield",
+          "condition": {
+           "text": "may"
+          },
+          "text": "Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle."
+         }
+        ],
+        "text": "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "exile",
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283225,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Erode",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 1980,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "2e467fab-e808-44d3-99bf-e3621baeb7cb",
+    "name": "Erode",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Erode",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{W}",
+      "mana_value": 1,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature",
+             "planeswalker"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Destroy target creature or planeswalker."
+         },
+         {
+          "op": "search_library",
+          "target": {
+           "who": "controller",
+           "object": {
+            "types": [
+             "land"
+            ],
+            "sub": [
+             "Basic"
+            ]
+           }
+          },
+          "zone_to": "battlefield",
+          "text": "Its controller may search their library for a basic land card, put it onto the battlefield tapped, then shuffle."
+         }
+        ],
+        "text": "Destroy target creature or planeswalker. Its controller may search their library for a basic land card, put it onto the battlefield tapped, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "spot_removal"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top3500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784606074510,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Llanowar Elves",
+   "typeLine": "Creature — Elf Druid",
+   "cmc": 1,
+   "edhrecRank": 58,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "68954295-54e3-4303-a6bc-fc4547a4e3a3",
+    "name": "Llanowar Elves",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Llanowar Elves",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{G}",
+      "mana_value": 1,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "1"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "{G}",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add {G}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_dork",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784488925333,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Elvish Mystic",
+   "typeLine": "Creature — Elf Druid",
+   "cmc": 1,
+   "edhrecRank": 102,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "3f3b2c10-21f8-4e13-be83-4ef3fa36e123",
+    "name": "Elvish Mystic",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Elvish Mystic",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{G}",
+      "mana_value": 1,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "1"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "G"
+         }
+        ],
+        "text": "{T}: Add {G}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_dork",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783896013017,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Day of Judgment",
+   "typeLine": "Sorcery",
+   "cmc": 4,
+   "edhrecRank": 1929,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "d057289d-5e28-43d5-8ff3-4a1bc723477d",
+    "name": "Day of Judgment",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Day of Judgment",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{W}{W}",
+      "mana_value": 4,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "destroy",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          }
+         }
+        ],
+        "text": "Destroy all creatures."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "board_wipe"
+    ],
+    "anti": [
+     {
+      "axis": "token.creature_wide",
+      "scope": "opponents",
+      "note": null
+     }
+    ],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784540393476,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  }
+ ]
+}

@@ -6224,7 +6224,10 @@ async function _e2ResolveCards(names) {
       `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+       WHERE c.name IN (${chunk.map(() => '?').join(',')})
+       ORDER BY c.legal_commander DESC, (c.type_line LIKE 'Token%') ASC, c.edhrec_rank IS NULL, c.edhrec_rank`, chunk);
+    // 220+ names are shared by a card and a token/variant ("Llanowar Elves" the card
+    // and the token) — keep the commander-legal, most-played printing, never a token.
     for (const r of rows) if (!found.has(r.name)) found.set(r.name, r);
   }
   // front-face fallback for DFC names ("Malakir Rebirth" → "Malakir Rebirth // …")
@@ -6274,18 +6277,25 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
 
     const goalsRes = engine2.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
     const topGoal = goalsRes.goals[0] || null;
+    // Gameplan (docs/24-gameplan-model.md): the engine, what fuels it, what the deck
+    // spends its output on — every add and cut is judged against it, and a
+    // commander-centric plan's DIRECTION (not the raw top goal) sets the category
+    // targets the user's sliders then adjust.
+    const gameplan = engine2.gameplan.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
+    const planGoal = gameplan.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
     const thresholds = engine2.thresholds.computeThresholds({
-      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+      goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
     });
     const roleCounts = engine2.thresholds.countRoles(deckCards);
 
-    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+    const scoringGoals = engine2.gameplan.planGoals(gameplan, goalsRes.goals);
+    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: scoringGoals, thresholds, roleCounts, gameplan })
       .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c), breakdown: engine2.explain.cutBreakdown(c) }));
 
     // ── add candidates: commander-legal cards providing the deck's wanted axes ──
     const templates = engine2.goalTemplates;
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
+    const wantedMap = engine2.recommender.wantedAxes(scoringGoals[0]?.goal, goalsRes.histogram, index, templates, scoringGoals);
       const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
     // Category focus: the pool is normally gated by the deck's ~12 wanted axes, so
     // filtering it down to one category returns whatever happened to be in there —
@@ -6321,7 +6331,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
       catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
       const cmdrSlug = engine2SlugifyCommander(commanderName);
-      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeParam = /^tribal:(.+)$/.exec(String(scoringGoals[0]?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       // A hard price cap filters AFTER retrieval, so the per-axis window has to be
       // wider when one is set — otherwise the cheap cards never survive the ranking.
@@ -6394,8 +6404,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = engine2.recommender.scoreAdds({
-        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
-        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory,
+        candidates, deckCards, commander, goals: scoringGoals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory, gameplan,
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
@@ -6425,6 +6435,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       cuts: cuts.map(({ trace, ...c }) => c),
       adds: adds.map(({ trace, ...a }) => a),
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
+      // English-only plan readout (engine, direction, weakest link) — no axis tokens
+      gameplan: engine2.gameplan.readout(gameplan),
       coverage: { semantics: coverage },
       removalTargets,
       irProjectTags,

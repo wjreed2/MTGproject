@@ -269,7 +269,7 @@ function applyRules(cards, result) {
       // JYO-01: each object with a repeating trigger triggers separately — a
       // NONlegendary copy of a legend doubles its engine instead of dying to the rule.
       if (isLegendary(irs[j]) && abs[j].some(a => a.kind === 'triggered' && REPEATING.has(a.trigger?.event))
-        && abs[i].some(a => /(?:isn't|is not|aren't) legendary/i.test(`${a.text || ''} ${effectsOf(a).map(e => e.text || '').join(' ')}`)
+        && abs[i].some(a => /\b(?:isn't|is not|aren't|it's not|not) legendary\b/i.test(`${a.text || ''} ${effectsOf(a).map(e => e.text || '').join(' ')}`)
           && effectsOf(a).some(e => ['copy_permanent', 'clone'].includes(e.op)
             || (e.op === 'create_token' && /\bcopy\b/i.test(`${e.text || ''} ${e.token?.name || ''}`))))) {
         push(rel('enabler_payoff', i, j, 'copy.trigger_source', 2, 'JYO-01',

@@ -63,6 +63,22 @@ const AXIS_LABELS = {
   'lands.base_pt': 'land creature size',
 };
 
+const { planReason } = require('./gameplan');
+const { noun: qualityNoun } = require('./quality');
+
+function qualityReason(t) {
+  if (t.kind === 'quality_upgrade') return `An upgrade over ${t.over} at the same job`;
+  if (t.kind === 'quality' && t.rank != null) {
+    if (t.rank === t.of) return `The weakest of your ${t.of} ${qualityNoun(t.cls, t.of)}`;
+    if (t.rank === 1) return `The strongest of your ${t.of} ${qualityNoun(t.cls, t.of)}`;
+    // only the bottom third is a reason to cut; a mid-pack rank explains nothing
+    if (t.rank > Math.ceil(t.of * 2 / 3)) return `Among the weakest of your ${t.of} ${qualityNoun(t.cls, t.of)} (${t.rank} of ${t.of})`;
+    return null;
+  }
+  if (t.kind === 'quality') return t.q >= 0.75 ? `A top-tier ${qualityNoun(t.cls, 1)}` : t.q < 0.45 ? `A weak ${qualityNoun(t.cls, 1)}` : null;
+  return null;
+}
+
 function axisLabel(axis) {
   return AXIS_LABELS[axis] || String(axis || '').replace(/[._]/g, ' ');
 }
@@ -83,6 +99,11 @@ function listAxes(axes) {
 function cutReasons(cut) {
   const out = [];
   for (const t of cut.trace || []) {
+    // Anti-plan lines are the strongest cut reasons; positive plan links explain
+    // why a card is NOT cut and stay out of the "why cut" list.
+    if (t.kind === 'plan_anti') { out.push(planReason(t)); if (out.length >= 3) break; continue; }
+    if (t.kind === 'quality') { if (t.pts < 0) { const r = qualityReason(t); if (r) out.push(r); } if (out.length >= 3) break; continue; }
+    if (String(t.kind).startsWith('plan_')) continue;
     switch (t.kind) {
       case 'synergy':
         if (t.value <= 2) out.push('Barely connected to the deck — almost no synergy edges');
@@ -110,6 +131,11 @@ function cutReasons(cut) {
 function addReasons(add) {
   const out = [];
   for (const t of add.trace || []) {
+    if (String(t.kind).startsWith('plan_')) {
+      if (t.kind !== 'plan_anti') { const r = planReason(t); if (r) out.push(r); }
+      continue;
+    }
+    if (String(t.kind).startsWith('quality')) { const r = t.pts > 0 ? qualityReason(t) : null; if (r) out.push(r); continue; }
     switch (t.kind) {
       case 'fills_axis':
         out.push(t.needers && t.needers.length
@@ -175,6 +201,8 @@ function addBreakdown(add) {
   for (const t of add.trace || []) {
     const val = fmtPts(t.pts);
     const ax = t.axis ? axisLabel(t.axis) + (t.param ? `: ${t.param}` : '') : '';
+    if (String(t.kind).startsWith('plan_')) { out.push({ text: planReason(t) || 'Game plan', val }); continue; }
+    if (String(t.kind).startsWith('quality')) { out.push({ text: qualityReason(t) || `Card quality at its job (${Math.round((t.q || 0) * 100)}/100)`, val }); continue; }
     switch (t.kind) {
       case 'fills_axis':
         out.push({ text: `Fills wanted axis — ${ax}${t.needers && t.needers.length ? ` (for ${listNames(t.needers)})` : ''} [${t.why}]${t.offTribe ? ' (off-tribe ×0.5)' : ''}`, val });
@@ -245,6 +273,8 @@ function cutBreakdown(cut) {
   const out = [];
   for (const t of cut.trace || []) {
     const val = fmtPts(t.pts);
+    if (String(t.kind).startsWith('plan_')) { out.push({ text: planReason(t) || 'Game plan', val }); continue; }
+    if (String(t.kind).startsWith('quality')) { out.push({ text: qualityReason(t) || `Card quality at its job (${Math.round((t.q || 0) * 100)}/100)`, val }); continue; }
     switch (t.kind) {
       case 'synergy': out.push({ text: `Synergy edges in deck (degree ${Number(t.value).toFixed(1)})`, val }); break;
       case 'role_protects': out.push({ text: `Protects ${t.cat} target (${t.have}/${Math.round(t.need)})`, val }); break;

@@ -824,6 +824,9 @@
     wheels: ['Wheel', 'Discard', 'Card Draw'],
     graveyard: ['Recursion', 'Reanimate', 'Self-Mill', 'Graveyard Cast', 'Mill'],
     'group-slug': ['Group Slug', 'Burn', 'Burn.Player', 'Burn.Opponents', 'Ping'],
+    // engine2 'group-hug' (docs/24): gifts to the table — draw, land/mana hugs, and the
+    // pillow-fort protection that keeps the gifter alive.
+    'group-hug': ['Card Draw', 'Ramp', 'Protection'],
     combo: ['Tutor', 'Copy', 'Recursion'],
     combat: ['Attack Trigger', 'Saboteur', 'Extra Combat', 'Combat Trick', 'Evasion', 'Anthem', 'Pump', 'Haste Enabler'],
     // Forward-compatible: engine2 has no template with these keys today. They cost
@@ -1030,6 +1033,7 @@
     'group-slug': 'strategy.group_slug',
     equipment: 'strategy.equipment',
     vehicles: 'strategy.vehicles',
+    'group-hug': 'strategy.other', // no group-hug strategy id; archetype-role-bridge maps 'Group Hug' the same way
     food: 'strategy.food',
     lifegain: 'strategy.lifegain',
     combo: 'strategy.combo',
