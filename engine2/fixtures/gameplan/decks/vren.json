@@ -1,0 +1,306 @@
+{
+ "name": "Vren, the Relentless (chat 2026-09-28)",
+ "source": "chat-2026-09-28",
+ "commander": "Vren, the Relentless",
+ "cards": [
+  {
+   "name": "Akroan Horse",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Bitter Triumph",
+   "qty": 1
+  },
+  {
+   "name": "Black Market Connections",
+   "qty": 1
+  },
+  {
+   "name": "Blasphemous Edict",
+   "qty": 1
+  },
+  {
+   "name": "Brainstorm",
+   "qty": 1
+  },
+  {
+   "name": "Charcoal Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Clackbridge Troll",
+   "qty": 1
+  },
+  {
+   "name": "Clearwater Pathway // Murkwater Pathway",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Crippling Fear",
+   "qty": 1
+  },
+  {
+   "name": "Curse of the Swine",
+   "qty": 1
+  },
+  {
+   "name": "Dark Ritual",
+   "qty": 1
+  },
+  {
+   "name": "Dismember",
+   "qty": 1
+  },
+  {
+   "name": "Engine Rat",
+   "qty": 1
+  },
+  {
+   "name": "Essence Flux",
+   "qty": 1
+  },
+  {
+   "name": "Fake Your Own Death",
+   "qty": 1
+  },
+  {
+   "name": "Feed the Swarm",
+   "qty": 1
+  },
+  {
+   "name": "Fell the Profane // Fell Mire",
+   "qty": 1
+  },
+  {
+   "name": "Fellwar Stone",
+   "qty": 1
+  },
+  {
+   "name": "Flare of Malice",
+   "qty": 1
+  },
+  {
+   "name": "Forbidden Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Gemstone Caverns",
+   "qty": 1
+  },
+  {
+   "name": "Hunted Phantasm",
+   "qty": 1
+  },
+  {
+   "name": "In Garruk's Wake",
+   "qty": 1
+  },
+  {
+   "name": "Infernal Grasp",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 13
+  },
+  {
+   "name": "Jet Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Kaya's Ghostform",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Lord Skitter, Sewer King",
+   "qty": 1
+  },
+  {
+   "name": "M.O.D.O.K.",
+   "qty": 1
+  },
+  {
+   "name": "Maha, Its Feathers Night",
+   "qty": 1
+  },
+  {
+   "name": "Malakir Rebirth // Malakir Mire",
+   "qty": 1
+  },
+  {
+   "name": "Marrow-Gnawer",
+   "qty": 1
+  },
+  {
+   "name": "Mithril Coat",
+   "qty": 1
+  },
+  {
+   "name": "Myrkul's Edict",
+   "qty": 1
+  },
+  {
+   "name": "Necrodominance",
+   "qty": 1
+  },
+  {
+   "name": "Negate",
+   "qty": 1
+  },
+  {
+   "name": "Night of Souls' Betrayal",
+   "qty": 1
+  },
+  {
+   "name": "Not Dead After All",
+   "qty": 1
+  },
+  {
+   "name": "Ogre Slumlord",
+   "qty": 1
+  },
+  {
+   "name": "Patchwork Banner",
+   "qty": 1
+  },
+  {
+   "name": "Phyrexian Arena",
+   "qty": 1
+  },
+  {
+   "name": "Piper of the Swarm",
+   "qty": 1
+  },
+  {
+   "name": "Pongify",
+   "qty": 1
+  },
+  {
+   "name": "Preordain",
+   "qty": 1
+  },
+  {
+   "name": "Rapid Hybridization",
+   "qty": 1
+  },
+  {
+   "name": "Reflecting Pool",
+   "qty": 1
+  },
+  {
+   "name": "Risky Shortcut",
+   "qty": 1
+  },
+  {
+   "name": "Sheoldred's Edict",
+   "qty": 1
+  },
+  {
+   "name": "Shoreline Looter",
+   "qty": 1
+  },
+  {
+   "name": "Sign in Blood",
+   "qty": 1
+  },
+  {
+   "name": "Smallpox",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Stock Up",
+   "qty": 1
+  },
+  {
+   "name": "Swamp",
+   "qty": 14
+  },
+  {
+   "name": "Swan Song",
+   "qty": 1
+  },
+  {
+   "name": "Swarmyard",
+   "qty": 1
+  },
+  {
+   "name": "Swarmyard Massacre",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Dominance",
+   "qty": 1
+  },
+  {
+   "name": "The Meathook Massacre",
+   "qty": 1
+  },
+  {
+   "name": "Three Tree City",
+   "qty": 1
+  },
+  {
+   "name": "Toxic Deluge",
+   "qty": 1
+  },
+  {
+   "name": "Tribute to Horobi // Echo of Death's Wail",
+   "qty": 1
+  },
+  {
+   "name": "Typhoid Rats",
+   "qty": 1
+  },
+  {
+   "name": "Undercity Sewers",
+   "qty": 1
+  },
+  {
+   "name": "Undying Malice",
+   "qty": 1
+  },
+  {
+   "name": "Vraska's Fall",
+   "qty": 1
+  },
+  {
+   "name": "Withering Torment",
+   "qty": 1
+  },
+  {
+   "name": "Worn Powerstone",
+   "qty": 1
+  },
+  {
+   "name": "Zero Point Ballad",
+   "qty": 1
+  }
+ ],
+ "planAdds": [],
+ "planCuts": [],
+ "maybe": []
+}

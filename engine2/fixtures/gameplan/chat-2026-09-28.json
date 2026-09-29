@@ -1,0 +1,1350 @@
+{
+  "meta": {
+    "title": "Gameplan fixtures — deck judgments from the 2026-09-28 deck-analysis chat",
+    "created": "2026-09-29",
+    "source": "Will's chat export (mtg_chat_export.txt): Vraska, Jyoti, Bumbleflower, Vren, Helga, Thranduil",
+    "decks_dir": "engine2/fixtures/gameplan/decks/",
+    "model": "docs/24-gameplan-model.md",
+    "status": "spec — assertions pass as the gameplan model lands (scripts/semantics-gameplan-fixtures.js reports progress)",
+    "assertion_kinds": {
+      "plan": "the engine chain the model must infer for the deck (engine, fuel, output, converters)",
+      "link": "which chain link a card fills in this deck (fuel | amplifier | converter | protection | enabler | foundation), optionally also_fuel when a foundation card also feeds the engine",
+      "prefer": "within one slot, `better` must outrank `worse` for this deck. Either card may be outside the deck (then it is scored as an add candidate against the in-deck one — e.g. Counterspell vs the deck's Dazzling Denial)",
+      "anti_plan": "the card must carry an anti-plan signal with this reason code",
+      "rider": "a card's conditional rider must be scored with this reliability for this deck",
+      "bottleneck": "the thinnest chain link the model must report for this deck",
+      "coverage": "how many cards count toward a plan-critical piece, and which do NOT count",
+      "cuts_include / cuts_exclude": "the suggested-cuts list (top N) must / must not contain these",
+      "adds_include_any": "at least K of these must appear in the suggested adds (top N)",
+      "direction": "the plan's direction — what the engine's output is spent on (go-wide drain, vehicles, counters/voltron, group hug …) — top pick, optionally a named runner-up",
+      "not_anti_plan": "the card must NOT carry any anti-plan signal in this deck (symmetric gifts in a group-hug deck, vehicles in a noncreature-spell engine)",
+      "cuts_include_any": "at least `min` of these must appear in the suggested cuts",
+      "adds_exclude": "none of these may appear in the suggested adds",
+      "adds_links": "at least `min` of the top `top` suggested adds carry one of these plan links (property check — the principle, not a card list)"
+    },
+    "reason_codes": {
+      "no_fuel": "casting it does not satisfy the commander's trigger filter, in a deck where that is the plan's fuel (e.g. a creature in a noncreature-spell engine)",
+      "copy_not_cast": "its value is copies of spells, and copies are not cast (CR 707.10) — cast-trigger engines ignore them",
+      "symmetric_benefit": "the effect helps every player; in a deck racing its opponents that is a net loss",
+      "legendary_copy": "copies the legendary commander, so the legend rule keeps only one — ETB value only",
+      "redundant_with_engine": "does something the engine's output already does",
+      "off_color_cost_reducer": "reduces costs of a color the plan's key cards are not",
+      "narrow": "only works in a narrow situation (soft counter with a small tax, conditional redirect)",
+      "tapped_mana": "mana source that enters tapped, in a deck where tempo matters more than the fixing",
+      "no_engine_target": "blink/flicker with nothing in the plan to re-trigger"
+    },
+    "confidence": {
+      "high": "clear call in the chat, card text verified there",
+      "medium": "reasoned in the chat but a judgment call — treat as a soft target"
+    },
+    "user_overrides_note": "Where Will disagreed with the chat, Will's position is the expected behavior (user_override: true).",
+    "generalization": "Assertions are written against specific decks, but each one tests a GENERAL rule named in its `principle` field (see `principles`). Three mechanisms keep them from being deck-specific: (1) principles — the model implements the rule, never the card; (2) paired decks — the same commander or the same cards in two directions must produce OPPOSITE verdicts (vraska-v2 vs vraska-vehicles, bumbleflower vs bumbleflower-hug); (3) invariants — property checks the runner applies to EVERY deck it can load, including engine2/fixtures/decks and pulled decks, not just these."
+  },
+  "preferences": {
+    "note": "Standing preferences from the chat. These are SLIDER values (category targets + price), not engine opinions; the model must respect them and never override them.",
+    "min_lands": 37,
+    "board_wipes_target": 3,
+    "removal_density": "deliberately varies by deck (Helga low on purpose; Vren high)"
+  },
+  "decks": {
+    "vraska-v1": "decks/vraska-v1.json",
+    "vraska-v2": "decks/vraska-v2.json",
+    "jyoti": "decks/jyoti.json",
+    "bumbleflower": "decks/bumbleflower.json",
+    "vren": "decks/vren.json",
+    "helga": "decks/helga.json",
+    "thranduil": "decks/thranduil.json",
+    "vraska-vehicles": "decks/vraska-vehicles.json",
+    "bumbleflower-hug": "decks/bumbleflower-hug.json"
+  },
+  "assertions": [
+    {
+      "id": "VRA-P1",
+      "deck": "vraska-v2",
+      "kind": "plan",
+      "expect": {
+        "engine": "Vraska, Soul of Stone",
+        "fuel": {
+          "event": "cast_spell",
+          "filter": "noncreature"
+        },
+        "output": "1/1 artifact creature tokens (Sculpture Treasures: attack with vigilance, sacrifice for mana)",
+        "converters": [
+          "Impact Tremors",
+          "Guttersnipe",
+          "Craterclaw Colossus",
+          "Akroma's Will"
+        ],
+        "win_path": "go wide, drain with ETB/cast damage, finish with one pump or double-strike turn"
+      },
+      "quote": "cast cheap spells, go wide, drain with Impact Tremors and Guttersnipe, then finish with one big pump or double-strike turn",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "VRA-01",
+      "deck": "vraska-v2",
+      "kind": "rider",
+      "card": "Wizard's Staff",
+      "expect": {
+        "condition": "equipped creature is a Wizard / its triggers trigger again",
+        "reliability": "always",
+        "because": "commander is a Gorgon Wizard"
+      },
+      "quote": "Vraska is a Legendary Creature — Gorgon Wizard ... Wizard's Staff: possibly the best card in your deck",
+      "confidence": "high",
+      "principle": "P-RIDER"
+    },
+    {
+      "id": "VRA-02",
+      "deck": "vraska-v2",
+      "kind": "rider",
+      "card": "Mana Sculpt",
+      "expect": {
+        "condition": "if you control a Wizard",
+        "reliability": "always",
+        "because": "commander is a Wizard"
+      },
+      "quote": "Vraska turns on that bonus by herself",
+      "confidence": "high",
+      "principle": "P-RIDER"
+    },
+    {
+      "id": "VRA-03",
+      "deck": "vraska-v2",
+      "kind": "rider",
+      "card": "Dazzling Denial",
+      "expect": {
+        "condition": "if you control a Bird",
+        "reliability": "rare",
+        "because": "no reliable Bird source in the deck"
+      },
+      "quote": "a soft counter that only gets good with a Bird ... it's still a fine cut",
+      "confidence": "high",
+      "principle": "P-RIDER"
+    },
+    {
+      "id": "VRA-04",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "counterspell",
+      "better": "Counterspell",
+      "worse": "Dazzling Denial",
+      "why": "hard counter beats a 2-tax soft counter when the Bird rider is rarely on",
+      "confidence": "high",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "VRA-05",
+      "deck": "vraska-v2",
+      "kind": "anti_plan",
+      "card": "Prismari, the Inspiration",
+      "expect": {
+        "reasons": [
+          "copy_not_cast",
+          "no_fuel"
+        ]
+      },
+      "quote": "storm copies go directly onto the stack and aren't cast, so they don't trigger Vraska ... 7 mana",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-06",
+      "deck": "vraska-v2",
+      "kind": "anti_plan",
+      "card": "Thousand-Year Storm",
+      "expect": {
+        "reasons": [
+          "copy_not_cast"
+        ]
+      },
+      "quote": "copies aren't cast, so they don't trigger Vraska, and both cost 7",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-07",
+      "deck": "vraska-v2",
+      "kind": "link",
+      "card": "Izzet Signet",
+      "expect": {
+        "link": "foundation:ramp",
+        "also_fuel": true
+      },
+      "quote": "Each rock is a noncreature spell. Casting a Signet triggers Vraska, so it's ramp plus a Sculpture",
+      "confidence": "high",
+      "principle": "P-DUAL"
+    },
+    {
+      "id": "VRA-08",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "planeswalker/value engine",
+      "better": "Ral, Crackling Wit",
+      "worse": "Prismari, the Inspiration",
+      "why": "Ral is a noncreature spell (fuel) that works every turn; Prismari is a creature (no fuel) and does nothing until more spells follow",
+      "confidence": "high",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "VRA-09",
+      "deck": "vraska-v2",
+      "kind": "link",
+      "card": "Kykar, Zephyr Awakener",
+      "expect": {
+        "link": "amplifier"
+      },
+      "quote": "That doubles Vraska's output: two tokens per spell",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "VRA-10",
+      "deck": "vraska-v2",
+      "kind": "link",
+      "card": "Exalted Sunborn",
+      "expect": {
+        "link": "amplifier"
+      },
+      "quote": "That doubles your Sculptures",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "VRA-11",
+      "deck": "vraska-v2",
+      "kind": "link",
+      "card": "Impact Tremors",
+      "expect": {
+        "link": "converter"
+      },
+      "quote": "Impact Tremors turns every Sculpture into a ping to each opponent",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "VRA-12",
+      "deck": "vraska-v2",
+      "kind": "coverage",
+      "piece": "haste for tokens",
+      "expect": {
+        "counts": [
+          "Samut, Hazoret's Champion",
+          "Tannuk, Steadfast Second",
+          "Rising of the Day"
+        ],
+        "counts_as_mana_side": [
+          "Urza, Lord High Artificer"
+        ],
+        "not_counted": [
+          "Swiftfoot Boots"
+        ],
+        "why_not": "single-creature haste does not cover a tokens plan"
+      },
+      "quote": "Swiftfoot Boots doesn't count, because it only gives haste to one creature, not your tokens",
+      "confidence": "high",
+      "principle": "P-COVERAGE"
+    },
+    {
+      "id": "VRA-13",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "protection",
+      "better": "Duty Beyond Death",
+      "worse": "Octopus Form",
+      "why": "board-wide wipe protection (sacrificing a token is free) beats single-target protection in a go-wide deck",
+      "confidence": "high",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "VRA-14",
+      "deck": "vraska-v2",
+      "kind": "anti_plan",
+      "card": "Spell Pierce",
+      "expect": {
+        "reasons": [
+          "narrow"
+        ]
+      },
+      "quote": "It only taxes 2 mana, which opponents in Commander can usually pay by midgame",
+      "confidence": "medium",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-15",
+      "deck": "vraska-v2",
+      "kind": "anti_plan",
+      "card": "Essence Flux",
+      "expect": {
+        "reasons": [
+          "no_engine_target"
+        ]
+      },
+      "quote": "A flicker spell with almost no good targets in this deck",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-16",
+      "deck": "vraska-v2",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Kykar, Zephyr Awakener",
+        "Curiosity Crafter",
+        "Duty Beyond Death"
+      ],
+      "quote": "Planned cuts I wouldn't make: Kykar ... Curiosity Crafter ... Duty Beyond Death",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "VRA-17",
+      "deck": "vraska-v2",
+      "kind": "cuts_include",
+      "expect": [
+        "Prismari, the Inspiration",
+        "Thousand-Year Storm",
+        "Spell Pierce",
+        "Essence Flux"
+      ],
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-18",
+      "deck": "vraska-v2",
+      "kind": "adds_include_any",
+      "min": 1,
+      "expect": [
+        "Third Path Iconoclast",
+        "Jeskai Ascendancy",
+        "Anointed Procession",
+        "Intangible Virtue",
+        "Skullclamp",
+        "Warleader's Call"
+      ],
+      "quote": "Third Path Iconoclast ... Jeskai Ascendancy ... Intangible Virtue or Anointed Procession",
+      "confidence": "medium",
+      "principle": "P-BOTTLENECK",
+      "note": "Softened to ≥1: these are the chat's example cards; the paired adds_links assertion checks the principle (plan pieces dominate the adds)."
+    },
+    {
+      "id": "VRA-19",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "any (plan shape)",
+      "better": "Jeskai Ascendancy",
+      "worse": "Kykar, Wind's Fury",
+      "why": "Will wants FEWER creatures: in a noncreature-fuel deck, a noncreature payoff beats an equal creature payoff",
+      "quote": "i want to reduce creatures though. so I'm adding jeskai ascendancy",
+      "user_override": true,
+      "confidence": "medium",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "VRA-20",
+      "deck": "vraska-v2",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Samut, Tyrant of Naktamun",
+        "The Reality Chip"
+      ],
+      "quote": "With both Samut and Reality Chip i might keep them in for now",
+      "user_override": true,
+      "confidence": "medium",
+      "note": "Soft: Will keeps them to playtest. The model may rank them low but should not headline them as cuts.",
+      "principle": "P-OVERRIDE"
+    },
+    {
+      "id": "VRA-21",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "card draw",
+      "better": "Skullclamp",
+      "worse": "The Reality Chip",
+      "why": "1/1 tokens die to Skullclamp for 2 cards per {1}; casting it is also fuel",
+      "quote": "Skullclamp on 1/1 Sculptures = die immediately, draw 2 for {1}. Casting it triggers Vraska.",
+      "confidence": "high",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "SYN-01",
+      "deck": "vraska-v2",
+      "commander_override": "Kykar, Wind's Fury",
+      "kind": "prefer",
+      "slot": "counterspell",
+      "better": "Dazzling Denial",
+      "worse": "Counterspell",
+      "why": "with a Bird commander the Bird rider is always on (counter unless they pay {4}), and it is a noncreature spell like Counterspell — plan fit flips the default",
+      "note": "Synthetic: the Vraska list re-captained by a Bird commander. Pins Will's own example from the design conversation.",
+      "confidence": "medium",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "JYO-P1",
+      "deck": "jyoti",
+      "kind": "plan",
+      "expect": {
+        "engine": "Jyoti, Moag Ancient",
+        "fuel": "land creatures on your side, Jyoti's power, number of Jyoti objects",
+        "output": "a beginning-of-combat +X/+X pump to land creatures",
+        "structure": "product of three factors: land creatures × Jyoti power × Jyoti copies"
+      },
+      "quote": "the damage comes from three things multiplied together",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "JYO-01",
+      "deck": "jyoti",
+      "kind": "bottleneck",
+      "expect": {
+        "link": "land creatures",
+        "not": [
+          "Jyoti power",
+          "Jyoti copies"
+        ]
+      },
+      "quote": "Your deck already handles points 2 and 3 well. Point 1 is the gap.",
+      "confidence": "high",
+      "principle": "P-BOTTLENECK"
+    },
+    {
+      "id": "JYO-02",
+      "deck": "jyoti",
+      "kind": "adds_include_any",
+      "min": 2,
+      "expect": [
+        "Life and Limb",
+        "Sylvan Awakening",
+        "Ashaya, Soul of the Wild",
+        "Dryad Arbor",
+        "Nissa, Who Shakes the World",
+        "Ambush Commander",
+        "Verdant Kraken"
+      ],
+      "why": "adds should target the bottleneck (land-creature makers), not more pump",
+      "confidence": "high",
+      "principle": "P-BOTTLENECK"
+    },
+    {
+      "id": "JYO-03",
+      "deck": "jyoti",
+      "kind": "anti_plan",
+      "card": "Primal Vigor",
+      "expect": {
+        "reasons": [
+          "symmetric_benefit"
+        ]
+      },
+      "quote": "it doubles tokens and +1/+1 counters for every player ... helps your three opponents",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "JYO-04",
+      "deck": "jyoti",
+      "kind": "anti_plan",
+      "card": "Cryptolith Rite",
+      "expect": {
+        "reasons": [
+          "redundant_with_engine"
+        ]
+      },
+      "quote": "your land creatures already tap for mana",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "JYO-05",
+      "deck": "jyoti",
+      "kind": "anti_plan",
+      "card": "Sapphire Medallion",
+      "expect": {
+        "reasons": [
+          "off_color_cost_reducer"
+        ]
+      },
+      "quote": "It only makes your blue spells cheaper, and many of your key cards are green",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "JYO-06",
+      "deck": "jyoti",
+      "kind": "anti_plan",
+      "card": "Copycrook",
+      "expect": {
+        "reasons": [
+          "legendary_copy"
+        ],
+        "unless_in_deck": [
+          "Mirror Box",
+          "Sakashima of a Thousand Faces"
+        ],
+        "residual_value": "ETB (extra Dryads)"
+      },
+      "quote": "a copy of Jyoti is still legendary ... you'll still get the extra Dryads from the copy's ETB, but you won't get the extra combat pump",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "JYO-07",
+      "deck": "jyoti",
+      "kind": "prefer",
+      "slot": "Jyoti copies",
+      "better": "Ember Island Production",
+      "worse": "Visage Bandit",
+      "why": "a nonlegendary copy adds a second pump; a legendary copy is ETB value only",
+      "confidence": "high",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "JYO-08",
+      "deck": "jyoti",
+      "kind": "link",
+      "card": "Zopandrel, Hunger Dominus",
+      "expect": {
+        "link": "amplifier"
+      },
+      "quote": "Zopandrel and Unnatural Growth directly double your land creatures too",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "JYO-09",
+      "deck": "jyoti",
+      "kind": "cuts_include",
+      "expect": [
+        "Primal Vigor",
+        "Cryptolith Rite",
+        "Sapphire Medallion"
+      ],
+      "confidence": "high",
+      "principle": "P-ANTI",
+      "note": "Ledger Shredder removed: the chat offered it only as the fallback 4th cut ('if you'd rather keep one of those'), and it holds a Card Draw slot at the slider target."
+    },
+    {
+      "id": "JYO-10",
+      "deck": "jyoti",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Blanchwood Armor",
+        "Unnatural Growth",
+        "Ember Island Production",
+        "Doubling Season",
+        "Craterhoof Behemoth"
+      ],
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "BUM-P1",
+      "deck": "bumbleflower",
+      "kind": "plan",
+      "expect": {
+        "engine": "Ms. Bumbleflower",
+        "fuel": {
+          "event": "cast_spell",
+          "filter": "any spell (cheap spells best: two per turn draws two)"
+        },
+        "output": "+1/+1 counters and flying on a target creature; cards on the second trigger",
+        "converters": [
+          "counter doublers",
+          "evasive threats"
+        ],
+        "win_path": "counters on one or two evasive threats, Bumbleflower the default target"
+      },
+      "quote": "build a counters deck that uses Bumbleflower as its engine, rather than a pure Voltron deck",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "BUM-01",
+      "deck": "bumbleflower",
+      "kind": "link",
+      "card": "Doubling Season",
+      "expect": {
+        "link": "amplifier"
+      },
+      "quote": "each one doubles the counter from every Bumbleflower trigger",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "BUM-02",
+      "deck": "bumbleflower",
+      "kind": "anti_plan",
+      "card": "Rites of Flourishing",
+      "expect": {
+        "reasons": [
+          "symmetric_benefit"
+        ]
+      },
+      "quote": "these give every player extra cards or land drops, which helps your opponents race you",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "BUM-03",
+      "deck": "bumbleflower",
+      "kind": "cuts_include",
+      "expect": [
+        "Rites of Flourishing",
+        "Ghirapur Orrery",
+        "Kwain, Itinerant Meddler",
+        "Selvala, Explorer Returned",
+        "Tenuous Truce",
+        "Intellectual Offering",
+        "Tempt with Bunnies"
+      ],
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "BUM-04",
+      "deck": "bumbleflower",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Doubling Season",
+        "Branching Evolution",
+        "Vorinclex, Monstrous Raider",
+        "Kalonian Hydra",
+        "Forgotten Ancient",
+        "Swords to Plowshares"
+      ],
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "BUM-05",
+      "deck": "bumbleflower",
+      "kind": "adds_include_any",
+      "min": 1,
+      "expect": [
+        "Heroic Intervention",
+        "Flawless Maneuver",
+        "Tamiyo's Safekeeping",
+        "Snakeskin Veil",
+        "Tyvar's Stand",
+        "Hardened Scales",
+        "The Ozolith",
+        "Brainstorm",
+        "Ponder",
+        "Preordain",
+        "Swan Song"
+      ],
+      "why": "protection + counter support + cheap spells (fuel) are the plan's gaps",
+      "confidence": "medium",
+      "principle": "P-BOTTLENECK",
+      "note": "Softened to ≥1: these are the chat's example cards; the paired adds_links assertion checks the principle (plan pieces dominate the adds)."
+    },
+    {
+      "id": "BUM-06",
+      "deck": "bumbleflower",
+      "kind": "prefer",
+      "slot": "cheap spell",
+      "better": "Preordain",
+      "worse": "Sphinx of Enlightenment",
+      "why": "fuel is spells cast; two cheap spells per turn triggers the draw — a 1-MV cantrip is worth more to this engine than a 6-MV draw spell",
+      "confidence": "medium",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "VRN-P1",
+      "deck": "vren",
+      "kind": "plan",
+      "expect": {
+        "engine": "Vren, the Relentless",
+        "fuel": "opponents' creatures leaving (exiled instead of dying) — every removal, edict, wipe, and gifted token that dies",
+        "output": "Rat tokens that grow with each other Rat",
+        "converters": [
+          "Marrow-Gnawer",
+          "Piper of the Swarm",
+          "Ogre Slumlord"
+        ],
+        "protection": "return-on-death effects (Undying Malice, Not Dead After All, Kaya's Ghostform, Fake Your Own Death)"
+      },
+      "quote": "With Vren out, every opponent creature you remove becomes a Rat, so all of these are also Rat makers",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "VRN-01",
+      "deck": "vren",
+      "kind": "link",
+      "card": "Infernal Grasp",
+      "expect": {
+        "link": "foundation:removal",
+        "also_fuel": true
+      },
+      "confidence": "high",
+      "principle": "P-DUAL"
+    },
+    {
+      "id": "VRN-02",
+      "deck": "vren",
+      "kind": "link",
+      "card": "Hunted Phantasm",
+      "expect": {
+        "link": "fuel",
+        "requires": "M.O.D.O.K. or another static -1/-1 on opponents"
+      },
+      "quote": "Hunted Phantasm alone becomes five Rats",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "VRN-03",
+      "deck": "vren",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Blasphemous Edict",
+        "Toxic Deluge",
+        "The Meathook Massacre",
+        "Zero Point Ballad",
+        "Night of Souls' Betrayal"
+      ],
+      "why": "symmetrical wipes + a return-on-death spell for Vren = one-sided board: opponents empty, Rats for Vren",
+      "quote": "You're right, and I underrated that plan. The rules support it.",
+      "user_override": true,
+      "confidence": "high",
+      "principle": "P-OVERRIDE"
+    },
+    {
+      "id": "VRN-04",
+      "deck": "vren",
+      "kind": "coverage",
+      "piece": "protection for the wipe turn",
+      "expect": {
+        "counts": [
+          "Undying Malice",
+          "Not Dead After All",
+          "Kaya's Ghostform",
+          "Fake Your Own Death"
+        ],
+        "not_counted": [
+          "Mithril Coat"
+        ],
+        "why_not": "indestructible does not stop -X/-X (Toxic Deluge, Meathook, Night of Souls') or sacrifice (Blasphemous Edict)"
+      },
+      "quote": "Indestructible doesn't stop either of those",
+      "confidence": "high",
+      "principle": "P-COVERAGE"
+    },
+    {
+      "id": "VRN-05",
+      "deck": "vren",
+      "kind": "anti_plan",
+      "card": "Essence Flux",
+      "expect": {
+        "reasons": [
+          "no_engine_target"
+        ]
+      },
+      "quote": "Vren has no ETB ability to reuse ... if you blink Vren in response, she comes back before the wipe resolves and dies anyway",
+      "confidence": "high",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRN-06",
+      "deck": "vren",
+      "kind": "anti_plan",
+      "card": "Charcoal Diamond",
+      "expect": {
+        "reasons": [
+          "tapped_mana"
+        ]
+      },
+      "confidence": "medium",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRN-07",
+      "deck": "vren",
+      "kind": "cuts_include",
+      "expect": [
+        "Smallpox",
+        "Essence Flux",
+        "Charcoal Diamond"
+      ],
+      "confidence": "medium",
+      "principle": "P-ANTI",
+      "note": "Gemstone Caverns removed: lands are never cut-scored (mana base is a separate module, doc §12). Smallpox is a judgment call (weakest wipe) — medium."
+    },
+    {
+      "id": "VRN-08",
+      "deck": "vren",
+      "kind": "adds_include_any",
+      "min": 1,
+      "expect": [
+        "Undying Evil",
+        "Feign Death",
+        "Supernatural Stamina"
+      ],
+      "why": "the plan's critical piece (return-on-death for the wipe turn) is thin at 4",
+      "quote": "Your plan depends on having a return effect ready when you wipe, so I'd add more of them",
+      "confidence": "medium",
+      "principle": "P-BOTTLENECK",
+      "note": "Specific names are the chat's examples; the paired property assertion (…P) checks the principle."
+    },
+    {
+      "id": "VRN-09",
+      "deck": "vren",
+      "kind": "adds_include_any",
+      "min": 1,
+      "expect": [
+        "Ascendant Evincar",
+        "Massacre Wurm",
+        "Plague Engineer",
+        "Pack Rat",
+        "Ratcatcher"
+      ],
+      "confidence": "medium",
+      "principle": "P-BOTTLENECK",
+      "note": "Softened to ≥1: these are the chat's example cards; the paired adds_links assertion checks the principle (plan pieces dominate the adds)."
+    },
+    {
+      "id": "HLG-P1",
+      "deck": "helga",
+      "kind": "plan",
+      "expect": {
+        "engine": "Helga, Skittish Seer",
+        "fuel": {
+          "event": "cast_spell",
+          "filter": "creature, MV >= 4"
+        },
+        "output": "a card, 1 life, and a +1/+1 counter on Helga — Helga's power is her mana",
+        "mana_restriction": "Helga's mana only casts creatures MV 4+ or creatures with {X}"
+      },
+      "quote": "Real plan: grow Helga's power = more mana, chain big creatures",
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "HLG-01",
+      "deck": "helga",
+      "kind": "link",
+      "card": "Dancing from Dark to Dawn",
+      "expect": {
+        "link": [
+          "fuel",
+          "amplifier"
+        ],
+        "rank_note": "best card in the deck"
+      },
+      "quote": "Engine: Dancing from Dark to Dawn (best card)",
+      "confidence": "high",
+      "principle": "P-FUEL",
+      "note": "Either link satisfies the principle: it is a core engine piece. The engine reads it as an amplifier (cheats big creatures in, growing Helga), which is the stronger claim."
+    },
+    {
+      "id": "HLG-02",
+      "deck": "helga",
+      "kind": "link",
+      "card": "Biosynthic Burst",
+      "expect": {
+        "link": "amplifier"
+      },
+      "quote": "Biosynthic Burst (untap Helga for 2nd activation)",
+      "confidence": "high",
+      "principle": "P-FUEL"
+    },
+    {
+      "id": "HLG-03",
+      "deck": "helga",
+      "kind": "prefer",
+      "slot": "big creature",
+      "better": "Goldvein Hydra",
+      "worse": "Dawnstrike Vanguard",
+      "why": "X creatures use Helga's mana fully; Dawnstrike Vanguard is among the weakest",
+      "confidence": "medium",
+      "principle": "P-SLOT"
+    },
+    {
+      "id": "HLG-04",
+      "deck": "helga",
+      "kind": "cuts_include",
+      "expect": [
+        "Dawnstrike Vanguard",
+        "Perplexing Chimera"
+      ],
+      "confidence": "high",
+      "principle": "P-ANTI",
+      "note": "Vanquish the Horde removed: it is one of Helga's few wipes, and the ~3-wipe slider floor (P-OVERRIDE / INV-08) forbids cutting below target."
+    },
+    {
+      "id": "HLG-05",
+      "deck": "helga",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Snakeskin Veil",
+        "Tamiyo's Safekeeping",
+        "Shore Up",
+        "Overprotect"
+      ],
+      "why": "lots of protection is deliberate — Helga taps for creatures so lands stay open for protection",
+      "user_override": true,
+      "confidence": "high",
+      "principle": "P-OVERRIDE"
+    },
+    {
+      "id": "THR-P1",
+      "deck": "thranduil",
+      "kind": "plan",
+      "expect": {
+        "engine": "Thranduil, the Elvenking",
+        "fuel": "Elf cards in the graveyard (their activated abilities become Thranduil's)",
+        "enablers": [
+          "Buried Alive",
+          "Entomb",
+          "Dina's Guidance",
+          "Fauna Shaman"
+        ],
+        "win_path": "Thranduil + Devoted Druid + a graveyard pump = infinite mana/power; Lathril / High Perfect Morcant finish"
+      },
+      "confidence": "high",
+      "principle": "P-ENGINE"
+    },
+    {
+      "id": "THR-01",
+      "deck": "thranduil",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Blasphemous Edict",
+        "Negate",
+        "Ayara, First of Locthwain",
+        "Iridescent Blademaster",
+        "Greenhilt Trainee",
+        "Devoted Druid"
+      ],
+      "quote": "Keep: Blasphemous Edict (Will wants ~3 wipes per deck), Negate, Ayara (redundancy), Iridescent Blademaster, Greenhilt Trainee",
+      "user_override": true,
+      "confidence": "high",
+      "principle": "P-OVERRIDE"
+    },
+    {
+      "id": "THR-02",
+      "deck": "thranduil",
+      "kind": "cuts_include",
+      "expect": [
+        "Dark Tutelage",
+        "Guardian of the Halls",
+        "Greenbelt Guardian",
+        "Elvish Mystic"
+      ],
+      "confidence": "medium",
+      "principle": "P-ANTI"
+    },
+    {
+      "id": "VRA-22",
+      "deck": "vraska-v2",
+      "kind": "prefer",
+      "slot": "payoff",
+      "better": "Impact Tremors",
+      "worse": "Smuggler's Copter",
+      "principle": "P-DIRECTION",
+      "why": "pair with VEH-02: in the go-wide drain direction the ETB-damage converter beats a Vehicle",
+      "confidence": "medium"
+    },
+    {
+      "id": "VEH-P1",
+      "deck": "vraska-vehicles",
+      "kind": "plan",
+      "principle": "P-ENGINE",
+      "expect": {
+        "engine": "Vraska, Soul of Stone",
+        "fuel": {
+          "event": "cast_spell",
+          "filter": "noncreature"
+        },
+        "output": "1/1 artifact creature tokens",
+        "same_engine_as": "vraska-v2"
+      },
+      "why": "same commander text, same fuel and output as vraska-v2 — only the direction differs",
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-D1",
+      "deck": "vraska-vehicles",
+      "kind": "direction",
+      "principle": "P-DIRECTION",
+      "expect": {
+        "top": "vehicles",
+        "not_top": "tokens-wide"
+      },
+      "why": "15 Vehicles + Kotori/Sram/Cid/Mu Yanling/Aeronaut Admiral/Interface Ace: the Sculptures are crew, not a drain army",
+      "confidence": "high"
+    },
+    {
+      "id": "VRA-D1",
+      "deck": "vraska-v2",
+      "kind": "direction",
+      "principle": "P-DIRECTION",
+      "expect": {
+        "top": "tokens-wide",
+        "not_top": "vehicles"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-01",
+      "deck": "vraska-vehicles",
+      "kind": "link",
+      "card": "Smuggler's Copter",
+      "principle": "P-FUEL",
+      "expect": {
+        "link": "converter",
+        "also_fuel": true
+      },
+      "why": "a Vehicle is a noncreature spell (casting it makes a Sculpture) and the Sculptures crew it",
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-02",
+      "deck": "vraska-vehicles",
+      "kind": "prefer",
+      "slot": "payoff",
+      "better": "Smuggler's Copter",
+      "worse": "Impact Tremors",
+      "principle": "P-DIRECTION",
+      "why": "pair with VRA-22: same two cards, opposite verdict, because the direction changed",
+      "confidence": "medium"
+    },
+    {
+      "id": "VEH-03",
+      "deck": "vraska-vehicles",
+      "kind": "coverage",
+      "piece": "crew sources",
+      "principle": "P-COVERAGE",
+      "expect": {
+        "counts": [
+          "Vraska, Soul of Stone",
+          "Exalted Sunborn",
+          "Urza, Lord High Artificer"
+        ],
+        "not_counted": [],
+        "rule": "crewing taps creatures as a COST — summoning-sick Sculptures crew the turn they appear (same rule as THR-08); the commander's token output counts as crew"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-04",
+      "deck": "vraska-vehicles",
+      "kind": "not_anti_plan",
+      "cards": [
+        "Smuggler's Copter",
+        "Weatherlight",
+        "Skysovereign, Consul Flagship",
+        "Shorikai, Genesis Engine"
+      ],
+      "principle": "P-FUEL",
+      "why": "Vehicles are noncreature spells — never no_fuel in a noncreature engine",
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-05",
+      "deck": "vraska-vehicles",
+      "kind": "rider",
+      "card": "Wizard's Staff",
+      "principle": "P-RIDER",
+      "expect": {
+        "reliability": "always",
+        "because": "commander is a Wizard"
+      },
+      "why": "same rider, same commander, different direction — reliability is a property of the commander, not the plan",
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-06",
+      "deck": "vraska-vehicles",
+      "kind": "cuts_include_any",
+      "min": 1,
+      "expect": [
+        "Impact Tremors",
+        "Guttersnipe"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "drain converters are off-direction in a vehicles build",
+      "confidence": "medium"
+    },
+    {
+      "id": "VEH-07",
+      "deck": "vraska-vehicles",
+      "kind": "adds_include_any",
+      "min": 1,
+      "principle": "P-DIRECTION",
+      "expect": [
+        "The Regalia",
+        "Nautiloid Ship",
+        "Salvation Engine",
+        "Peacewalker Colossus",
+        "Brotherhood Vertibird",
+        "Hoard Hauler",
+        "Canyon Vaulter",
+        "Giant Ox",
+        "Hotshot Mechanic",
+        "Thopter Fabricator",
+        "Cybership",
+        "Veteran Motorist"
+      ],
+      "confidence": "medium",
+      "note": "Specific names are the chat's examples; the paired property assertion (…P) checks the principle."
+    },
+    {
+      "id": "HUG-P1",
+      "deck": "bumbleflower-hug",
+      "kind": "plan",
+      "principle": "P-ENGINE",
+      "expect": {
+        "engine": "Ms. Bumbleflower",
+        "fuel": {
+          "event": "cast_spell",
+          "filter": "any spell"
+        },
+        "output": "opponent draws (on-plan here), counters, your draws",
+        "same_engine_as": "bumbleflower"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "HUG-D1",
+      "deck": "bumbleflower-hug",
+      "kind": "direction",
+      "principle": "P-DIRECTION",
+      "expect": {
+        "top": "group-hug",
+        "not_top": "counters"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "BUM-D1",
+      "deck": "bumbleflower",
+      "kind": "direction",
+      "principle": "P-DIRECTION",
+      "expect": {
+        "top": "counters",
+        "not_top": "group-hug"
+      },
+      "why": "the chat's call: a counters deck with Bumbleflower as its engine",
+      "confidence": "high"
+    },
+    {
+      "id": "HUG-01",
+      "deck": "bumbleflower-hug",
+      "kind": "not_anti_plan",
+      "cards": [
+        "Rites of Flourishing",
+        "Howling Mine",
+        "Kwain, Itinerant Meddler",
+        "Ghirapur Orrery"
+      ],
+      "principle": "P-ANTI",
+      "why": "pair with BUM-02: symmetric_benefit is anti-plan when racing, ON-plan in group hug",
+      "confidence": "high"
+    },
+    {
+      "id": "HUG-02",
+      "deck": "bumbleflower-hug",
+      "kind": "cuts_exclude",
+      "expect": [
+        "Rites of Flourishing",
+        "Howling Mine",
+        "Kwain, Itinerant Meddler",
+        "Ghirapur Orrery",
+        "Selvala, Explorer Returned",
+        "Font of Mythos"
+      ],
+      "principle": "P-DIRECTION",
+      "confidence": "high"
+    },
+    {
+      "id": "HUG-03",
+      "deck": "bumbleflower-hug",
+      "kind": "link",
+      "card": "Psychosis Crawler",
+      "expect": {
+        "link": "converter"
+      },
+      "principle": "P-ENGINE",
+      "why": "turns the table's extra draws into damage — the hug deck's win",
+      "confidence": "high"
+    },
+    {
+      "id": "HUG-04",
+      "deck": "bumbleflower-hug",
+      "kind": "link",
+      "card": "Ghostly Prison",
+      "expect": {
+        "link": "protection"
+      },
+      "principle": "P-COVERAGE",
+      "why": "group hug's protection is deterrence (attack taxes), not hexproof on one creature",
+      "confidence": "medium"
+    },
+    {
+      "id": "HUG-05",
+      "deck": "bumbleflower-hug",
+      "kind": "adds_exclude",
+      "expect": [
+        "Duelist's Heritage",
+        "Shadowspear",
+        "Rancor",
+        "Hardened Scales"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "voltron/counter pieces are the OTHER direction's adds",
+      "confidence": "medium"
+    },
+    {
+      "id": "HUG-06",
+      "deck": "bumbleflower",
+      "kind": "adds_exclude",
+      "expect": [
+        "Howling Mine",
+        "Font of Mythos",
+        "Temple Bell"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "pair with HUG-05: group-hug pieces are the counters deck's anti-plan",
+      "confidence": "medium"
+    },
+    {
+      "id": "VRA-18P",
+      "deck": "vraska-v2",
+      "kind": "adds_links",
+      "top": 10,
+      "min": 6,
+      "links": [
+        "amplifier",
+        "converter",
+        "critical"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "most of the top adds should multiply Vraska's output, spend it, or fill a thin must-draw piece — not generic good cards",
+      "confidence": "high"
+    },
+    {
+      "id": "VEH-07P",
+      "deck": "vraska-vehicles",
+      "kind": "adds_axes",
+      "top": 12,
+      "min": 3,
+      "axes": [
+        "vehicle.body",
+        "vehicles.matter"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "a vehicles build's adds should include Vehicles and Vehicle payoffs",
+      "confidence": "high"
+    },
+    {
+      "id": "VRN-08P",
+      "deck": "vren",
+      "kind": "adds_links",
+      "top": 24,
+      "min": 1,
+      "links": [
+        "critical"
+      ],
+      "principle": "P-COVERAGE",
+      "why": "the thin must-draw piece (return-after-death for the wipe turn) should be offered",
+      "confidence": "high"
+    },
+    {
+      "id": "BUM-05P",
+      "deck": "bumbleflower",
+      "kind": "adds_links",
+      "top": 12,
+      "min": 6,
+      "links": [
+        "amplifier",
+        "converter",
+        "protection",
+        "critical"
+      ],
+      "principle": "P-DIRECTION",
+      "confidence": "medium"
+    },
+    {
+      "id": "HUG-07P",
+      "deck": "bumbleflower-hug",
+      "kind": "adds_links",
+      "top": 12,
+      "min": 4,
+      "links": [
+        "converter",
+        "protection"
+      ],
+      "principle": "P-DIRECTION",
+      "why": "a group-hug deck's weakest link is converting the table's resources into a win",
+      "confidence": "medium"
+    }
+  ],
+  "principles": {
+    "P-ENGINE": "The plan is the engine's chain — fuel, output, direction — inferred from the engine's own abilities plus the 99's evidence.",
+    "P-DIRECTION": "Same engine, different direction: what the output is spent on is chosen by the deck, and it changes which cards are best.",
+    "P-DUAL": "A foundation card that also feeds the engine beats an equal one that doesn't (Signets in Vraska, removal in Vren).",
+    "P-FUEL": "Whether casting a card feeds the engine is a property of the card in this deck, tested against the engine's trigger filter.",
+    "P-RIDER": "A conditional rider is worth its value times the probability its condition is met; the commander meeting it makes it certain.",
+    "P-SLOT": "Within a job, roleStrength decides by default; plan fit decides when it outweighs the strength gap.",
+    "P-ANTI": "Anti-plan signals are tested per plan: the same effect can be anti-plan in one direction and on-plan in another.",
+    "P-BOTTLENECK": "Adds target the plan's thinnest link.",
+    "P-COVERAGE": "Plan-critical pieces count only if they cover the plan's actual case (mass vs single haste; return-on-death vs indestructible vs −X/−X).",
+    "P-OVERRIDE": "The user's stated choices are plan features, not errors (Vren's wipes + returns, Helga's protection, 37 lands, ~3 wipes)."
+  },
+  "invariants": [
+    {
+      "id": "INV-01",
+      "principle": "P-FUEL",
+      "rule": "For an engine whose fuel is cast_spell filtered to noncreature, no creature card is marked also_fuel, and every noncreature spell passes the fuel test."
+    },
+    {
+      "id": "INV-02",
+      "principle": "P-FUEL",
+      "rule": "For an engine whose fuel is cast_spell with an mv_cmp filter, the fuel test agrees with each card's mana value (and {X} costs, when the filter allows them)."
+    },
+    {
+      "id": "INV-03",
+      "principle": "P-ANTI",
+      "rule": "copy_not_cast fires only when the engine's fuel is cast_spell; never in other plans."
+    },
+    {
+      "id": "INV-04",
+      "principle": "P-ANTI",
+      "rule": "symmetric_benefit is anti-plan unless the plan direction is group-hug."
+    },
+    {
+      "id": "INV-05",
+      "principle": "P-RIDER",
+      "rule": "A rider conditioned on controlling type T has reliability 1 whenever the commander has type T."
+    },
+    {
+      "id": "INV-06",
+      "principle": "P-ANTI",
+      "rule": "legendary_copy fires only when the copy target is a legendary engine and no legend-rule breaker (Mirror Box, Sakashima class) is in the deck."
+    },
+    {
+      "id": "INV-07",
+      "principle": "P-DUAL",
+      "rule": "When the fuel is opponents' creatures leaving (Vren class), every single-target creature removal in the deck is also_fuel."
+    },
+    {
+      "id": "INV-08",
+      "principle": "P-OVERRIDE",
+      "rule": "Suggested cuts never take a foundation category below its slider target, and never take a plan-critical piece below its coverage target."
+    },
+    {
+      "id": "INV-09",
+      "principle": "P-ENGINE",
+      "rule": "Every suggested add names the slot it fills and at least one plan or foundation reason in English (no axis tokens)."
+    },
+    {
+      "id": "INV-10",
+      "principle": "P-DIRECTION",
+      "rule": "Two decks with the same engine card infer the same fuel and output; only direction, converters and bottleneck may differ."
+    }
+  ]
+}

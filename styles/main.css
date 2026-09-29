@@ -14857,6 +14857,8 @@ body.glass-mode .deck-goal-card {
 .deck-goal-name--second { font-size: 1rem; opacity: 0.9; }
 .deck-goal-summary { margin-top: 6px; font-size: 0.78rem; color: var(--text2); }
 .deck-goal-combo { margin-top: 4px; font-size: 0.74rem; color: var(--text3); }
+.deck-goal-plan { margin: 6px 0 0; padding-left: 16px; font-size: 0.76rem; color: var(--text2); line-height: 1.35; }
+.deck-goal-plan li + li { margin-top: 2px; }
 .deck-goal-combo span { color: rgb(var(--lgx2)); font-weight: 600; }
 
 /* Row controls match the deck-list toolbar rather than the old pills. */

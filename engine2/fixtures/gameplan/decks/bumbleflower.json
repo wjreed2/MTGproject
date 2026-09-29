@@ -1,0 +1,383 @@
+{
+ "name": "Ms. Bumbleflower (chat 2026-09-28)",
+ "source": "chat-2026-09-28",
+ "commander": "Ms. Bumbleflower",
+ "cards": [
+  {
+   "name": "Adarkar Wastes",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Baird, Steward of Argive",
+   "qty": 1
+  },
+  {
+   "name": "Bard the Bowman",
+   "qty": 1
+  },
+  {
+   "name": "Body of Knowledge",
+   "qty": 1
+  },
+  {
+   "name": "Boromir, Warden of the Tower",
+   "qty": 1
+  },
+  {
+   "name": "Branching Evolution",
+   "qty": 1
+  },
+  {
+   "name": "Broken Wings",
+   "qty": 1
+  },
+  {
+   "name": "Brushland",
+   "qty": 1
+  },
+  {
+   "name": "Canopy Vista",
+   "qty": 1
+  },
+  {
+   "name": "Chasm Skulker",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Communal Brewing",
+   "qty": 1
+  },
+  {
+   "name": "Cosmogrand Zenith",
+   "qty": 1
+  },
+  {
+   "name": "Cultivate",
+   "qty": 1
+  },
+  {
+   "name": "Doubling Season",
+   "qty": 1
+  },
+  {
+   "name": "Evolving Wilds",
+   "qty": 1
+  },
+  {
+   "name": "Exotic Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Faeburrow Elder",
+   "qty": 1
+  },
+  {
+   "name": "Farseek",
+   "qty": 1
+  },
+  {
+   "name": "Fellwar Stone",
+   "qty": 1
+  },
+  {
+   "name": "Flooded Grove",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 4
+  },
+  {
+   "name": "Forgotten Ancient",
+   "qty": 1
+  },
+  {
+   "name": "Generous Gift",
+   "qty": 1
+  },
+  {
+   "name": "Ghirapur Orrery",
+   "qty": 1
+  },
+  {
+   "name": "Glacial Fortress",
+   "qty": 1
+  },
+  {
+   "name": "Hinterland Harbor",
+   "qty": 1
+  },
+  {
+   "name": "Illusionist's Gambit",
+   "qty": 1
+  },
+  {
+   "name": "Intellectual Offering",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 4
+  },
+  {
+   "name": "Jolly Gerbils",
+   "qty": 1
+  },
+  {
+   "name": "Jolrael, Mwonvuli Recluse",
+   "qty": 1
+  },
+  {
+   "name": "Kalonian Hydra",
+   "qty": 1
+  },
+  {
+   "name": "Kwain, Itinerant Meddler",
+   "qty": 1
+  },
+  {
+   "name": "Long River's Pull",
+   "qty": 1
+  },
+  {
+   "name": "Loran of the Third Path",
+   "qty": 1
+  },
+  {
+   "name": "Managorger Hydra",
+   "qty": 1
+  },
+  {
+   "name": "Mangara, the Diplomat",
+   "qty": 1
+  },
+  {
+   "name": "Marble Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Martial Impetus",
+   "qty": 1
+  },
+  {
+   "name": "Mind Stone",
+   "qty": 1
+  },
+  {
+   "name": "Moss Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Overflowing Basin",
+   "qty": 1
+  },
+  {
+   "name": "Perch Protection",
+   "qty": 1
+  },
+  {
+   "name": "Perplexing Test",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 4
+  },
+  {
+   "name": "Prairie Stream",
+   "qty": 1
+  },
+  {
+   "name": "Promise of Loyalty",
+   "qty": 1
+  },
+  {
+   "name": "Psychosis Crawler",
+   "qty": 1
+  },
+  {
+   "name": "Razorverge Thicket",
+   "qty": 1
+  },
+  {
+   "name": "Realm-Cloaked Giant // Cast Off",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Riot Control",
+   "qty": 1
+  },
+  {
+   "name": "Rishkar, Peema Renegade",
+   "qty": 1
+  },
+  {
+   "name": "Rites of Flourishing",
+   "qty": 1
+  },
+  {
+   "name": "Scrawling Crawler",
+   "qty": 1
+  },
+  {
+   "name": "Seachrome Coast",
+   "qty": 1
+  },
+  {
+   "name": "Seaside Citadel",
+   "qty": 1
+  },
+  {
+   "name": "Selvala, Explorer Returned",
+   "qty": 1
+  },
+  {
+   "name": "Simic Ascendancy",
+   "qty": 1
+  },
+  {
+   "name": "Sky Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Skycloud Expanse",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Solidarity of Heroes",
+   "qty": 1
+  },
+  {
+   "name": "Sphinx of Enlightenment",
+   "qty": 1
+  },
+  {
+   "name": "Spore Frog",
+   "qty": 1
+  },
+  {
+   "name": "Steelburr Champion",
+   "qty": 1
+  },
+  {
+   "name": "Sungrass Prairie",
+   "qty": 1
+  },
+  {
+   "name": "Sunpetal Grove",
+   "qty": 1
+  },
+  {
+   "name": "Sunscorch Regent",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Swords to Plowshares",
+   "qty": 1
+  },
+  {
+   "name": "Tamiyo, Field Researcher",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Enlightenment",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Mystery",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Plenty",
+   "qty": 1
+  },
+  {
+   "name": "Tempt with Bunnies",
+   "qty": 1
+  },
+  {
+   "name": "Tempt with Discovery",
+   "qty": 1
+  },
+  {
+   "name": "Tenuous Truce",
+   "qty": 1
+  },
+  {
+   "name": "Terramorphic Expanse",
+   "qty": 1
+  },
+  {
+   "name": "Terrasymbiosis",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 1
+  },
+  {
+   "name": "Thriving Grove",
+   "qty": 1
+  },
+  {
+   "name": "Thriving Heath",
+   "qty": 1
+  },
+  {
+   "name": "Thriving Isle",
+   "qty": 1
+  },
+  {
+   "name": "Triskaidekaphile",
+   "qty": 1
+  },
+  {
+   "name": "Vorinclex, Monstrous Raider",
+   "qty": 1
+  },
+  {
+   "name": "Wear Down",
+   "qty": 1
+  },
+  {
+   "name": "Yavimaya Coast",
+   "qty": 1
+  }
+ ],
+ "planAdds": [],
+ "planCuts": [
+  {
+   "name": "Communal Brewing",
+   "qty": 1
+  },
+  {
+   "name": "Martial Impetus",
+   "qty": 1
+  },
+  {
+   "name": "Triskaidekaphile",
+   "qty": 1
+  }
+ ],
+ "maybe": []
+}

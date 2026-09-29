@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "title": "Card quality orderings — within-class comparisons the quality model must reproduce",
+    "created": "2026-09-29",
+    "model": "engine2/quality.js (docs/25-card-quality.md)",
+    "kinds": {
+      "better": "q(better) > q(worse) in the class, by at least `margin` (default 0.02)",
+      "equal": "|q(a) − q(b)| ≤ `tol` (default 0.05) — functional reprints / near-identical cards"
+    },
+    "principles": {
+      "Q-COST": "Same effect, lower mana value is better",
+      "Q-BREADTH": "Same cost, wider targets are better (any permanent > creature > restricted creature)",
+      "Q-HARD": "A hard counter beats a soft (tax) counter; a small tax is worse than a big one",
+      "Q-TEMPO": "Untapped beats enters-tapped; instant beats sorcery for interaction",
+      "Q-RATE": "More cards / more mana per mana spent is better",
+      "Q-MASS": "Protection for the whole board beats protection for one card",
+      "Q-EQUAL": "Functional reprints score the same"
+    }
+  },
+  "orderings": [
+    { "id": "Q-01", "cls": "Removal", "better": "Swords to Plowshares", "worse": "Murder", "principle": "Q-COST" },
+    { "id": "Q-02", "cls": "Removal", "better": "Infernal Grasp", "worse": "Murder", "principle": "Q-COST" },
+    { "id": "Q-03", "cls": "Removal", "better": "Terminate", "worse": "Doom Blade", "principle": "Q-BREADTH" },
+    { "id": "Q-04", "cls": "Removal", "better": "Terminate", "worse": "Murder", "principle": "Q-COST" },
+    { "id": "Q-05", "cls": "Removal", "better": "Beast Within", "worse": "Murder", "principle": "Q-BREADTH" },
+    { "id": "Q-06", "cls": "Removal", "better": "Infernal Grasp", "worse": "Dreadbore", "principle": "Q-TEMPO", "note": "same cost; instant beats sorcery (Dreadbore's planeswalker reach is narrower value)" },
+    { "id": "Q-07", "cls": "Counterspell", "better": "Counterspell", "worse": "Cancel", "principle": "Q-COST" },
+    { "id": "Q-08", "cls": "Counterspell", "better": "Counterspell", "worse": "Mana Leak", "principle": "Q-HARD" },
+    { "id": "Q-09", "cls": "Counterspell", "better": "Counterspell", "worse": "Essence Scatter", "principle": "Q-BREADTH" },
+    { "id": "Q-10", "cls": "Counterspell", "better": "Counterspell", "worse": "Dazzling Denial", "principle": "Q-HARD" },
+    { "id": "Q-11", "cls": "Counterspell", "better": "Negate", "worse": "Spell Pierce", "principle": "Q-HARD", "note": "the chat: 'Negate and Sinister Sabotage do the job better'" },
+    { "id": "Q-12", "cls": "Counterspell", "better": "Arcane Denial", "worse": "Cancel", "principle": "Q-COST" },
+    { "id": "Q-13", "cls": "Ramp", "better": "Sol Ring", "worse": "Mind Stone", "principle": "Q-RATE" },
+    { "id": "Q-14", "cls": "Ramp", "better": "Arcane Signet", "worse": "Charcoal Diamond", "principle": "Q-TEMPO" },
+    { "id": "Q-15", "cls": "Ramp", "better": "Nature's Lore", "worse": "Rampant Growth", "principle": "Q-TEMPO" },
+    { "id": "Q-16", "cls": "Ramp", "better": "Cultivate", "worse": "Explosive Vegetation", "principle": "Q-COST" },
+    { "id": "Q-17", "cls": "Card Draw", "better": "Night's Whisper", "worse": "Divination", "principle": "Q-RATE" },
+    { "id": "Q-18", "cls": "Card Draw", "better": "Harmonize", "worse": "Divination", "principle": "Q-RATE" },
+    { "id": "Q-19", "cls": "Board Wipe", "better": "Toxic Deluge", "worse": "Languish", "principle": "Q-COST" },
+    { "id": "Q-20", "cls": "Board Wipe", "better": "Toxic Deluge", "worse": "Wrath of God", "principle": "Q-COST" },
+    { "id": "Q-21", "cls": "Protection", "better": "Heroic Intervention", "worse": "Tamiyo's Safekeeping", "principle": "Q-MASS" },
+    { "id": "Q-22", "cls": "Protection", "better": "Swiftfoot Boots", "worse": "Whispersilk Cloak", "principle": "Q-COST" },
+    { "id": "Q-23", "cls": "Protection", "better": "Teferi's Protection", "worse": "Tamiyo's Safekeeping", "principle": "Q-MASS" },
+    { "id": "Q-24", "cls": "Removal", "better": "Path to Exile", "worse": "Erode", "margin": 0.0, "principle": "Q-EQUAL", "note": "near-equal: both 1-mana exile/destroy-with-basic; Path's popularity edges it" }
+  ],
+  "equals": [
+    { "id": "QE-01", "cls": "Ramp", "a": "Llanowar Elves", "b": "Elvish Mystic", "principle": "Q-EQUAL" },
+    { "id": "QE-02", "cls": "Board Wipe", "a": "Wrath of God", "b": "Day of Judgment", "tol": 0.08, "principle": "Q-EQUAL" }
+  ]
+}

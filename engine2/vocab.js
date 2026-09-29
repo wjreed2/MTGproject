@@ -7,7 +7,8 @@
 // cannot drift between pipeline runs. Additive changes bump VOCAB_VERSION; breaking shape
 // changes to the IR itself bump IR_VERSION (in ir-schema.js).
 
-const VOCAB_VERSION = 4; // v4: + combat.goad, mill.opponent, mill.matters (precon-audit F1 gaps; pre-v4 rows lack them until re-extraction)
+const VOCAB_VERSION = 5; // v5: + vehicle.body, crew.source, vehicles.matter (gameplan directions; scripts/semantics-backfill-vehicles.js derives them for pre-v5 rows)
+// v4: + combat.goad, mill.opponent, mill.matters (precon-audit F1 gaps; pre-v4 rows lack them until re-extraction)
 
 // ── Effect AST ops ───────────────────────────────────────────────────────────
 // Each op's execution contract is specified in docs/engine2-ir-spec.md. The analysis layer
@@ -286,6 +287,9 @@ const AXES = {
   'monarch.initiative':    'becomes the monarch or takes the initiative',
   'flash.enabler':         'lets you act at instant speed (flash granters)',
   'haste.enabler':         'grants haste (needed by big finishers and combo creatures)',
+  'vehicle.body':          'is a Vehicle — an artifact that becomes a creature when crewed (NEEDS crew.source)',
+  'crew.source':           'bodies that can crew Vehicles — NEEDS only; provides are synthesized from creature type lines and creature-token output, never written',
+  'vehicles.matter':       'cares about Vehicles — Vehicle cost reduction, crew help, Vehicle attack/crew triggers (NEEDS vehicle.body)',
   'politics.deterrent':    'discourages attacks against you (Ghostly Prison style)',
   'combat.goad':           'goads creatures or otherwise forces opponents to attack (param: all|single)',
   'mill.opponent':         'mills opponents\' libraries',
@@ -328,7 +332,7 @@ function inVocab(listName, token) {
 // Axes whose PROVIDES are synthesized from the type line / faces at scoring time.
 // Model-authored provides on these are flagged by the validator and ignored by the
 // recommender; needs remain legitimate model output.
-const SYNTHESIZED_PROVIDE_AXES = new Set(['body.legendary', 'ability.activated']);
+const SYNTHESIZED_PROVIDE_AXES = new Set(['body.legendary', 'ability.activated', 'crew.source']);
 
 // "chosen type" / "chosen color" params mean the card ADAPTS to whatever the deck
 // wants (Cavern of Souls, Heraldic Banner) — they serve any concrete param and are

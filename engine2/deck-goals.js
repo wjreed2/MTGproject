@@ -17,6 +17,11 @@ const { axisLabel } = require('./explain');
 const TEMPLATES = require('./goal-templates');
 
 const COMMANDER_WEIGHT = 3;
+// Gifts the commander hands opponents (Ms. Bumbleflower's card per spell) are a cost
+// of its engine, not a statement of plan: they count once, like any card in the 99,
+// so the 99 decides whether the deck is group hug (docs/24 — direction comes from
+// what the deck spends the output on; the same commander leads a counters build).
+const COMMANDER_UNEMPHASISED = new Set(['draw.group', 'group.hug']);
 
 function axisHistogram(deckCards, commander) {
   const providers = {};   // axis → RANKING count: qty-aware, commander-emphasised (see add)
@@ -32,12 +37,13 @@ function axisHistogram(deckCards, commander) {
       // runs on provider counts, and a commander-defined theme (Thranduil's
       // graveyard) must not rank like a random 1-of supports it (mult is 1 for the
       // 99, COMMANDER_WEIGHT for the command zone — same rule the weights follow).
-      providers[p.axis] = (providers[p.axis] || 0) + qty * mult;
+      const m = COMMANDER_UNEMPHASISED.has(p.axis) ? 1 : mult;
+      providers[p.axis] = (providers[p.axis] || 0) + qty * m;
       // …but the emphasis is a ranking device, not a fact about the deck. Evidence and
       // the goal summary are shown to the user ("3 mill payoffs"), and a commander that
       // is the only provider of an axis must not be reported as three cards.
       cardCounts[p.axis] = (cardCounts[p.axis] || 0) + qty;
-      weight[p.axis] = (weight[p.axis] || 0) + (p.weight || 1) * mult * qty;
+      weight[p.axis] = (weight[p.axis] || 0) + (p.weight || 1) * m * qty;
       (byAxisCards[p.axis] = byAxisCards[p.axis] || []).push(card.name);
     }
     const seenTypes = new Set();

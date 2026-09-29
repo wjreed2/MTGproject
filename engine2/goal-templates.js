@@ -196,6 +196,22 @@ module.exports = [
     widthDamper: { bodies: 18, factor: 0.6 },
   },
   {
+    // Vehicles: artifacts that fight once crewed. The plan is Vehicle density plus a
+    // steady supply of crew bodies (creatures, creature tokens) and Vehicle payoffs.
+    key: 'vehicles', label: 'Vehicles',
+    verb: 'crew a fleet of Vehicles and attack with them',
+    core: [{ axes: ['vehicle.body'], min: 7 }],
+    support: ['vehicles.matter', 'token.creature', 'token.creature_wide', 'haste.enabler', 'artifacts.matter'],
+  },
+  {
+    // Group hug: hand everyone resources, stay friendly, and win on an alternate axis
+    // (punishers on opponents' draws, alt-win cards). Symmetric gifts ARE the plan here.
+    key: 'group-hug', label: 'Group hug',
+    verb: 'give every player resources and win off the table state you build',
+    core: [{ axes: ['group.hug', 'draw.group'], min: 8 }],
+    support: ['politics.deterrent', 'control.tax', 'wincon.alt', 'hate.draw', 'group.slug'],
+  },
+  {
     key: 'big-mana', label: 'Big mana',
     verb: 'ramp far past everyone and cash the mana into haymakers',
     core: [
