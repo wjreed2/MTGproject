@@ -1,0 +1,23 @@
+{
+  "meta": { "title": "Eval cycle 8 lock-ins (engine2/eval/cycles/8/triage.md)", "created": "2026-09-29" },
+  "principles": {
+    "P-REAL-TRIBE": "A creature type is a plan only when the 99 pays it off or the engine makes / eats it",
+    "P-COLOR": "Payoffs for colors (multicolored, black creature spells) need those colors",
+    "P-SAC": "Sacrifice fodder needs sacrifice outlets",
+    "P-OWN-BOARD": "A symmetric wipe is a poor add to a deck that wins by attacking with its creatures",
+    "P-WIDE": "A go-wide anthem needs a wide board"
+  },
+  "decks": {
+    "kozilek-eldrazi": "../decks/kozilek-eldrazi.json",
+    "rakdos-chaos": "../decks/rakdos-chaos.json",
+    "grazilaxx-scholar": "../decks/grazilaxx-scholar.json"
+  },
+  "assertions": [
+    { "id": "EV8-01", "deck": "kozilek-eldrazi", "kind": "direction", "expect": { "not_top": "tribal:Eldrazi" }, "confidence": "high", "principle": "P-REAL-TRIBE" },
+    { "id": "EV8-02", "deck": "kozilek-eldrazi", "kind": "anti_plan", "card": "Glass of the Guildpact", "expect": { "reasons": ["wrong_color"] }, "confidence": "high", "principle": "P-COLOR" },
+    { "id": "EV8-03", "deck": "kozilek-eldrazi", "kind": "adds_exclude", "expect": ["Glass of the Guildpact", "Bontu's Monument", "Coat of Arms", "Eldrazi Monument"], "confidence": "high", "principle": "P-WIDE" },
+    { "id": "EV8-04", "deck": "rakdos-chaos", "kind": "adds_exclude", "expect": ["Reassembling Skeleton", "Bloodghast", "Coat of Arms"], "confidence": "medium", "known_miss": "deck has 2+ cards that ask for sac fodder, so the engine sees a home; the judges disagree", "principle": "P-SAC" },
+    { "id": "EV8-05", "deck": "grazilaxx-scholar", "kind": "adds_exclude", "expect": ["Worldslayer", "Nevinyrral's Disk"], "confidence": "high", "principle": "P-OWN-BOARD" },
+    { "id": "EV8-06", "deck": "krenko-goblins", "kind": "not_anti_plan", "cards": ["Coat of Arms"], "confidence": "high", "principle": "P-WIDE", "note": "Krenko is wide" }
+  ]
+}

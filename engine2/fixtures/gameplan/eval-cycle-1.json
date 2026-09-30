@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "title": "Eval cycle 1 lock-ins — the classes of error the blind judge found (engine2/eval/cycles/1/triage.md)",
+    "created": "2026-09-29",
+    "note": "Each assertion pins a CLASS fix with one representative card; the class is named in `principle`."
+  },
+  "principles": {
+    "P-REACH": "A payoff scoped to a type/color/counter kind only converts or amplifies the engine when it names the engine's bodies (a Zombie lord does nothing for Rats)",
+    "P-WIDE": "A single-target carrier (Equipment, Aura) doesn't convert a wide output",
+    "P-SUPPORT": "Engine support is plan: untap/haste for a {T} engine, cost reducers for a cast engine, graveyard fillers for a graveyard engine, legend-breaking clones, draw-punishers for a gift engine, castable spell faces as fuel",
+    "P-SUBSTRATE": "A second engine or conditional payoff counts only if the deck supplies what it needs",
+    "P-CUT-QUALITY": "Surplus cuts come from the bottom of a class; top-quality cards and land-light ramp are kept",
+    "P-COLOR": "Category targets follow the colors: no Counterspell target without blue"
+  },
+  "decks": {
+    "krenko-goblins": "../decks/krenko-goblins.json",
+    "talrand-spellslinger": "../decks/talrand-spellslinger.json",
+    "atraxa-counters": "../decks/atraxa-counters.json"
+  },
+  "assertions": [
+    { "id": "EV1-01", "deck": "vren", "kind": "not_link", "card": "Gleaming Overseer", "expect": { "links": ["converter", "protection"] }, "confidence": "high", "principle": "P-REACH", "note": "Zombie lord / Zombie-token hexproof" },
+    { "id": "EV1-02", "deck": "vren", "kind": "not_link", "card": "Silver-Fur Master", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-REACH", "note": "Ninja / Rogue lord" },
+    { "id": "EV1-03", "deck": "vren", "kind": "not_link", "card": "Forsaken Monument", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-REACH", "note": "colorless anthem, black Rats" },
+    { "id": "EV1-04", "deck": "vren", "kind": "link", "card": "Marrow-Gnawer", "expect": { "link": "converter" }, "confidence": "high", "principle": "P-REACH", "note": "the Rat lord still converts" },
+    { "id": "EV1-05", "deck": "krenko-goblins", "kind": "not_link", "card": "Krang, Utrom Warlord", "expect": { "links": ["converter", "amplifier"] }, "confidence": "high", "principle": "P-REACH", "note": "\"Other artifact creatures you control have…\"" },
+    { "id": "EV1-06", "deck": "krenko-goblins", "kind": "not_link", "card": "Brotherhood Regalia", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-WIDE" },
+    { "id": "EV1-07", "deck": "krenko-goblins", "kind": "link", "card": "Thousand-Year Elixir", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-SUPPORT", "note": "untap/haste for a {T} engine" },
+    { "id": "EV1-08", "deck": "talrand-spellslinger", "kind": "link", "card": "Sapphire Medallion", "expect": { "link": "fuel_enabler" }, "confidence": "high", "principle": "P-SUPPORT" },
+    { "id": "EV1-09", "deck": "talrand-spellslinger", "kind": "not_link", "card": "Cyberdrive Awakener", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-REACH", "note": "artifact-creature evasion, blue Drakes" },
+    { "id": "EV1-10", "deck": "talrand-spellslinger", "kind": "not_link", "card": "Glaring Fleshraker", "expect": { "links": ["converter", "side_engine"] }, "confidence": "high", "principle": "P-REACH", "note": "colorless-only triggers" },
+    { "id": "EV1-11", "deck": "helga", "kind": "not_link", "card": "Tekuthal, Inquiry Dominus", "expect": { "links": ["amplifier"] }, "confidence": "high", "principle": "P-REACH", "note": "proliferate doubler; Helga places counters herself" },
+    { "id": "EV1-12", "deck": "helga", "kind": "not_link", "card": "Hulk, Strongest There Is", "expect": { "links": ["amplifier"] }, "confidence": "high", "principle": "P-REACH", "note": "Gamma counters" },
+    { "id": "EV1-13", "deck": "helga", "kind": "link", "card": "Up the Beanstalk", "expect": { "link": "side_engine" }, "confidence": "high", "principle": "P-SUPPORT", "note": "pays off the same MV 5+ casts" },
+    { "id": "EV1-14", "deck": "thranduil", "kind": "link", "card": "Dina's Guidance", "expect": { "link": "fuel_enabler" }, "confidence": "high", "principle": "P-SUPPORT", "note": "tutor to the graveyard for a graveyard engine" },
+    { "id": "EV1-15", "deck": "jyoti", "kind": "link", "card": "Sakashima of a Thousand Faces", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-SUPPORT", "note": "legend-rule-breaking clone" },
+    { "id": "EV1-16", "deck": "bumbleflower", "kind": "link", "card": "Scrawling Crawler", "expect": { "link": "converter" }, "confidence": "high", "principle": "P-SUPPORT", "note": "draw-punisher for an engine that gives opponents cards" },
+    { "id": "EV1-17", "deck": "bumbleflower", "kind": "not_anti_plan", "cards": ["Scrawling Crawler"], "confidence": "high", "principle": "P-SUPPORT" },
+    { "id": "EV1-18", "deck": "vraska-v2", "kind": "link", "card": "Emeritus of Conflict // Lightning Bolt", "expect": { "link": "fuel" }, "confidence": "high", "principle": "P-SUPPORT", "note": "the prepared spell side is a noncreature cast" },
+    { "id": "EV1-19", "deck": "vraska-v2", "kind": "anti_plan", "card": "Hallowed Haunting", "expect": { "reasons": ["unmet_condition"] }, "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV1-20", "deck": "vraska-v2", "kind": "not_link", "card": "Mirrodin Besieged", "expect": { "links": ["amplifier"] }, "confidence": "high", "principle": "P-SUBSTRATE", "note": "artifact-spell trigger in a list that barely casts artifacts" },
+    { "id": "EV1-21", "deck": "atraxa-counters", "kind": "direction", "expect": { "top": "poison", "not_top": "tribal:Phyrexian" }, "confidence": "high", "principle": "P-REACH", "note": "Atraxa is a Phyrexian; her engine is proliferate" },
+    { "id": "EV1-22", "deck": "atraxa-counters", "kind": "cuts_exclude", "expect": ["Arcane Signet"], "confidence": "high", "principle": "P-CUT-QUALITY", "note": "35 lands, four colors: the best ramp is never the surplus cut (open: with no weak cards elsewhere, the list still fills from the ramp floor)" },
+    { "id": "EV1-23", "deck": "krenko-goblins", "kind": "cuts_exclude", "expect": ["Chaos Warp"], "confidence": "medium", "principle": "P-CUT-QUALITY" },
+    { "id": "EV1-24", "deck": "krenko-goblins", "kind": "threshold", "expect": { "Counterspell": 0 }, "confidence": "high", "principle": "P-COLOR" },
+    { "id": "EV1-25", "deck": "krenko-goblins", "kind": "adds_exclude", "expect": ["Pyroblast", "Tibalt's Trickery"], "confidence": "high", "principle": "P-COLOR" }
+  ]
+}

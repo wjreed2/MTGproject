@@ -12,6 +12,8 @@ const { isWildcardParam, SYNTHESIZED_PROVIDE_AXES } = require('./vocab');
 const th = require('./thresholds');
 const GP = require('./gameplan');
 const Q = require('./quality');
+const R = require('./rules');
+const LW = require('./learned'); // optional learned signal weights — see engine2/learned.js
 
 // Deck cards per quality class, strongest first (engine2/quality.js). A reliable
 // rider (from the gameplan) waives a card's conditionality penalty.
@@ -22,6 +24,14 @@ function deckQualityTable(deckCards, gameplan) {
 
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
+// jobs where a better card is a straight swap for the deck's weakest one
+// Generic slot-filling signals vs card power (cycle-15 diagnosis: at the ≥70 bar
+// role_deficit, curve_fill and breadth rank filler up; power only counts on fitting cards)
+const FILLER_SCALE = Number(process.env.E2_FILLER ?? 0.3);
+const POWER_SLOPE = Number(process.env.E2_POWER ?? 24);
+const POWER_MAX = Number(process.env.E2_POWER_MAX ?? 8);
+const INTERACTION_JOBS = new Set(['Removal', 'Board Wipe', 'Counterspell']);
+const UPGRADE_JOBS = new Set(['Ramp', 'Card Draw', 'Removal', 'Board Wipe', 'Counterspell', 'Protection']);
 // Flat credit every candidate earns in a focused run (see scoreAdds). Sized to
 // clear the score>0.5 drop and the min-3 fit floor on its own, so a focused
 // category returns cards even when the deck already meets its target.
@@ -30,6 +40,14 @@ const FOCUS_PTS = 3.5;
 // Threshold categories that ARE interaction: their cards never earn synergy edges, so
 // cut scoring shields them harder while at/under target (precon audit F3).
 const INTERACTION_CATS = new Set(['Removal', 'Board Wipe', 'Counterspell', 'Protection']);
+// Categories whose slider gap reserves add slots (the deck's core jobs).
+const QUOTA_CATS = new Set(['Removal', 'Board Wipe', 'Ramp', 'Card Draw', 'Protection']);
+const CHEAP_KEEP_CATS = new Set(['Removal', 'Ramp', 'Card Draw', 'Counterspell', 'Protection']);
+// Format staples: the most-played cards doing a core job (EDHREC rank), for the staple gap.
+const STAPLE_RANK = 150;
+// Jobs whose surplus makes another piece "not needed" on the add side.
+const FULL_CATS = new Set(['Ramp', 'Card Draw', 'Protection']);
+const STAPLE_JOBS = new Set(['Removal', 'Ramp', 'Card Draw', 'Counterspell', 'Protection', 'Board Wipe']);
 // Categories whose cuts are capped at the role's overage (interaction plus draw — the
 // other package guides tell precon owners to grow, not shrink).
 const CAPPED_CUT_CATS = [...INTERACTION_CATS, 'Card Draw'];
@@ -50,6 +68,18 @@ const _ROLE_AXIS_FAMILY = {
 
 function isLandCard(c) {
   return /\bLand\b/.test(String(c.typeLine || '')) || (c.ir?.roles || []).includes('land');
+}
+
+// A fetch land that can only find basic types outside the deck's colors (Arid Mesa in
+// a Sultai deck) fetches nothing.
+const BASIC_COLOR = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' };
+function fetchesOffColor(cand, colors) {
+  if (!isLandCard(cand) || !Array.isArray(colors) || !colors.length) return false;
+  const text = R.abilitiesOf(cand.ir).map(a => a.text || '').join(' ');
+  const m = /search your library for (?:an? |up to \w+ )?((?:(?:basic )?(?:Plains|Island|Swamp|Mountain|Forest)(?: or |, |, or )?)+)(?: card)/i.exec(text);
+  if (!m) return false;
+  const types = [...m[1].matchAll(/Plains|Island|Swamp|Mountain|Forest/gi)].map(x => BASIC_COLOR[x[0].toLowerCase()]);
+  return types.length > 0 && !types.some(c => colors.includes(c));
 }
 
 function bucketOf(cmc) { return Math.min(Math.max(Math.floor(Number(cmc) || 0), 0), 7); }
@@ -625,6 +655,12 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
   const massAggressor = (n) => (nonboCount.get(n) || 0) >= 3;
 
   const qTable = deckQualityTable(deckCards, gameplan);
+  // Ramp need moves with the land count: a 35-land deck leans on its ramp (cycle-1
+  // eval: Atraxa's Farseek / Nature's Lore cut as "surplus" at 35 lands).
+  const landCount = deckCards.filter(c => isLandCard(c)).reduce((s, c) => s + (c.qty || 1), 0);
+  // Four- and five-color decks lean on ramp for fixing too.
+  const nColors = (commander?.ci || []).length;
+  const needOf = cat => (thresholds[cat] || 0) + (cat === 'Ramp' ? Math.max(0, 37 - landCount) + Math.max(0, nColors - 3) : 0);
   const scored = [];
   for (const c of nonLand) {
     if (!c.ir) continue; // no semantics — never suggest cutting blind
@@ -644,7 +680,9 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
       trace.push(...ev.cutTrace);
       for (const [piece, cov] of Object.entries(gameplan.critical || {})) {
         if ((cov.counts || []).includes(c.name) && (cov.counts || []).length <= 5) {
-          score += 4; trace.push({ kind: 'plan_critical', piece, have: cov.counts.length, pts: 4 });
+          // the thinner the piece, the harder the shield (Tannuk as one of two haste sources)
+          const pts = Math.max(4, 10 - cov.counts.length);
+          score += pts; trace.push({ kind: 'plan_critical', piece, have: cov.counts.length, pts });
         }
       }
     }
@@ -653,6 +691,9 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
     // by its partner's role — the engine fully, chain pieces at 0.6, anything else 0.1.
     // Card quality within its job (engine2/quality.js): with 3+ cards doing the same
     // job, the weakest is the natural cut and the strongest is worth keeping.
+    // worst = 0 for the best card in its class … 1 for the weakest (surplus cuts
+    // come from the bottom of the class, never the top).
+    let worst = 0.5;
     {
       const cls = Q.classesOf(c)[0];
       const list = cls && qTable.get(cls);
@@ -660,8 +701,18 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
         const i = list.findIndex(x => x.name === c.name);
         const mean = list.reduce((s, x) => s + x.q, 0) / list.length;
         if (i >= 0) {
+          worst = i / (list.length - 1);
           const pts = Math.round(Math.max(-3, Math.min(3, (list[i].q - mean) * 8)) * 100) / 100;
           if (Math.abs(pts) >= 0.1) { score += pts; trace.push({ kind: 'quality', cls, q: list[i].q, rank: i + 1, of: list.length, pts }); }
+          // a top-quality card at its job is never a surplus cut (Arcane Signet), nor is
+          // the top quarter of a deep class (Chaos Warp among 16 removal spells)
+          // Cheap, efficient interaction and ramp (Farseek, Erode, Brainstorm, Blossoming
+          // Defense) are what every list keeps: a floor that plan credit can't bury.
+          const againstPlan = (gameplan?.deckEval?.get(c.name)?.anti || []).some(r => r !== 'no_fuel');
+          if (CHEAP_KEEP_CATS.has(cls) && (Number(c.cmc) || 0) <= 2 && list[i].q >= 0.6 && !againstPlan) {
+            score += 2.5; trace.push({ kind: 'quality_cheap', cls, q: list[i].q, pts: 2.5 });
+          }
+          if (list[i].q >= 0.75 || (list.length >= 4 && i < list.length / 4 && list[i].q >= 0.65)) { score += 3; trace.push({ kind: 'quality_shield', cls, q: list[i].q, pts: 3 }); }
         }
       }
     }
@@ -686,13 +737,21 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
     // removal/protection/counters structurally have no synergy edges, so role adequacy
     // is most of what keeps them out of the cut list (precon audit F3).
     const cats = new Set((c.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
+    let surplusTaken = false; // one surplus per card — a ramp+draw card isn't doubly spare
     for (const cat of cats) {
       const have = roleCounts[cat] || 0;
-      const need = thresholds[cat] || 0;
+      const need = needOf(cat);
       const afterCut = have - (c.qty || 1);
       const shieldMult = INTERACTION_CATS.has(cat) ? 3 : 2;
       if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * shieldMult; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
-      else { const pts = -Math.min(3, afterCut - need) * 0.5; score += pts; trace.push({ kind: 'role_surplus', cat, have, need, pts }); }
+      // Under 37 lands the swap is "cut a weak spell, add a land" — ramp is what's
+      // holding the mana together, never the cut (cycle-3: Atraxa, Ur-Dragon, Korvold).
+      if (cat === 'Ramp' && landCount < 37) { const pts = Math.min(8, 3 * (37 - landCount)); score += pts; trace.push({ kind: 'role_protects', cat, land_light: landCount, have, need, pts }); }
+      else {
+        // surplus pressure lands on the class's weakest cards
+        const pts = Math.round(-Math.min(3, afterCut - need) * 0.5 * (0.3 + 1.4 * worst) * 100) / 100;
+        if (pts && !surplusTaken) { surplusTaken = true; score += pts; trace.push({ kind: 'role_surplus', cat, have, need, pts }); }
+      }
     }
 
     // goal alignment: provides toward the top goal's axes
@@ -785,12 +844,12 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
   }
   kept.sort((a, b) => a.contribution - b.contribution);
   const cuttable = kept;
-  // A deck 16 over needs at least 16 candidates — the fixed count only fits mild
-  // overages. Scale with how far over 100 the analyzed list is (cap keeps the
-  // panel reviewable; the analyzed list already includes planned adds when the
-  // caller analyzes the projected build).
+  // Cuts are for the cards OVER 100 — exactly that many (Will, 2026-09-29): a legal
+  // 100-card list gets none, a 104-card list gets its 4 weakest. The analyzed list
+  // already includes planned adds when the caller analyzes the projected build.
+  // `limit` overrides (the fixture runner ranks a fixed window to test cut quality).
   const deckTotal = deckCards.reduce((s, c) => s + (c.qty || 1), 0) + (commander ? 1 : 0);
-  const cutCount = limit || Math.max(CUT_COUNT, Math.min(24, (deckTotal - 100) + 4));
+  const cutCount = limit != null ? limit : Math.max(0, deckTotal - 100);
   // score IS the signed contribution (what the card does for this deck): most
   // negative first = strongest cut. The breakdown lines sum to exactly this
   // number — a "4.9" badge over lines summing to −4.9 read as a bug.
@@ -813,7 +872,47 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   const index = deckAxisIndex(deckCards, commander);
   const wanted = wantedAxes(topGoal?.goal, hist, index, templates, goals);
   const planAxes = deckPlanAxes(goals, templates);
-  const deckNames = new Set(deckCards.map(c => c.name).concat(commander ? [commander.name] : []));
+  // Front-face names too: a deck lists "Bloodline Keeper", the pool row is
+  // "Bloodline Keeper // Lord of Lineage" — the same card, never an add.
+  const nonlandCards = deckCards.filter(c => !isLandCard(c));
+  const avgNonlandCmc = nonlandCards.reduce((s, c) => s + (Number(c.cmc) || 0), 0) / Math.max(1, nonlandCards.length);
+  // the curve's middle — a few 7-drop reveal targets (Yuriko) shouldn't hide a tempo deck
+  const medianNonlandCmc = (() => { const v = nonlandCards.map(c => Number(c.cmc) || 0).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : 3; })();
+  // Category need on the add side — ramp moves with lands and colors like on cuts,
+  // and drops for a low-curve deck (a tempo list wants 5-6 ramp pieces, not 10).
+  const addLandCount = deckCards.filter(c => isLandCard(c)).reduce((s, c) => s + (c.qty || 1), 0);
+  const addNeedOf = cat => (thresholds?.[cat] || 0) + (cat === 'Ramp'
+    ? (medianNonlandCmc <= 2 ? -4 : Math.max(0, 37 - addLandCount)) + Math.max(0, (commander?.ci || []).length - 3) : 0);
+  const front = n => String(n || '').split(' // ')[0];
+  // lands / rocks that make {C} (Wastes, Eldrazi Temple, Sol Ring)
+  const colorlessSources = deckCards.filter(c => R.abilitiesOf(c.ir).some(a => a.kind === 'mana' && /\{C\}/.test(a.text || ''))).reduce((s, c) => s + (c.qty || 1), 0);
+  const deckCreatures = deckCards.filter(c => /\bCreature\b/.test(String(c.typeLine || '').split('//')[0])).reduce((s, c) => s + (c.qty || 1), 0);
+  // the deck's deepest creature type by type line (a 20-Rat deck is wide enough for a lord)
+  const deepestTribe = (() => {
+    const m = new Map();
+    for (const c of deckCards) {
+      const tl = String(c.typeLine || '').split('//')[0];
+      if (!/\bCreature\b/.test(tl)) continue;
+      for (const t of (tl.split('—')[1] || '').trim().split(/\s+/).filter(Boolean)) m.set(t, (m.get(t) || 0) + (c.qty || 1));
+    }
+    return Math.max(0, ...m.values());
+  })();
+  // creature types in play here: every type in the deck + candidate pool type lines
+  const typeCount = new Map();
+  for (const c of deckCards) {
+    const tl = String(c.typeLine || '').split('//')[0];
+    if (/\bCreature\b/.test(tl)) for (const t of (tl.split('—')[1] || '').trim().split(/\s+/).filter(Boolean)) typeCount.set(t, (typeCount.get(t) || 0) + (c.qty || 1));
+  }
+  const knownTypes = new Set();
+  for (const c of [...deckCards, ...(candidates || [])]) {
+    const tl = String(c.typeLine || '').split('//')[0];
+    if (/\bCreature\b/.test(tl)) for (const t of (tl.split('—')[1] || '').trim().split(/\s+/)) if (t) knownTypes.add(t);
+  }
+  const deckHas = re => deckCards.filter(c => (c.ir?.provides || []).some(p => re.test(p.axis))).length;
+  // a deck that can cast 7-drops: a big-mana plan, a mana engine, or a mountain of ramp
+  const bigManaDeck = (goals || []).slice(0, 2).some(g => ['big-mana', 'stompy', 'reanimator'].includes(g.goal))
+    || (gameplan?.output || []).some(o => o.kind === 'mana') || (roleCounts?.Ramp || 0) >= 16;
+  const deckNames = new Set(deckCards.map(c => c.name).concat(commander ? [commander.name] : []).flatMap(n => [n, front(n)]));
 
   const nonLand = deckCards.filter(c => !isLandCard(c) && !c.isCommander);
   const curveCounts = Array(8).fill(0);
@@ -838,6 +937,13 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   if (confidentGoals.includes('big-mana')) mvCeiling += 2.5;
   else if (confidentGoals.includes('reanimator')) mvCeiling += 2;
   else if (confidentGoals.includes('stompy')) mvCeiling += 1.5;
+  // The plan's own mana: an engine that makes mana (Helga's X, Vraska's Treasures)
+  // lifts the ceiling, and big-spell fuel (MV ≥ 4 creatures) is the point, not a risk.
+  if (gameplan?.commanderCentric) {
+    if (gameplan.output.some(o => o.kind === 'mana' || (o.kind === 'tokens' && /treasure/i.test(o.sub || '')))) mvCeiling += 1;
+    const bigFuel = gameplan.fuel.find(s => s.kind === 'cast' && s.mv && /^>/.test(s.mv.op));
+    if (bigFuel) mvCeiling = Math.max(mvCeiling, bigFuel.mv.n + 2.5);
+  }
   mvCeiling = Math.round(mvCeiling * 10) / 10;
 
   // Whether this deck values loot (see roleQuality): strong demand for discards.
@@ -871,7 +977,12 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   const qTable = deckQualityTable(deckCards, gameplan);
   const scored = [];
   for (const cand of candidates) {
-    if (!cand.ir || deckNames.has(cand.name)) continue;
+    if (!cand.ir || deckNames.has(cand.name) || deckNames.has(front(cand.name))) continue;
+    if (fetchesOffColor(cand, commander?.ci)) continue;
+    // "any color in your commander's color identity" makes nothing under a colorless
+    // commander (Arcane Signet, Command Tower in Kozilek)
+    if (commander?.ci && commander.ci.length === 0 && Array.isArray(commander.ci)
+      && R.abilitiesOf(cand.ir).some(a => a.kind === 'mana' && /commander's color identity/i.test(a.text || ''))) continue;
     if (maxPrice != null && cand.price != null && cand.price > maxPrice) continue; // hard cap only when set
     // Roles are param-blind, so a role whose backing axes are ALL context-excluded
     // earns nothing (Higure's 'tutor' role is tutor.creature(Ninja); in a Rat deck
@@ -941,12 +1052,140 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       }
     }
 
+    // Card power (engine-native, no EDHREC): what the card does for its mana — the
+    // difference between a great card and on-plan filler (eval rounds 12–13: the ≥70
+    // cards were not separated from 50–69 by any plan signal).
+    if (cand.ir.power_level_hint != null) { // no extracted power data → neutral, not weak
+      const pw = Q.cardPower(cand);
+      const pts = Math.round(Math.max(-3, Math.min(POWER_MAX, (pw - 0.55) * (pw >= 0.55 ? POWER_SLOPE : 8))) * 100) / 100;
+      if (Math.abs(pts) >= 0.1) { score += pts; trace.push({ kind: 'quality_power', power: pw, pts }); }
+    }
+
     // Gameplan first (docs/24): its reasons lead the Why panel — "Feeds Vraska —
     // noncreature spells", "Bonus always on — Vraska is a Wizard", "Copies aren't cast".
     if (gameplan) {
       const ev = GP.evaluateCard(gameplan, cand);
+      // A structural anti-plan reason (copies never cast, a gift to every player, a
+      // payoff for a tribe the deck doesn't have, self-harm) means the card works
+      // against THIS deck — it isn't a suggestion at all (cycle-6 eval: Coat of Arms,
+      // Chronicle of Victory still reached the list on their other points).
+      if (!raw && ev.anti.some(r => GP.STRUCTURAL_ANTI.has(r))) continue;
       score += ev.pts;
       trace.push(...ev.trace);
+      // A chain link's worth IS its plan role — a low generic power read (Spark Double
+      // copying Jyoti, Nature's Revolt animating every land) mustn't bury it.
+      if (ev.trace.some(t => (t.pts || 0) > 0 && /^plan_(fuel|amplifier|converter|critical|combo|side_engine)$/.test(t.kind))) {
+        const qp = trace.find(t => t.kind === 'quality_power' && t.pts < 0);
+        if (qp) { score -= qp.pts; qp.pts = 0; }
+      }
+      // Tutors find the engine's pieces: a creature tutor in a creature-engine deck,
+      // an any-card tutor where the plan has critical pieces or a combo.
+      {
+        const prov = cand.ir.provides || [];
+        const creatureTutor = prov.some(p => p.axis === 'tutor.creature' && !p.param) && deckCreatures >= 22;
+        const anyTutor = prov.some(p => p.axis === 'tutor.any') && ((gameplan.comboPieces?.size || 0) > 0 || Object.keys(gameplan.critical || {}).length > 0 || gameplan.commanderCentric);
+        if ((creatureTutor || anyTutor) && gameplan.engine && Q.classesOf(cand)[0] === 'Tutor') { score += 3; trace.push({ kind: 'plan_tutor', engine: gameplan.engine.card, pts: 3 }); }
+      }
+    }
+
+    // Substrate (cycle-6 eval): the card needs something to work with in THIS deck —
+    // a rock where ramp is short, counters for a mana sink, tokens for a token payoff,
+    // artifacts for an artifact tutor, death payoffs for a sac outlet, mana for a 7-drop.
+    {
+      const prov = cand.ir.provides || [];
+      const txt = R.abilitiesOf(cand.ir).map(a => a.text || '').join(' ');
+      const typeLine = String(cand.typeLine || '');
+      const pen = (why, pts) => { score += pts; trace.push({ kind: 'thin_substrate', why, pts }); };
+      const planOut = k => (gameplan?.output || []).some(o => o.kind === k);
+      // an engine that makes Treasure (Vraska's Sculptures) is ramp the role count misses
+      const engineRamp = (gameplan?.output || []).some(o => o.kind === 'mana' || (o.kind === 'tokens' && /treasure/i.test(o.sub || ''))) ? 4 : 0;
+      const rampShort = addNeedOf('Ramp') - (roleCounts.Ramp || 0) - engineRamp;
+      if (/\bArtifact\b/.test(typeLine) && !/\bCreature\b/.test(typeLine) && prov.some(p => p.axis === 'mana.rock')
+        && (Number(cand.edhrecRank) || 99999) > 10
+        // a rock that doesn't fix colors is a poor rock in a 3+ color deck (Thought Vessel in Edgar)
+        && (rampShort < 2 || (roleCounts.Ramp || 0) + engineRamp >= 8
+          || ((commander?.ci || []).length >= 3 && !prov.some(p => p.axis === 'mana.color_fix')))) pen('plain_rock', -4);
+      if (Q.classesOf(cand)[0] === 'Ramp' && (Number(cand.cmc) || 0) >= 4 && avgNonlandCmc <= 2.8) pen('slow_ramp', -3);
+      if (prov.some(p => p.axis === 'infinite.mana_sink') && deckHas(/^counters\.(plus1|plus1_mass|doubler|proliferate)$/) < 5
+        && !planOut('mana') && !planOut('counters') && !(gameplan?.comboPieces?.size)
+        // an X spell is a one-time sink, not a permanent that needs counters to matter (Stroke of Genius);
+        // a plan piece is judged by the plan (Crypt Rats in Vren)
+        && !/\b(?:Instant|Sorcery)\b/.test(typeLine) && !trace.some(t => (t.pts || 0) > 0 && /^plan_(fuel|amplifier|converter|critical)$/.test(t.kind))) pen('no_sink', -7);
+      if ((prov.some(p => ['token.doubler', 'token.payoff'].includes(p.axis)) || /whenever you create (?:one or more )?(?:a )?tokens?|created a token this turn|tokens? you control (?:leaves|dies)/i.test(txt))
+        && deckHas(/^token\.(creature|creature_wide|treasure|clue|food)$/) < 8 && !planOut('tokens')) pen('few_tokens', -5);
+      if (prov.some(p => p.axis === 'counters.doubler') && deckHas(/^counters\.(plus1|plus1_mass|poison|proliferate)$/) < 8 && !planOut('counters')) pen('few_counters', -3);
+      if ((prov.some(p => /^(tutor|gy)\./.test(p.axis) && /artifact/i.test(String(p.param || '')) || p.axis === 'tutor.artifact')
+          || /artifact card with mana cost \{0\}|return target artifact card/i.test(txt))
+        && deckCards.filter(c => /\bArtifact\b/.test(String(c.typeLine || ''))).length < 15) pen('few_artifacts', -4);
+      if (prov.some(p => /^sac\.outlet/.test(p.axis)) && deckHas(/^(trigger\.death_payoff|drain\.incremental|creatures_dying)$/) < 5
+        && !(gameplan?.fuel || []).some(f => f.kind === 'event' && ['dies', 'sacrifice'].includes(f.event))) pen('no_sac_payoff', -4);
+      if (Q.effectiveMV(cand) >= 7 && !bigManaDeck) pen('seven_drop', -3);
+      // sacrifice fodder needs outlets (Bloodghast, Reassembling Skeleton in a deck with none)
+      if (prov.some(p => ['sac.fodder', 'loop.death_recursion'].includes(p.axis)) && !prov.some(p => /^sac\.outlet/.test(p.axis))
+        && deckHas(/^sac\.outlet/) < 3 && !(gameplan?.fuel || []).some(f => f.kind === 'event' && ['dies', 'sacrifice'].includes(f.event))
+        && !(commander?.ir?.needs || []).some(n => ['sac.fodder', 'creatures_dying'].includes(n.axis))
+        // an outlet in the deck that asks for fodder is a home for it
+        && deckCards.filter(c => (c.ir?.needs || []).some(n => n.axis === 'sac.fodder' && n.criticality !== 'helps')).length < 2) pen('no_sac_outlet', -7);
+      // a wipe that kills your own army when the deck wins by attacking with creatures
+      // (cycle-14: Chain Reaction / Jennika's Technique in Zada's token deck, Meathook in Yuriko)
+      // (never a planeswalker deck — Supreme Verdict and Ugin protect Guff's walkers)
+      const goesWide = String(gameplan?.direction?.top || '') !== 'superfriends' && (deckCreatures >= 28 || planOut('tokens')
+        || deckHas(/^token\.(creature|creature_wide)$/) >= 8 || (gameplan?.fuel || []).some(f => f.kind === 'combat'));
+      // judge the sweeping ability itself (Meathook's "each opponent loses 1 life" is a drain, not a one-sided wipe)
+      const wipeTxt = R.abilitiesOf(cand.ir).map(a => a.text || '').filter(t => /\b(?:all|each) (?:other )?(?:creatures?|nonland permanents?|permanents?)\b|\bnonland permanents?\b/i.test(t)).join(' ') || txt;
+      if (prov.some(p => p.axis === 'removal.wipe') && goesWide
+        && !/you don't control|your opponents control|opponents control|each opponent/i.test(wipeTxt)
+        && !/greater than|or greater|power \d|toughness \d|pay X life|choose/i.test(wipeTxt)) pen('wipes_own_board', -7);
+      // a go-wide anthem needs a wide board (Coat of Arms, Eldrazi Monument in Kozilek)
+      if (prov.some(p => ['anthem.global', 'tribal.lord'].includes(p.axis) && !p.param) && !planOut('tokens')
+        && deckHas(/^token\.(creature|creature_wide)$/) < 8 && deckCreatures < 25 && deepestTribe < 15) pen('not_wide', -4);
+      // "sacrifice a creature each upkeep" (Eldrazi Monument) needs a token supply
+      if (/at the beginning of your upkeep, sacrifice a creature/i.test(txt) && !planOut('tokens')
+        && deckHas(/^token\.(creature|creature_wide)$/) < 8) pen('feeds_on_tokens', -7);
+      // counterspell-shaped cards in a deck with no counterspell slot (Chalice of the
+      // Void, Vexing Bauble in Rakdos)
+      if ((Q.classesOf(cand)[0] === 'Counterspell' || prov.some(p => p.axis === 'control.counter' && (p.weight || 1) >= 3))
+        && (thresholds?.Counterspell || 0) === 0) pen('no_counter_slot', -12);
+      // tribal glue without a tribe (Maskwood Nexus in Atraxa)
+      if (prov.some(p => ['tribal.synergy', 'tribal.lord'].includes(p.axis) && !p.param) && deepestTribe < 12
+        && !String(goals?.[0]?.goal || '').startsWith('tribal:')) pen('no_tribe', -5);
+      // needs a creature type the deck barely runs (Jerren's Humans, Ravenous Rotbelly's Zombies)
+      for (const m of txt.matchAll(/\bsacrifice (?:up to )?(?:a|an|one|two|three|X|any number of) ([A-Z][a-z]+)s?\b|\b(?:nontoken )?([A-Z][a-z]+)s? you control\b/g)) {
+        const t = m[1] || m[2];
+        if (!t || !knownTypes.has(t) || t === cand.name.split(/[ ,]/)[0]) continue;
+        if ((typeCount.get(t) || 0) < 5) { pen('missing_tribe', -5); break; }
+      }
+      // artifact-conversion / artifact-count payoffs need artifacts (Bludgeon Brawl, Liquimetal Torque)
+      if (/noncreature artifacts? you control|each artifact you control|target (?:nonland )?permanent becomes an artifact|artifact creatures? you control/i.test(txt)
+        && deckCards.filter(c => /\bArtifact\b/.test(String(c.typeLine || ''))).length < 15) pen('few_artifacts', -4);
+      // lifegain payoffs need lifegain (Well of Lost Dreams in Kozilek)
+      if (prov.some(p => p.axis === 'lifegain.payoff') && deckHas(/^lifegain\.source$/) < 6
+        && !(commander?.ir?.provides || []).some(p => p.axis === 'lifegain.source')) pen('no_lifegain', -6);
+      // metalcraft needs three artifacts on the battlefield (Mox Opal in Edgar, Phenax)
+      if (/metalcraft|three or more artifacts/i.test(txt) && deckCards.filter(c => /\bArtifact\b/.test(String(c.typeLine || ''))).length < 15) pen('few_artifacts', -6);
+      // Skullclamp-style equipment needs X/1 bodies to clamp (big Dragons, Eldrazi, Demons)
+      if (/equipped creature gets [+-]?\d+\/-1\b/i.test(txt)) {
+        const smalls = deckCards.filter(c => /\bCreature\b/.test(String(c.typeLine || '').split('//')[0]) && parseInt(c.ir?.faces?.[0]?.pt?.toughness, 10) <= 1).length
+          + deckHas(/^token\.(creature|creature_wide)$/);
+        if (smalls < 10 && !planOut('tokens')) pen('no_fodder', -6);
+      }
+      // a one-shot ritual is card disadvantage outside a spells/storm plan (Dark Ritual in Rev, Obeka)
+      if (prov.some(p => p.axis === 'mana.ritual' && p.rate === 'once') && !isLandCard(cand) && Q.classesOf(cand)[0] === 'Ramp'
+        && !(gameplan?.fuel || []).some(f => f.kind === 'cast' && /instant|sorcery|noncreature|spell/i.test(JSON.stringify(f))))
+        pen('ritual', -4);
+      // "enters tapped → untap it" needs tapped lands (Amulet of Vigor in Obeka)
+      if (/enters tapped, untap it|enters the battlefield tapped, untap it/i.test(txt)
+        && deckCards.filter(c => R.abilitiesOf(c.ir).some(a => /enters (?:the battlefield )?tapped/i.test(a.text || ''))).length < 8) pen('few_tapped', -5);
+      // extra upkeeps multiply upkeep COSTS too (Mystic Remora, Pact of Negation in Obeka)
+      if (planOut('upkeeps') && /cumulative upkeep|at the beginning of your next upkeep,? pay/i.test(txt)) pen('upkeep_cost', -7);
+      // lock pieces (Chalice of the Void) belong in lock decks
+      if ((cand.ir.roles || []).includes('stax') && !/\byour opponents\b|\bopponents can't\b|\beach opponent\b|\ban opponent\b/i.test(txt) && deckCards.filter(c => (c.ir?.roles || []).includes('stax')).length < 4) pen('stax_piece', -5);
+      // {C} pips need colorless sources (Kozilek's Command in a deck of Mountains)
+      const cPips = (String(cand.ir?.faces?.[0]?.mana_cost || '').match(/\{C\}/g) || []).length;
+      if (cPips && colorlessSources < 4 * cPips) pen('colorless_pips', -6);
+      // a low-curve tempo deck (Yuriko) casts cheap spells, not mana rocks
+      if ((avgNonlandCmc <= 2.6 || medianNonlandCmc <= 2) && Q.classesOf(cand)[0] === 'Ramp' && !isLandCard(cand) && /\bArtifact\b/.test(typeLine) && !/\bCreature\b/.test(typeLine) && (Number(cand.edhrecRank) || 99999) > 3) pen('tempo_no_rocks', -4);
+
     }
 
     // capability fill: provides an axis the deck wants. Synthesized identity facts
@@ -1144,9 +1383,46 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       if (cat === 'Recursion' && cmdrGyConsumer) continue;
       const deficit = (thresholds[cat] || 0) - (roleCounts[cat] || 0);
       if (deficit > 0) {
-        const pts = Math.round(Math.min(deficit, 5) * roleQuality(cat) * 100) / 100;
+        // a 1-damage pinger is barely removal (Walking Ballista filled Removal gaps in
+        // 11 decks; judges approved it in 10 of 24 ratings)
+        const pingOnly = cat === 'Removal' && R.abilitiesOf(cand.ir).some(a => /deals? 1 damage to any target/i.test(a.text || ''))
+          && !R.abilitiesOf(cand.ir).some(a => /\bdestroy\b|\bexile target\b|deals? (?:[2-9]|\d{2,}|X) damage|-\d+\/-\d+/i.test(a.text || ''));
+        const pts = Math.round(Math.min(deficit, 5) * roleQuality(cat) * (pingOnly ? 0.3 : 1) * FILLER_SCALE * 100) / 100;
         if (pts > 0.05) { score += pts; trace.push({ kind: 'role_deficit', cat, deficit, pts }); }
       }
+    }
+    // Role full (cycle-5 eval: Fellwar Stone in 8 ramp-rich lists, Thought Vessel, a
+    // second pair of Boots): a card whose MAIN job the deck already covers at or past
+    // its target is a 13th ramp piece — the judge's "not needed".
+    {
+      const job = /\bPlaneswalker\b/.test(String(cand.typeLine || '')) ? null : Q.classesOf(cand)[0];
+      if (job && FULL_CATS.has(job)) {
+        const over = (roleCounts[job] || 0) - addNeedOf(job);
+        // (cycle-15: Smothering Tithe, Brainstorm, Consecrated Sphinx — the judges' missing cards)
+        const upgrade = trace.some(t => t.kind === 'quality_upgrade' && t.cls === job && t.pts >= 1);
+        if (over >= 0 && !upgrade) {
+          const pts = -Math.round((1.5 + 0.5 * Math.min(4, over)) * 100) / 100;
+          score += pts; trace.push({ kind: 'role_full', cat: job, have: roleCounts[job] || 0, need: addNeedOf(job), pts });
+        }
+      }
+    }
+    // Protection gear the deck can't use well: a second haste/protection equipment,
+    // equipment for a commander that returns to hand (ninjutsu), shroud when the deck
+    // targets its own creatures (auras, equipment, Bumbleflower's counters).
+    const protGear = c => /\bEquipment\b/.test(String(c.typeLine || '')) && ((c.ir?.provides || []).some(p => /^protection\./.test(p.axis))
+      || R.abilitiesOf(c.ir).some(x => /equipped creature (?:has|gains) [^.]*\b(?:shroud|hexproof|indestructible)\b/i.test(x.text || '')));
+    if (protGear(cand)) {
+      const gearInDeck = deckCards.filter(protGear).length;
+      const shroud = R.abilitiesOf(cand.ir).some(a => /\b(?:has|have|gains?)\b[^.]*\bshroud\b/i.test(a.text || ''));
+      const ownTargets = deckCards.filter(c => /\bAura\b|\bEquipment\b/.test(String(c.typeLine || ''))).length >= 6
+        || R.abilitiesOf(commander?.ir).some(a => /target creature you control|target (?:another )?creature|on target creature/i.test(a.text || ''));
+      const bounces = R.abilitiesOf(commander?.ir).some(a => /ninjutsu/i.test(a.text || ''));
+      // eminence works from the command zone — the commander never needs to be cast or protected (Edgar)
+      const eminence = R.abilitiesOf(commander?.ir).some(a => /eminence|in the command zone or on the battlefield/i.test(a.text || ''));
+      const why = bounces ? 'returns_to_hand' : eminence ? 'commander_in_zone' : shroud && ownTargets ? 'shroud_blocks_own' : gearInDeck >= 1 ? 'already_has_gear' : null;
+      // equipment on a commander that bounces itself is dead weight, whatever else it does
+      const pts = why === 'returns_to_hand' || why === 'commander_in_zone' || why === 'shroud_blocks_own' ? -6 : -3;
+      if (why) { score += pts; trace.push({ kind: 'role_full', cat: 'Protection', gear: why, pts }); }
     }
     // Focused category: a standing appetite worth the same to every survivor, so
     // ordering inside the focused pool is still decided by real signal.
@@ -1158,7 +1434,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (!isLandCard(cand)) {
       const b = bucketOf(cand.cmc);
       const underBy = idealW[b] - (curveCounts[b] / curveTotal);
-      if (underBy > 0.02) { const pts = Math.min(underBy * 15, 1.5); score += pts; trace.push({ kind: 'curve_fill', bucket: b, pts }); }
+      if (underBy > 0.02) { const pts = Math.min(underBy * 15, 1.5) * FILLER_SCALE; score += pts; trace.push({ kind: 'curve_fill', bucket: b, pts }); }
       // the inverse of curve_fill: cards above what the mana base supports lose
       // 1.5 pts per MV over the ceiling — real quality signal, counts toward fit
       const overCeil = (cand.cmc || 0) - mvCeiling;
@@ -1177,7 +1453,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         .filter(t => ['fills_axis', 'feeds', 'role_deficit', 'doubler_scale'].includes(t.kind))
         .map(t => t.axis || t.cat).filter(Boolean));
       if (credited.size >= 2) {
-        const pts = Math.min(1.5, (credited.size - 1) * 0.75);
+        const pts = Math.min(1.5, (credited.size - 1) * 0.75) * FILLER_SCALE;
         score += pts;
         trace.push({ kind: 'breadth', count: credited.size, pts });
       }
@@ -1186,11 +1462,18 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // meta-popularity: commander-context stats (what THIS commander's players run)
     // beat the global rank prior when available — global rank is what made every
     // tribal deck's list identical (precon audit, anti-monoculture work).
+    // When the plan can't be read (no commander engine) or the commander is colorless,
+    // what THIS commander's players run is the best signal left (Karn Liberated in
+    // Kozilek scored ~1 on axes alone — cycle-9 eval) — it weighs more and counts as fit.
+    const weakPlan = !gameplan?.commanderCentric || (Array.isArray(commander?.ci) && commander.ci.length === 0);
     if (cand.cmdrPct != null && cand.cmdrPct > 0) {
-      const pts = Math.round(Math.min(2.5, cand.cmdrPct * 0.03) * 100) / 100;
+      const pts = Math.round(Math.min(weakPlan ? 6 : 2.5, cand.cmdrPct * (weakPlan ? 0.08 : 0.03)) * 100) / 100;
       score += pts;
       trace.push({ kind: 'commander_meta', pct: cand.cmdrPct, pts });
-    } else if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
+    } else if (cand.edhrecRank != null && cand.edhrecRank < 2000) {
+      const pts = weakPlan ? (cand.edhrecRank < 300 ? 3 : cand.edhrecRank < 1000 ? 2 : 1) : 0.75;
+      score += pts; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts });
+    }
 
     // collection preference + soft price behavior
     if (cand.owned) { score += 1.5; trace.push({ kind: 'owned', pts: 1.5 }); }
@@ -1212,12 +1495,73 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // Plan-first (docs/24 §5.2): when the commander runs the deck, plan fit is the
     // primary signal — legacy axis/role credits drop to supporting weight. Trace lines
     // are scaled with them, so the breakdown still sums to the badge.
+    // An aristocrats piece (outlet, death payoff, fodder engine) needs an aristocrats
+    // PACKAGE — outlets and payoffs together — or a commander that sacrifices. One stray
+    // outlet isn't a plan (cycle-10: Phyrexian Altar, Syr Konrad, Zulaport in Rev/Rakdos).
+    // A card the deck explicitly asks for (it feeds a deck card's sac need) has a home.
+    {
+      const aristoAxes = /^(sac\.outlet_(free|cost)|trigger\.death_payoff|sac\.fodder|creatures_dying)$/;
+      const prov = cand.ir.provides || [];
+      const top = prov.reduce((b, p) => ((p.weight || 1) > (b?.weight || 0) ? p : b), null);
+      const sacEngine = (gameplan?.fuel || []).some(f => f.kind === 'event' && ['dies', 'sacrifice'].includes(f.event))
+        || (commander?.ir?.needs || []).some(n => ['sac.fodder', 'creatures_dying', 'sac.outlet_free'].includes(n.axis));
+      const pkg = deckHas(/^sac\.outlet_(free|cost)$/) >= 3 && deckHas(/^(trigger\.death_payoff|drain\.incremental)$/) >= 3;
+      const wanted = trace.some(t => ['feeds', 'fills_axis'].includes(t.kind) && aristoAxes.test(String(t.axis || '')))
+        || deckCards.filter(c => (c.ir?.needs || []).some(n => aristoAxes.test(n.axis) && n.criticality !== 'helps')).length >= 2;
+      if (top && aristoAxes.test(top.axis) && !pkg && !sacEngine && !wanted) { score -= 5; trace.push({ kind: 'thin_substrate', why: 'no_aristocrats', pts: -5 }); }
+    }
+    // Without a commander engine to anchor the list, a card needs to be a real card
+    // for the deck's main goal — a generic "fills a wanted axis" match on an obscure
+    // card isn't enough (cycle-7: Aetherworks Marvel, Sarevok's Tome, Orcrist).
+    if (!gameplan?.commanderCentric && Number(cand.edhrecRank) > 2500 // unknown rank isn't "obscure"
+      && !trace.some(t => (t.kind === 'fills_axis' && t.why === 'goal_core') || t.kind === 'role_deficit' || t.kind === 'commander_meta')) {
+      score -= 4; trace.push({ kind: 'thin_substrate', why: 'weak_fit', pts: -4 });
+    }
+    // A strong card is a great add only when it fits: without a plan link, an on-plan
+    // feed, a goal fill or a gap in its OWN job, the quality signals are just "it's a
+    // good Magic card" (cycle-14: Mystical Tutor in Ur-Dragon, Skullclamp in Kozilek).
+    {
+      const job = Q.classesOf(cand)[0];
+      const fits = trace.some(t => (t.pts || 0) > 0 && (/^plan_(fuel|amplifier|converter|side_engine|fuel_enabler|recursion_target|critical|combo|bottleneck|tutor)$/.test(t.kind)
+        || (t.kind === 'quality_upgrade' && t.pts >= 1 && UPGRADE_JOBS.has(t.cls))
+        || t.kind === 'feeds' || (t.kind === 'fills_axis' && ['goal_core', 'unmet_need', 'goal_support', 'goal_reinforce'].includes(t.why))
+        || (t.kind === 'role_deficit' && t.cat === job)))
+        || (INTERACTION_JOBS.has(job) && trace.some(t => t.kind === 'quality_power' && t.pts >= 0.5));
+      // In a commander-engine deck a strong card that isn't linked to the engine is a
+      // good card, not a great add for THIS deck: its power caps at +2 (owner fixtures VRA-18P,
+      // VEH-07P — plan pieces must still lead Vraska's and the vehicle deck's lists).
+      // Fuel only links a card when fuel is scarce: when every noncreature spell feeds the
+      // engine (Vraska), being fuel says nothing — Force of Will mustn't outrank the
+      // amplifiers and converters on power alone.
+      const broadFuel = (gameplan?.fuel || []).some(f => f.kind === 'cast');
+      const linked = trace.some(t => (t.pts || 0) > 0 && (broadFuel ? /^plan_(amplifier|converter|side_engine|fuel_enabler|recursion_target|critical|combo|tutor)$/ : /^plan_(fuel|amplifier|converter|side_engine|fuel_enabler|recursion_target|critical|combo|tutor)$/).test(t.kind));
+      // Power doesn't rescue a card with a structural problem here (a wipe that kills the
+      // deck's own board, a sink with nothing to grow), and a 6+ drop outside a big-mana
+      // deck is late whatever its power (EV8-05 Nevinyrral's Disk, EV6-01 Akroma's Memorial).
+      {
+        const qp = trace.find(t => t.kind === 'quality_power' && t.pts > 1);
+        const broken = trace.some(t => t.kind === 'thin_substrate' && t.why !== 'no_fit' && (t.pts || 0) <= -5);
+        const late = Q.effectiveMV(cand) >= 6 && !bigManaDeck;
+        const cap = broken ? 1 : late ? 2 : null;
+        if (qp && cap != null && qp.pts > cap) { score -= qp.pts - cap; qp.pts = cap; qp.capped = broken ? 'broken' : 'late'; }
+      }
+      if (gameplan?.commanderCentric && !linked) {
+        const qp = trace.find(t => t.kind === 'quality_power' && t.pts > 2);
+        if (qp) { const cut = Math.round((qp.pts - 2) * 100) / 100; score -= cut; qp.pts = Math.round((qp.pts - cut) * 100) / 100; qp.unlinked = true; }
+      }
+      if (!fits) {
+        let cut = 0;
+        for (const t of trace) if (['quality_power', 'quality_upgrade', 'quality'].includes(t.kind) && t.pts > 0) cut += t.pts * 0.65;
+        if (cut >= 0.1) { cut = Math.round(cut * 100) / 100; score -= cut; trace.push({ kind: 'thin_substrate', why: 'no_fit', pts: -cut }); }
+      }
+    }
     if (gameplan?.commanderCentric) score = GP.rebalance(trace);
-    if (score <= 0.5) continue;
+    if (!raw && LW.active) score = LW.rescore(trace); // learned multipliers (engine2/learned.js); raw = hand weights
+    if (!raw && score <= 0.5) continue; // raw = every scored candidate, unfloored
     // Fit = score minus preference nudges (owned / popularity / price). Preferences
     // may reorder genuinely good cards but must not lift filler over the quality
     // floor — an owned Bitterblossom is still a weak fit for a rat deck.
-    const PREF_KINDS = new Set(['owned', 'meta_prior', 'commander_meta', 'price_soft']);
+    const PREF_KINDS = new Set(['owned', 'meta_prior', 'price_soft', ...(weakPlan ? [] : ['commander_meta'])]);
     const fit = score - trace.reduce((s, t) => s + (PREF_KINDS.has(t.kind) ? (t.pts || 0) : 0), 0);
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100, fit,
@@ -1226,6 +1570,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       // their job, so they never close a slider gap (Vivien Reid, Garruk, Grist).
       _job: /\bPlaneswalker\b/.test(String(cand.typeLine || '')) ? null : (Q.classesOf(cand)[0] || null),
       _q: jobQ,
+      _rank: Number(cand.edhrecRank) || null,
       owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
       scryfallId: cand.scryfallId || null, trace,
       // Display caveat only (no score effect): a good off-tribe creature is still a
@@ -1318,8 +1663,10 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   // every third slot.
   if (!focusCat) {
     const gaps = Object.keys(thresholds || {})
-      .map(cat => ({ cat, gap: (thresholds[cat] || 0) - (roleCounts?.[cat] || 0) }))
-      .filter(g => g.cat !== 'Plan' && g.gap >= 3)
+      .map(cat => ({ cat, gap: addNeedOf(cat) - (roleCounts?.[cat] || 0) }))
+      // core jobs only: a Counterspell / Recursion / Tutor "gap" pulled Pyroblast and
+      // Academy Ruins into non-blue lists (cycle-1 eval)
+      .filter(g => QUOTA_CATS.has(g.cat) && g.gap >= 3)
       .sort((a, b) => b.gap - a.gap);
     const head = ordered.slice(0, ADD_COUNT);
     const reserved = [];
@@ -1327,7 +1674,9 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const want = Math.min(3, Math.ceil(gap / 2));
       // Only cards whose MAIN job is the category fill it — a planeswalker with an
       // incidental removal ability doesn't close a removal gap.
-      const fills = s => s._job === cat && (s.trace || []).some(t => t.kind === 'role_deficit' && t.cat === cat);
+      const fills = s => s._job === cat && (s.trace || []).some(t => t.kind === 'role_deficit' && t.cat === cat)
+        // a reserved slot never goes to a card the deck can't use (a rock in a tempo list)
+        && !(s.trace || []).some(t => ['thin_substrate', 'role_full', 'plan_anti'].includes(t.kind));
       const have = head.slice(0, 12).filter(fills).length;
       if (have >= want) continue;
       // The gap is about the JOB: the best cards at it (quality) win the reserved slots,
@@ -1337,6 +1686,16 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         .slice(0, want - have);
       reserved.push(...fill);
     }
+    // Staple gap (cycle-4 eval: 5 of 72 removed staples came back): a format staple the
+    // deck lacks — Sol Ring, Swords to Plowshares, Cultivate — is the first thing any
+    // player would add. Up to two of the most-played core-job cards not already in the
+    // top 12 get reserved slots, as long as the plan doesn't score them negative.
+    const staples = scored.filter(s => s._rank && s._rank <= STAPLE_RANK && STAPLE_JOBS.has(s._job) && s.score > 0
+      && (roleCounts[s._job] || 0) < addNeedOf(s._job) // only a job the deck is short on
+      && !(s.trace || []).some(t => ['role_full', 'plan_anti', 'thin_substrate'].includes(t.kind))
+      && !head.slice(0, 12).includes(s) && !reserved.includes(s))
+      .sort((a, b) => a._rank - b._rank).slice(0, 2);
+    reserved.unshift(...staples);
     if (reserved.length) {
       const rest = ordered.filter(s => !reserved.includes(s));
       const merged = [];
@@ -1345,10 +1704,10 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         else if (rest.length) merged.push(rest.shift());
         else merged.push(reserved.shift());
       }
-      return merged.map(({ fit, _job, _q, ...s }) => s);
+      return merged.map(({ fit, _job, _q, _rank, ...s }) => s);
     }
   }
-  return ordered.slice(0, ADD_COUNT).map(({ fit, _job, _q, ...s }) => s);
+  return ordered.slice(0, ADD_COUNT).map(({ fit, _job, _q, _rank, ...s }) => s);
 }
 
-module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
+module.exports = { scoreCuts, scoreAdds, fetchesOffColor, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };

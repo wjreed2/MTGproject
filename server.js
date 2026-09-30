@@ -6221,7 +6221,7 @@ async function _e2ResolveCards(names) {
   for (let i = 0; i < uniq.length; i += 400) {
     const chunk = uniq.slice(i, i + 400);
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
        WHERE c.name IN (${chunk.map(() => '?').join(',')})
@@ -6234,10 +6234,14 @@ async function _e2ResolveCards(names) {
   for (const n of uniq) {
     if (found.has(n)) continue;
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name LIKE ? LIMIT 1`, [`${n} // %`]);
+       WHERE c.name LIKE ?
+       ORDER BY c.legal_commander DESC, (c.layout IN ('art_series', 'token', 'double_faced_token', 'emblem')) ASC,
+                c.edhrec_rank IS NULL, c.edhrec_rank
+       LIMIT 1`, [`${n} // %`]);
+    // "Clearwater Pathway" must resolve to the MDFC, never its art-series card ("Card // Card")
     if (rows.length) found.set(n, rows[0]);
   }
   return found;
@@ -6270,7 +6274,9 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       });
     }
     const cr = commanderName ? resolved.get(commanderName) : null;
-    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+    let cmdrColors = null; // color identity → color-aware category targets and ramp need
+    try { cmdrColors = cr ? (typeof cr.color_identity_json === 'string' ? JSON.parse(cr.color_identity_json) : cr.color_identity_json) : null; } catch (_) { /* unknown */ }
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr), ci: cmdrColors || [] } : null;
 
     const withIR = deckCards.filter(c => c.ir).length;
     const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
@@ -6289,7 +6295,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     } catch (e) { console.error('[analyze] gameplan inference failed — plain scoring', e); }
     const planGoal = gameplan?.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
     const thresholds = engine2.thresholds.computeThresholds({
-      goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+      goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides, colors: cmdrColors,
     });
     const roleCounts = engine2.thresholds.countRoles(deckCards);
 
@@ -6322,7 +6328,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       ? Object.keys(ROLE_TO_CAT).filter(r => ROLE_TO_CAT[r] === focusCategory)
       : [];
     let adds = [];
-    if (wanted.length || focusRoles.length || planAxes.length || gapRoles.length || hints.landCreatures) {
+    if (wanted.length || focusRoles.length || planAxes.length || gapRoles.length || hints.landCreatures || hints.tribe || hints.castFuel) {
       let ciColors = [];
       if (commanderName) {
         const [[cRow]] = await db().query(
@@ -6398,8 +6404,35 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
         if (hints.landCreatures) {
           extraSub.push(`(${baseSel} AND (c.type_line LIKE '%Land Creature%' OR c.oracle_text LIKE '%land creature%'
               OR c.oracle_text LIKE '%lands you control are%' OR c.oracle_text LIKE '%Forests you control are%'
-              OR c.oracle_text LIKE '%becomes a %creature%still a land%' OR c.oracle_text LIKE '%are Forest lands%') ${rankOrder} LIMIT ${axisWindow})`);
+              OR c.oracle_text LIKE '%becomes a %creature%still a land%' OR c.oracle_text LIKE '%Forest lands%'
+              OR c.oracle_text LIKE '%lands you control become%') ${rankOrder} LIMIT ${axisWindow})`);
           extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        }
+        // format staples in the deck's colors — the staple gap needs them in the pool
+        extraSub.push(`(${baseSel} AND c.type_line NOT LIKE '%Land%' AND c.edhrec_rank IS NOT NULL ORDER BY c.edhrec_rank LIMIT 150)`);
+        extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        // the engine's own tribe, by type line
+        if (hints.tribe) {
+          extraSub.push(`(${baseSel} AND c.type_line LIKE ? ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), `%${hints.tribe}%`);
+        }
+        // a cast engine's spell volume, by type line / mana value
+        if (hints.castFuel) {
+          const CT = { creature: 'Creature', artifact: 'Artifact', enchantment: 'Enchantment', instant: 'Instant', sorcery: 'Sorcery', planeswalker: 'Planeswalker', battle: 'Battle' };
+          const yes = hints.castFuel.types.map(t => CT[t]).filter(Boolean);
+          const no = hints.castFuel.notTypes.map(t => CT[t]).filter(Boolean);
+          const conds = [`c.type_line NOT LIKE 'Land%'`];
+          if (yes.length) conds.push(`(${yes.map(() => 'c.type_line LIKE ?').join(' OR ')})`);
+          for (let i = 0; i < no.length; i++) conds.push(`c.type_line NOT LIKE ?`);
+          if (hints.castFuel.mvMin != null) conds.push('c.cmc >= ?');
+          extraSub.push(`(${baseSel} AND ${conds.join(' AND ')} ${rankOrder} LIMIT ${axisWindow * 2})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...yes.map(t => `%${t}%`),
+            ...no.map(t => `${t}%`), ...(hints.castFuel.mvMin != null ? [hints.castFuel.mvMin] : []));
+        }
+        // the whole removal shelf for an engine fed by removal
+        if (hints.removalWide) {
+          extraSub.push(`(${baseSel} AND (JSON_CONTAINS(s.roles_json, ?) OR JSON_CONTAINS(s.roles_json, ?)) ${rankOrder} LIMIT ${axisWindow * 3})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), JSON.stringify('spot_removal'), JSON.stringify('board_wipe'));
         }
         candSql = `SELECT DISTINCT * FROM (${[candSub, ...extraSub].filter(Boolean).join(' UNION ALL ')}) u`;
         candParams = [...axesToPull.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]), ...extraParams];

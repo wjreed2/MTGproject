@@ -461,6 +461,29 @@ function validateCardIR(ir, cardRow) {
         ctx.soft('synth_axis_provide', `provides ${p.axis} — synthesized axis, engine derives it from the type line/faces; drop the provide`);
       }
     }
+    // f) 2026-09-30 corpus-audit classes (prompt p11). Detectors in ir-lints.js,
+    //    shared with scripts/semantics-p11-targets.js and semantics-backfill-wincon.js.
+    if (irLints.unearnedCombatWincon(ir, cardRow)) {
+      ctx.soft('wincon_unearned', 'combat wincon on a card with no big body or team-scale/finisher provide — wincon null');
+    }
+    for (const n of irLints.markerNeeds(ir)) {
+      ctx.soft('need_on_marker', `needs payoff marker ${n.axis} (${n.criticality}) — the card IS the payoff: provide ${n.axis}, need its source (${irLints.MARKER_SOURCES[n.axis].slice(0, 2).join(' / ')})`);
+    }
+    if (irLints.tapAsRemoval(ir, cardRow)) {
+      ctx.soft('tap_not_removal', 'removal.spot for a tap/stun effect — tapping is not removal (param destroy|exile|bounce|tuck|damage|fight|sacrifice)');
+    }
+    if (irLints.selfOnlyProtection(ir, cardRow)) {
+      ctx.soft('self_only_provide', 'protection.single from the card\'s own hexproof/ward/indestructible — the axis means protecting OTHER permanents');
+    }
+    if (irLints.selfOnlyRecursion(ir, cardRow)) {
+      ctx.soft('self_only_provide', 'graveyard/loop provide on a card that only returns or casts itself — use trigger.self_death_value / sac.fodder');
+    }
+    if (irLints.selfOnlyCopy(ir, cardRow)) {
+      ctx.soft('self_only_provide', 'copy.spell/token.copy on a card that only copies itself — not a copy engine');
+    }
+    if (irLints.oppScopedSacNeed(ir)) {
+      ctx.soft('need_scope', 'needs a sac outlet but every dies scope is opponent-only — your own outlet cannot feed it');
+    }
   }
 
   // score

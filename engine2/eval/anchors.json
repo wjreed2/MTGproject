@@ -1,0 +1,778 @@
+{
+ "meta": {
+  "about": "Fixed reference cards judged blind every round (mixed into the probe packet) to measure each judge batch's harshness; base = mean score over cycles 14,14b,15,15b",
+  "created": "2026-09-30"
+ },
+ "decks": {
+  "atraxa-counters": [
+   {
+    "name": "Tromell, Seymour's Butler",
+    "base": 39.3
+   },
+   {
+    "name": "Rampant Growth",
+    "base": 50
+   },
+   {
+    "name": "Winding Constrictor",
+    "base": 55
+   },
+   {
+    "name": "Beast Within",
+    "base": 65
+   },
+   {
+    "name": "Teferi, Time Raveler",
+    "base": 77.8
+   }
+  ],
+  "bumbleflower": [
+   {
+    "name": "Nev, the Practical Dean",
+    "base": 42.5
+   },
+   {
+    "name": "Ichormoon Gauntlet",
+    "base": 53.5
+   },
+   {
+    "name": "An Offer You Can't Refuse",
+    "base": 60.3
+   },
+   {
+    "name": "Generous Pup",
+    "base": 67.3
+   },
+   {
+    "name": "Danny Pink",
+    "base": 74
+   }
+  ],
+  "chulane-blink": [
+   {
+    "name": "Titania, Protector of Argoth",
+    "base": 32
+   },
+   {
+    "name": "Starfield Vocalist",
+    "base": 51.8
+   },
+   {
+    "name": "Charming Prince",
+    "base": 58
+   },
+   {
+    "name": "Generous Gift",
+    "base": 62.8
+   },
+   {
+    "name": "Skyclave Apparition",
+    "base": 73
+   }
+  ],
+  "edgar-vampires": [
+   {
+    "name": "Trouble in Pairs",
+    "base": 41.8
+   },
+   {
+    "name": "Generous Gift",
+    "base": 57.5
+   },
+   {
+    "name": "Emeritus of Woe // Demonic Tutor",
+    "base": 66
+   },
+   {
+    "name": "Renewed Solidarity",
+    "base": 68.5
+   },
+   {
+    "name": "Akroma's Will",
+    "base": 76
+   }
+  ],
+  "gornog-warriors": [
+   {
+    "name": "Swiftfoot Boots",
+    "base": 53.8
+   },
+   {
+    "name": "Vandalblast",
+    "base": 58.3
+   },
+   {
+    "name": "Arcane Signet",
+    "base": 65.5
+   },
+   {
+    "name": "Inquisitorial Rosette",
+    "base": 71
+   },
+   {
+    "name": "Shared Animosity",
+    "base": 80.8
+   }
+  ],
+  "grazilaxx-scholar": [
+   {
+    "name": "Jin-Gitaxias // The Great Synthesis",
+    "base": 42
+   },
+   {
+    "name": "Teferi, Temporal Pilgrim",
+    "base": 50.5
+   },
+   {
+    "name": "Swan Song",
+    "base": 59.3
+   },
+   {
+    "name": "Azure Beastbinder",
+    "base": 69.3
+   },
+   {
+    "name": "Rhystic Study",
+    "base": 80.8
+   }
+  ],
+  "guff-superfriends": [
+   {
+    "name": "Flawless Maneuver",
+    "base": 26.3
+   },
+   {
+    "name": "An Offer You Can't Refuse",
+    "base": 56.3
+   },
+   {
+    "name": "Deflecting Swat",
+    "base": 62
+   },
+   {
+    "name": "Fuel for the Cause",
+    "base": 66.8
+   },
+   {
+    "name": "Fury",
+    "base": 73.8
+   }
+  ],
+  "helga": [
+   {
+    "name": "Seedborn Muse",
+    "base": 48
+   },
+   {
+    "name": "Ohran Frostfang",
+    "base": 60.5
+   },
+   {
+    "name": "Beast Whisperer",
+    "base": 68.5
+   },
+   {
+    "name": "Chulane, Teller of Tales",
+    "base": 70.8
+   },
+   {
+    "name": "Defiler of Vigor",
+    "base": 74.5
+   }
+  ],
+  "jyoti-current": [
+   {
+    "name": "Farseek",
+    "base": 53.5
+   },
+   {
+    "name": "Beast Within",
+    "base": 65.3
+   },
+   {
+    "name": "Ohran Frostfang",
+    "base": 71
+   },
+   {
+    "name": "Wrenn and Realmbreaker",
+    "base": 76
+   },
+   {
+    "name": "Awaken the Woods",
+    "base": 83.5
+   }
+  ],
+  "jyoti": [
+   {
+    "name": "Farseek",
+    "base": 53.5
+   },
+   {
+    "name": "Embodiment of Insight",
+    "base": 64
+   },
+   {
+    "name": "Staff of Titania",
+    "base": 69
+   },
+   {
+    "name": "Jolrael, Voice of Zhalfir",
+    "base": 74
+   },
+   {
+    "name": "Awaken the Woods",
+    "base": 83.5
+   }
+  ],
+  "karlach-combat": [
+   {
+    "name": "Idol of Oblivion",
+    "base": 36.8
+   },
+   {
+    "name": "Purphoros, God of the Forge",
+    "base": 53
+   },
+   {
+    "name": "Swiftfoot Boots",
+    "base": 64
+   },
+   {
+    "name": "Goro-Goro, Disciple of Ryusei",
+    "base": 68.5
+   },
+   {
+    "name": "Bonehoard Dracosaur",
+    "base": 81.8
+   }
+  ],
+  "korvold-aristocrats": [
+   {
+    "name": "Tortured Existence",
+    "base": 34.5
+   },
+   {
+    "name": "Greater Good",
+    "base": 52.3
+   },
+   {
+    "name": "Chaos Warp",
+    "base": 60.5
+   },
+   {
+    "name": "Priest of Forgotten Gods",
+    "base": 71.3
+   },
+   {
+    "name": "Yawgmoth, Thran Physician",
+    "base": 83
+   }
+  ],
+  "kozilek-eldrazi": [
+   {
+    "name": "Instant Ramen",
+    "base": 36.3
+   },
+   {
+    "name": "Doubling Cube",
+    "base": 51.3
+   },
+   {
+    "name": "Walking Ballista",
+    "base": 57.5
+   },
+   {
+    "name": "Breaker of Creation",
+    "base": 61
+   },
+   {
+    "name": "Karn, Scion of Urza",
+    "base": 71.5
+   }
+  ],
+  "krenko-goblins": [
+   {
+    "name": "Flare of Duplication",
+    "base": 22.5
+   },
+   {
+    "name": "Goblin Lookout",
+    "base": 48
+   },
+   {
+    "name": "War Room",
+    "base": 59.3
+   },
+   {
+    "name": "Deflecting Swat",
+    "base": 66.3
+   },
+   {
+    "name": "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
+    "base": 75.5
+   }
+  ],
+  "meren-reanimator": [
+   {
+    "name": "Ygra, Eater of All",
+    "base": 33.8
+   },
+   {
+    "name": "Phyrexian Arena",
+    "base": 55
+   },
+   {
+    "name": "Sling-Gang Lieutenant",
+    "base": 56.8
+   },
+   {
+    "name": "Erebos, Bleak-Hearted",
+    "base": 59.3
+   },
+   {
+    "name": "Sephiroth, Fabled SOLDIER // Sephiroth, One-Winged Angel",
+    "base": 71
+   }
+  ],
+  "muldrotha-graveyard": [
+   {
+    "name": "Greater Good",
+    "base": 52.5
+   },
+   {
+    "name": "Grist, Voracious Larva // Grist, the Plague Swarm",
+    "base": 55.8
+   },
+   {
+    "name": "Beast Within",
+    "base": 62.5
+   },
+   {
+    "name": "Fierce Guardianship",
+    "base": 70.3
+   },
+   {
+    "name": "Boseiju, Who Endures",
+    "base": 77
+   }
+  ],
+  "obeka-upkeep": [
+   {
+    "name": "Ghostly Pilferer",
+    "base": 33.8
+   },
+   {
+    "name": "Mana Vault",
+    "base": 57
+   },
+   {
+    "name": "Toxic Deluge",
+    "base": 63
+   },
+   {
+    "name": "Deadly Rollick",
+    "base": 68.5
+   },
+   {
+    "name": "Keeper of Keys",
+    "base": 77.8
+   }
+  ],
+  "phenax-mill": [
+   {
+    "name": "Gisa, Glorious Resurrector",
+    "base": 33.3
+   },
+   {
+    "name": "Myriad Landscape",
+    "base": 46.8
+   },
+   {
+    "name": "Rapid Hybridization",
+    "base": 57
+   },
+   {
+    "name": "Deadly Rollick",
+    "base": 66.8
+   },
+   {
+    "name": "Captain N'ghathrod",
+    "base": 75
+   }
+  ],
+  "rakdos-chaos": [
+   {
+    "name": "Tortured Existence",
+    "base": 31.3
+   },
+   {
+    "name": "Diabolic Intent",
+    "base": 51.3
+   },
+   {
+    "name": "Lightning Bolt",
+    "base": 52.5
+   },
+   {
+    "name": "Deflecting Swat",
+    "base": 65
+   },
+   {
+    "name": "Liliana, Dreadhorde General",
+    "base": 73
+   }
+  ],
+  "rev-theft": [
+   {
+    "name": "Reanimate",
+    "base": 39.3
+   },
+   {
+    "name": "Ruthless Technomancer",
+    "base": 43.8
+   },
+   {
+    "name": "Swiftfoot Boots",
+    "base": 55.8
+   },
+   {
+    "name": "Fellwar Stone",
+    "base": 62
+   },
+   {
+    "name": "Court of Locthwain",
+    "base": 82.3
+   }
+  ],
+  "samwise-food": [
+   {
+    "name": "Gala Greeters",
+    "base": 62.5
+   },
+   {
+    "name": "Gourmand's Talent",
+    "base": 69.5
+   },
+   {
+    "name": "Tippy-Toe, Terrific Partner",
+    "base": 74
+   },
+   {
+    "name": "Doubling Season",
+    "base": 74.5
+   },
+   {
+    "name": "Elspeth, Storm Slayer",
+    "base": 80
+   }
+  ],
+  "sram-voltron": [
+   {
+    "name": "Assemble the Players",
+    "base": 40.5
+   },
+   {
+    "name": "Argentum Armor",
+    "base": 55
+   },
+   {
+    "name": "War Room",
+    "base": 68.3
+   },
+   {
+    "name": "The One Ring",
+    "base": 75.5
+   },
+   {
+    "name": "Urza's Saga",
+    "base": 79.8
+   }
+  ],
+  "sythis-enchantress": [
+   {
+    "name": "Honden of Cleansing Fire",
+    "base": 33.8
+   },
+   {
+    "name": "Felidar Retreat",
+    "base": 51.3
+   },
+   {
+    "name": "Aura Shards",
+    "base": 56.8
+   },
+   {
+    "name": "Land Tax",
+    "base": 59.3
+   },
+   {
+    "name": "Sheltered by Ghosts",
+    "base": 73.5
+   }
+  ],
+  "talrand-spellslinger": [
+   {
+    "name": "Infinite Hourglass",
+    "base": 19.5
+   },
+   {
+    "name": "Valley Floodcaller",
+    "base": 55.5
+   },
+   {
+    "name": "Mystical Tutor",
+    "base": 65.3
+   },
+   {
+    "name": "Shark Typhoon",
+    "base": 68.5
+   },
+   {
+    "name": "Mana Drain",
+    "base": 81.3
+   }
+  ],
+  "thranduil-current": [
+   {
+    "name": "Wolverine Riders",
+    "base": 50.3
+   },
+   {
+    "name": "Deathrite Shaman",
+    "base": 58.5
+   },
+   {
+    "name": "Elvish Warmaster",
+    "base": 66
+   },
+   {
+    "name": "Otawara, Soaring City",
+    "base": 70
+   },
+   {
+    "name": "Boseiju, Who Endures",
+    "base": 75.3
+   }
+  ],
+  "thranduil": [
+   {
+    "name": "Wolverine Riders",
+    "base": 50.3
+   },
+   {
+    "name": "Deathrite Shaman",
+    "base": 58.5
+   },
+   {
+    "name": "Incubation Druid",
+    "base": 63
+   },
+   {
+    "name": "Deadly Rollick",
+    "base": 70.5
+   },
+   {
+    "name": "Boseiju, Who Endures",
+    "base": 75.3
+   }
+  ],
+  "titania-lands": [
+   {
+    "name": "Sword of Forge and Frontier",
+    "base": 53.8
+   },
+   {
+    "name": "Beast Within",
+    "base": 63.5
+   },
+   {
+    "name": "Parallel Lives",
+    "base": 71.5
+   },
+   {
+    "name": "The One Ring",
+    "base": 72.5
+   },
+   {
+    "name": "Dryad of the Ilysian Grove",
+    "base": 82.8
+   }
+  ],
+  "treebeard-lifegain": [
+   {
+    "name": "Farseek",
+    "base": 65.5
+   },
+   {
+    "name": "Sylvan Library",
+    "base": 70
+   },
+   {
+    "name": "Haliya, Guided by Light",
+    "base": 73.3
+   },
+   {
+    "name": "Path to Exile",
+    "base": 74.8
+   },
+   {
+    "name": "Swords to Plowshares",
+    "base": 81
+   }
+  ],
+  "ur-dragon-dragons": [
+   {
+    "name": "Elesh Norn, Grand Cenobite",
+    "base": 49.3
+   },
+   {
+    "name": "Ancient Bronze Dragon",
+    "base": 57
+   },
+   {
+    "name": "Beast Within",
+    "base": 63.5
+   },
+   {
+    "name": "Drakuseth, Maw of Flames",
+    "base": 66.5
+   },
+   {
+    "name": "Zurgo and Ojutai",
+    "base": 70
+   }
+  ],
+  "vraska-current": [
+   {
+    "name": "Anax and Cymede",
+    "base": 35.8
+   },
+   {
+    "name": "Magda, the Hoardmaster",
+    "base": 56.3
+   },
+   {
+    "name": "Frostcliff Siege",
+    "base": 71.3
+   },
+   {
+    "name": "Anointed Procession",
+    "base": 76.5
+   },
+   {
+    "name": "Fierce Guardianship",
+    "base": 85.8
+   }
+  ],
+  "vraska-v2": [
+   {
+    "name": "Akroma's Memorial",
+    "base": 50.8
+   },
+   {
+    "name": "Force of Will",
+    "base": 68
+   },
+   {
+    "name": "Magnus the Red",
+    "base": 74.5
+   },
+   {
+    "name": "Roar of Resistance",
+    "base": 79
+   },
+   {
+    "name": "Fierce Guardianship",
+    "base": 85.8
+   }
+  ],
+  "vren": [
+   {
+    "name": "Karumonix, the Rat King",
+    "base": 53
+   },
+   {
+    "name": "Glen Elendra Liege",
+    "base": 54.5
+   },
+   {
+    "name": "Bad Moon",
+    "base": 56.8
+   },
+   {
+    "name": "Cyclonic Rift",
+    "base": 73.5
+   },
+   {
+    "name": "Yawgmoth, Thran Physician",
+    "base": 81
+   }
+  ],
+  "xyris-wheels": [
+   {
+    "name": "Guardian Project",
+    "base": 36.8
+   },
+   {
+    "name": "An Offer You Can't Refuse",
+    "base": 52.5
+   },
+   {
+    "name": "Agate Instigator",
+    "base": 71
+   },
+   {
+    "name": "Parallel Lives",
+    "base": 75
+   },
+   {
+    "name": "Skullclamp",
+    "base": 82.5
+   }
+  ],
+  "yuriko-ninjas": [
+   {
+    "name": "Archfiend of Ifnir",
+    "base": 29
+   },
+   {
+    "name": "Shark Shredder, Killer Clone",
+    "base": 49.3
+   },
+   {
+    "name": "Dokuchi Silencer",
+    "base": 61.5
+   },
+   {
+    "name": "Cyclonic Rift",
+    "base": 71
+   },
+   {
+    "name": "Satoru Umezawa",
+    "base": 77.5
+   }
+  ],
+  "zada-copy": [
+   {
+    "name": "Hammer of Nazahn",
+    "base": 28.8
+   },
+   {
+    "name": "Vandalblast",
+    "base": 55.8
+   },
+   {
+    "name": "Legion Loyalist",
+    "base": 62.5
+   },
+   {
+    "name": "Goblin Chieftain",
+    "base": 69.5
+   },
+   {
+    "name": "Terror of the Peaks",
+    "base": 77.3
+   }
+  ]
+ }
+}

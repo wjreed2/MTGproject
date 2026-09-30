@@ -41,6 +41,7 @@
     { "id": "Q-21", "cls": "Protection", "better": "Heroic Intervention", "worse": "Tamiyo's Safekeeping", "principle": "Q-MASS" },
     { "id": "Q-22", "cls": "Protection", "better": "Swiftfoot Boots", "worse": "Whispersilk Cloak", "principle": "Q-COST" },
     { "id": "Q-23", "cls": "Protection", "better": "Teferi's Protection", "worse": "Tamiyo's Safekeeping", "principle": "Q-MASS" },
+    { "id": "Q-25", "cls": "Counterspell", "better": "Negate", "worse": "Pyroblast", "principle": "Q-BREADTH", "note": "cycle-1 eval: a one-color hoser answers one opponent at best" },
     { "id": "Q-24", "cls": "Removal", "better": "Path to Exile", "worse": "Erode", "margin": 0.0, "principle": "Q-EQUAL", "note": "near-equal: both 1-mana exile/destroy-with-basic; Path's popularity edges it" }
   ],
   "equals": [

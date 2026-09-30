@@ -1,0 +1,22 @@
+{
+  "meta": { "title": "Eval cycle 12 lock-ins (engine2/eval/cycles/12/triage.md): new plan types", "created": "2026-09-30" },
+  "principles": {
+    "P-ENGINE-PLAN": "An engine whose plan the 99's axes can't see names its own direction: mill (Phenax), superfriends (a planeswalker commander), upkeep triggers (Obeka); a copy-per-creature engine (Zada) is fed by spells that target it"
+  },
+  "decks": {
+    "phenax-mill": "../decks/phenax-mill.json",
+    "guff-superfriends": "../decks/guff-superfriends.json",
+    "zada-copy": "../decks/zada-copy.json",
+    "obeka-upkeep": "../decks/obeka-upkeep.json"
+  },
+  "assertions": [
+    { "id": "EV12-01", "deck": "phenax-mill", "kind": "direction", "expect": { "top": "mill" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-02", "deck": "phenax-mill", "kind": "link", "card": "Hedron Crab", "expect": { "link": "converter" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-03", "deck": "guff-superfriends", "kind": "direction", "expect": { "top": "superfriends" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-04", "deck": "guff-superfriends", "kind": "link", "card": "Elspeth, Knight-Errant", "expect": { "link": "fuel" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-05", "deck": "obeka-upkeep", "kind": "direction", "expect": { "top": "upkeep" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-06", "deck": "obeka-upkeep", "kind": "link", "card": "Dark Confidant", "expect": { "link": "converter" }, "confidence": "high", "principle": "P-ENGINE-PLAN" },
+    { "id": "EV12-07", "deck": "zada-copy", "kind": "link", "card": "Expedite", "expect": { "link": "fuel" }, "confidence": "high", "principle": "P-ENGINE-PLAN", "note": "a cheap spell that targets a creature — copied across the team" },
+    { "id": "EV12-08", "deck": "zada-copy", "kind": "not_link", "card": "Faithless Looting", "expect": { "links": ["fuel"] }, "confidence": "high", "principle": "P-ENGINE-PLAN", "note": "no target, nothing to copy" }
+  ]
+}

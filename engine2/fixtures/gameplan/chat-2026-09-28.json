@@ -477,19 +477,14 @@
     {
       "id": "JYO-06",
       "deck": "jyoti",
-      "kind": "anti_plan",
+      "kind": "link",
       "card": "Copycrook",
       "expect": {
-        "reasons": [
-          "legendary_copy"
-        ],
-        "unless_in_deck": [
-          "Mirror Box",
-          "Sakashima of a Thousand Faces"
-        ],
-        "residual_value": "ETB (extra Dryads)"
+        "link": "amplifier"
       },
       "quote": "a copy of Jyoti is still legendary ... you'll still get the extra Dryads from the copy's ETB, but you won't get the extra combat pump",
+      "correction": "2026-09-29, Will: \"a legendary copy of jyoti is honestly still good cause it makes the dryads even if it doesn't stick around\" — an ETB engine's copies are amplifiers, not anti-plan",
+      "user_override": true,
       "confidence": "high",
       "principle": "P-ANTI"
     },
@@ -1328,7 +1323,7 @@
     {
       "id": "INV-06",
       "principle": "P-ANTI",
-      "rule": "legendary_copy fires only when the copy target is a legendary engine and no legend-rule breaker (Mirror Box, Sakashima class) is in the deck."
+      "rule": "legendary_copy fires only when the copy target is a legendary engine, no legend-rule breaker (Mirror Box, Sakashima class) is in the deck, and the engine's value isn't an ETB the copy gets anyway (Jyoti)."
     },
     {
       "id": "INV-07",

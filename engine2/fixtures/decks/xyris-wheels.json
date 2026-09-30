@@ -1,0 +1,560 @@
+{
+ "name": "Xyris Snakes",
+ "source": "deck-pull (copied from pulled/manford-voltron for the eval loop)",
+ "deck_id": "1783093043156",
+ "commander": "Xyris, the Writhing Storm",
+ "cards": [
+  {
+   "name": "Forced Fruition",
+   "qty": 1
+  },
+  {
+   "name": "Dictate of Kruphix",
+   "qty": 1
+  },
+  {
+   "name": "Windfall",
+   "qty": 1
+  },
+  {
+   "name": "Scrawling Crawler",
+   "qty": 1
+  },
+  {
+   "name": "Reforge the Soul",
+   "qty": 1
+  },
+  {
+   "name": "Jace's Archivist",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 14
+  },
+  {
+   "name": "Impact Tremors",
+   "qty": 1
+  },
+  {
+   "name": "Chasm Skulker",
+   "qty": 1
+  },
+  {
+   "name": "Three Visits",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Nature's Lore",
+   "qty": 1
+  },
+  {
+   "name": "Niv-Mizzet, Parun",
+   "qty": 1
+  },
+  {
+   "name": "Razorkin Needlehead",
+   "qty": 1
+  },
+  {
+   "name": "Triskaidekaphile",
+   "qty": 1
+  },
+  {
+   "name": "Dryad of the Ilysian Grove",
+   "qty": 1
+  },
+  {
+   "name": "Exploration",
+   "qty": 1
+  },
+  {
+   "name": "Azusa, Lost but Seeking",
+   "qty": 1
+  },
+  {
+   "name": "Wayward Swordtooth",
+   "qty": 1
+  },
+  {
+   "name": "Loot, Exuberant Explorer",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Jeska's Will",
+   "qty": 1
+  },
+  {
+   "name": "Minds Aglow",
+   "qty": 1
+  },
+  {
+   "name": "Shocking Sharpshooter",
+   "qty": 1
+  },
+  {
+   "name": "Molten Gatekeeper",
+   "qty": 1
+  },
+  {
+   "name": "Goblin Bombardment",
+   "qty": 1
+  },
+  {
+   "name": "Witty Roastmaster",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Whirlpool Warrior",
+   "qty": 1
+  },
+  {
+   "name": "Tyvar's Stand",
+   "qty": 1
+  },
+  {
+   "name": "Pongify",
+   "qty": 1
+  },
+  {
+   "name": "Tamiyo's Safekeeping",
+   "qty": 1
+  },
+  {
+   "name": "Burning Inquiry",
+   "qty": 1
+  },
+  {
+   "name": "Vines of Vastwood",
+   "qty": 1
+  },
+  {
+   "name": "Rapid Hybridization",
+   "qty": 1
+  },
+  {
+   "name": "Blossoming Defense",
+   "qty": 1
+  },
+  {
+   "name": "Battle Hymn",
+   "qty": 1
+  },
+  {
+   "name": "Overprotect",
+   "qty": 1
+  },
+  {
+   "name": "Chord of Calling",
+   "qty": 1
+  },
+  {
+   "name": "Gaea's Gift",
+   "qty": 1
+  },
+  {
+   "name": "Overrun",
+   "qty": 1
+  },
+  {
+   "name": "Snakeskin Veil",
+   "qty": 1
+  },
+  {
+   "name": "Farseek",
+   "qty": 1
+  },
+  {
+   "name": "Triumph of the Hordes",
+   "qty": 1
+  },
+  {
+   "name": "Beastmaster Ascension",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Concordant Crossroads",
+   "qty": 1
+  },
+  {
+   "name": "Blasphemous Act",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Roar of Resistance",
+   "qty": 1
+  },
+  {
+   "name": "Jaheira, Friend of the Forest",
+   "qty": 1
+  },
+  {
+   "name": "Beast Within",
+   "qty": 1
+  },
+  {
+   "name": "Prosperity",
+   "qty": 1
+  },
+  {
+   "name": "Cryptolith Rite",
+   "qty": 1
+  },
+  {
+   "name": "Time Reversal",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Denial",
+   "qty": 1
+  },
+  {
+   "name": "Chaos Warp",
+   "qty": 1
+  },
+  {
+   "name": "Sheltered Thicket",
+   "qty": 1
+  },
+  {
+   "name": "Steam Vents",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Wooded Ridgeline",
+   "qty": 1
+  },
+  {
+   "name": "Tangled Islet",
+   "qty": 1
+  },
+  {
+   "name": "Breeding Pool",
+   "qty": 1
+  },
+  {
+   "name": "Windswept Heath",
+   "qty": 1
+  },
+  {
+   "name": "Rimewood Falls",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 8
+  },
+  {
+   "name": "Mountain",
+   "qty": 8
+  },
+  {
+   "name": "Song of Totentanz",
+   "qty": 1
+  },
+  {
+   "name": "Vision Skeins",
+   "qty": 1
+  },
+  {
+   "name": "Manamorphose",
+   "qty": 1
+  },
+  {
+   "name": "Vicious Shadows",
+   "qty": 1
+  },
+  {
+   "name": "Twinferno",
+   "qty": 1
+  }
+ ],
+ "planAdds": [
+  {
+   "name": "Broken Bond",
+   "qty": 1
+  },
+  {
+   "name": "Lizard Blades",
+   "qty": 1
+  },
+  {
+   "name": "Become Immense",
+   "qty": 1
+  },
+  {
+   "name": "Blitzball Shot",
+   "qty": 1
+  },
+  {
+   "name": "Boon of Boseiju",
+   "qty": 1
+  },
+  {
+   "name": "Brute Force",
+   "qty": 1
+  },
+  {
+   "name": "Built to Smash",
+   "qty": 1
+  },
+  {
+   "name": "Dreadmaw's Ire",
+   "qty": 1
+  },
+  {
+   "name": "Embiggen",
+   "qty": 1
+  },
+  {
+   "name": "Full Bore",
+   "qty": 1
+  },
+  {
+   "name": "Get a Leg Up",
+   "qty": 1
+  },
+  {
+   "name": "Gather Courage",
+   "qty": 1
+  },
+  {
+   "name": "Gimli's Fury",
+   "qty": 1
+  },
+  {
+   "name": "Infuriate",
+   "qty": 1
+  },
+  {
+   "name": "Kodama's Reach",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 2
+  },
+  {
+   "name": "Cultivate",
+   "qty": 1
+  },
+  {
+   "name": "Howling Mine",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Rampant Growth",
+   "qty": 1
+  },
+  {
+   "name": "Sakura-Tribe Elder",
+   "qty": 1
+  },
+  {
+   "name": "Zenith Chronicler",
+   "qty": 1
+  },
+  {
+   "name": "Rites of Flourishing",
+   "qty": 1
+  },
+  {
+   "name": "Tales of the Ancestors",
+   "qty": 1
+  },
+  {
+   "name": "Academy Loremaster",
+   "qty": 1
+  },
+  {
+   "name": "Giant Growth",
+   "qty": 1
+  },
+  {
+   "name": "Nature's Claim",
+   "qty": 1
+  },
+  {
+   "name": "Psychotic Fury",
+   "qty": 1
+  },
+  {
+   "name": "Spectacular Showdown",
+   "qty": 1
+  },
+  {
+   "name": "Alpha Authority",
+   "qty": 1
+  },
+  {
+   "name": "Collective Resistance",
+   "qty": 1
+  },
+  {
+   "name": "Origin of Metalbending",
+   "qty": 1
+  },
+  {
+   "name": "Dragonfire Blade",
+   "qty": 1
+  },
+  {
+   "name": "Essence Flux",
+   "qty": 1
+  },
+  {
+   "name": "Raphael, Tough Turtle",
+   "qty": 1
+  },
+  {
+   "name": "Slash, Reptile Rampager",
+   "qty": 1
+  },
+  {
+   "name": "Curse of the Swine",
+   "qty": 1
+  },
+  {
+   "name": "Rancor",
+   "qty": 1
+  },
+  {
+   "name": "Embercleave",
+   "qty": 1
+  }
+ ],
+ "planCuts": [
+  {
+   "name": "Time Reversal",
+   "qty": 1
+  },
+  {
+   "name": "Reforge the Soul",
+   "qty": 1
+  },
+  {
+   "name": "Jace's Archivist",
+   "qty": 1
+  },
+  {
+   "name": "Burning Inquiry",
+   "qty": 1
+  },
+  {
+   "name": "Whirlpool Warrior",
+   "qty": 1
+  },
+  {
+   "name": "Windfall",
+   "qty": 1
+  },
+  {
+   "name": "Manamorphose",
+   "qty": 1
+  },
+  {
+   "name": "Battle Hymn",
+   "qty": 1
+  },
+  {
+   "name": "Jaheira, Friend of the Forest",
+   "qty": 1
+  },
+  {
+   "name": "Wayward Swordtooth",
+   "qty": 1
+  },
+  {
+   "name": "Loot, Exuberant Explorer",
+   "qty": 1
+  },
+  {
+   "name": "Dryad of the Ilysian Grove",
+   "qty": 1
+  },
+  {
+   "name": "Azusa, Lost but Seeking",
+   "qty": 1
+  },
+  {
+   "name": "Exploration",
+   "qty": 1
+  },
+  {
+   "name": "Chord of Calling",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Jeska's Will",
+   "qty": 1
+  },
+  {
+   "name": "Song of Totentanz",
+   "qty": 1
+  },
+  {
+   "name": "Concordant Crossroads",
+   "qty": 1
+  },
+  {
+   "name": "Roar of Resistance",
+   "qty": 1
+  },
+  {
+   "name": "Twinferno",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 1
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+  "meta": { "title": "Eval cycle 14 lock-ins (engine2/eval/cycles/14/triage.md): power needs fit, substrate checks", "created": "2026-09-30" },
+  "principles": {
+    "P-POWER-FIT": "A strong card is a suggestion only when it does something for THIS deck — power without a plan link, a goal fill or a gap in its own job is just a good Magic card",
+    "P-SUBSTRATE": "A card whose text needs something (colored commander identity, lifegain, three artifacts, X/1 bodies, tapped lands, creature counters) isn't suggested where that something is missing"
+  },
+  "decks": {
+    "kozilek-eldrazi": "../decks/kozilek-eldrazi.json",
+    "zada-copy": "../decks/zada-copy.json",
+    "obeka-upkeep": "../decks/obeka-upkeep.json",
+    "guff-superfriends": "../decks/guff-superfriends.json",
+    "phenax-mill": "../decks/phenax-mill.json"
+  },
+  "assertions": [
+    { "id": "EV14-01", "deck": "kozilek-eldrazi", "kind": "adds_exclude", "expect": ["Arcane Signet", "Command Tower", "Well of Lost Dreams"], "confidence": "high", "principle": "P-SUBSTRATE", "note": "colorless commander: 'any color in your commander's identity' makes nothing; no lifegain" },
+    { "id": "EV14-02", "deck": "zada-copy", "kind": "adds_exclude", "expect": ["Chain Reaction", "Jennika's Technique"], "confidence": "high", "principle": "P-SUBSTRATE", "note": "damage sweepers kill Zada's own token board" },
+    { "id": "EV14-03", "deck": "obeka-upkeep", "kind": "adds_exclude", "expect": ["Mystic Remora", "Pact of Negation", "Amulet of Vigor"], "confidence": "high", "principle": "P-SUBSTRATE", "note": "extra upkeeps multiply upkeep costs; few tapped lands" },
+    { "id": "EV14-04", "deck": "guff-superfriends", "kind": "not_link", "card": "Arcade Cabinet", "expect": { "links": ["amplifier"] }, "confidence": "high", "principle": "P-SUBSTRATE", "note": "doubles one creature's counters, not loyalty" },
+    { "id": "EV14-05", "deck": "phenax-mill", "kind": "adds_exclude", "expect": ["Mox Opal", "Kozilek's Command"], "confidence": "medium", "principle": "P-SUBSTRATE", "note": "~10 artifacts; {C}{C} with few colorless sources" }
+  ]
+}

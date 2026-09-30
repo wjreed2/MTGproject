@@ -195,6 +195,31 @@ function etbUntapLoops(cards, holders) {
   return out;
 }
 
+// LOOP-DRAIN: "whenever you gain life, an opponent loses life" + "whenever an opponent
+// loses life, you gain life" (Sanguine Bond + Exquisite Blood): each trigger feeds the
+// other until the table is dead. Not once-per-turn, and the gain must be the same event.
+function drainLoops(cards) {
+  const out = [];
+  const trig = (c, ev, ops) => R.abilitiesOf(c.ir).some(a => a.kind === 'triggered' && a.trigger?.event === ev
+    && !a.trigger.once_each_turn && R.effectsOf(a).some(e => ops.includes(e.op)));
+  const gainToLoss = cards.map((c, i) => ({ c, i })).filter(({ c }) => c.ir && R.abilitiesOf(c.ir).some(a => a.kind === 'triggered'
+    && a.trigger?.event === 'lifegain' && a.trigger.controller_scope !== 'opponent' && !a.trigger.once_each_turn
+    && R.effectsOf(a).some(e => ['lose_life', 'drain', 'damage'].includes(e.op) && /opponent/.test(e.target?.who || ''))));
+  const lossToGain = cards.map((c, i) => ({ c, i })).filter(({ c }) => c.ir && trig(c, 'lifeloss', ['gain_life', 'drain']));
+  for (const A of gainToLoss) {
+    for (const B of lossToGain) {
+      if (A.i === B.i) continue;
+      out.push({
+        key: 'drain_loop', label: 'Infinite drain', detail: `${A.c.name} and ${B.c.name} trigger each other: any life gained drains the table`,
+        members: [A.c.name, B.c.name], holder: A.c.name, condition: null, produces: ['life drain'],
+        caveats: ['needs one point of life gain (or life loss) to start'], accelerators: [], finishers: [],
+        trace: { kind: 'loop', key: 'drain_loop', holder: A.c.name, N: 1, rule: 'LOOP-DRAIN' },
+      });
+    }
+  }
+  return out;
+}
+
 const IRREGULAR = { elf: 'Elves', dwarf: 'Dwarves', wolf: 'Wolves', creature: 'creatures' };
 const plural = t => IRREGULAR[String(t).toLowerCase()] || (/(?:s|x|ch|sh)$/i.test(t) ? `${t}es` : `${t}s`);
 
@@ -264,6 +289,7 @@ function detectLoops(cards) {
   const loops = [];
   for (const h of holders) loops.push(...selfLoops(h, cards));
   loops.push(...etbUntapLoops(cards, holders));
+  loops.push(...drainLoops(cards));
   // one record per member set, keep the smallest-condition / richest-output version
   const seen = new Map();
   for (const l of loops) {
@@ -276,7 +302,7 @@ function detectLoops(cards) {
   // the swappable pieces listed as alternates.
   const groups = new Map();
   for (const l of seen.values()) {
-    const family = l.key === 'etb_untap_loop' ? 'etb' : 'self';
+    const family = l.key === 'etb_untap_loop' ? 'etb' : l.key === 'drain_loop' ? `drain|${l.members[1]}` : 'self';
     const g = `${family}|${l.members[0]}|${l.members[1]}`;
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(l);

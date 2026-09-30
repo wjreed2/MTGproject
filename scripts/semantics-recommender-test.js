@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// Mechanics under test, not tuning: pin the hand weights (engine2/learned.js is opt-in).
+process.env.ENGINE2_LEARNED = '0';
+// mechanism tests: neutral tuning scales (engine2/recommender.js FILLER_SCALE / POWER_*)
+process.env.E2_FILLER = '1'; process.env.E2_POWER = '8'; process.env.E2_POWER_MAX = '3';
 // engine2 recommender tests (no DB/network; wired into `npm test`).
 
 const fs = require('fs');
@@ -85,12 +89,16 @@ console.log('cuts — shields and dead weight');
     deckCards: deck2, commander, goals: goals2.goals,
     thresholds: th.computeThresholds({ goal: goals2.goals[0]?.goal }),
     roleCounts: th.countRoles(deck2),
+    limit: 8, // cut RANKING under test — real lists only get cuts for cards over 100
   });
   const names = cuts.map(c => c.name);
   check('cuts exclude lands', !names.includes('Some Land'), JSON.stringify(names));
   check('cuts exclude commander', !names.includes('Korvold-ish'), JSON.stringify(names));
   check('dead requires-card is a top-2 cut', names.slice(0, 2).includes('Dead Combo Piece'), JSON.stringify(names));
   check('on-plan payoff (Blood Artist) not a top-3 cut', !names.slice(0, 3).includes('Blood Artist'), JSON.stringify(names));
+  const noLimit = rec.scoreCuts({ deckCards: deck2, commander, goals: goals2.goals,
+    thresholds: th.computeThresholds({ goal: goals2.goals[0]?.goal }), roleCounts: th.countRoles(deck2) });
+  check('a list at or under 100 gets no cuts', noLimit.length === 0, JSON.stringify(noLimit.map(c => c.name)));
   const reasons = explain.cutReasons(cuts[0]);
   check('cut reasons render', reasons.length > 0 && typeof reasons[0] === 'string', JSON.stringify(reasons));
 }
@@ -144,9 +152,15 @@ console.log('adds — param-aware matching (tribes, tokens, curve)');
   // Procession pattern): the Treasure doubler still SCORES for feeding the generic
   // token.doubler need — but token.doubler is off-plan for a tribal:Vampire deck and
   // there is only one strong needer, so the edge must not headline as a "Feeds" claim.
+  // raw: the substrate rules (a plain rock where ramp isn't short) may keep it off the
+  // shown list — the citation behavior is what's under test here
+  const rawDoubler = rec.scoreAdds({ ...vCtx, candidates: vCands, budget: { maxCardPrice: null, flagAbove: 5 }, raw: true })
+    .find(a => a.name === 'Artifact Token Doubler');
+  // (a token doubler in a deck that makes no tokens may now score out entirely — then it
+  // certainly can't headline a Feeds claim)
   check('off-plan single-needer edge scores without a Feeds citation',
-    !!byName('Artifact Token Doubler') && !feedsNames(byName('Artifact Token Doubler')).includes('Token Doubler Wanter'),
-    JSON.stringify(byName('Artifact Token Doubler')?.trace));
+    !rawDoubler || !feedsNames(rawDoubler).includes('Token Doubler Wanter'),
+    JSON.stringify(rawDoubler?.trace));
   check('land candidate earns no curve_fill trace',
     !(byName('Utility Land')?.trace || []).some(t => t.kind === 'curve_fill'),
     JSON.stringify(byName('Utility Land')?.trace));

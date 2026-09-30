@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "title": "Eval cycle 2 lock-ins (engine2/eval/cycles/2/triage.md)",
+    "created": "2026-09-29"
+  },
+  "principles": {
+    "P-CHEAP-KEEP": "Cheap, efficient interaction and ramp are never the surplus cut",
+    "P-RECUR": "A recursion engine's ETB creatures are its loop, not surplus removal",
+    "P-CRITICAL": "A plan-critical piece the deck runs is a plan link, never idle",
+    "P-POISON": "A proliferate engine whose 99 plants poison is a poison plan; +1/+1 doublers are off-direction",
+    "P-REVEAL": "A reveal engine (Yuriko) is fuelled by bodies that connect and multiplied by top-of-library setup",
+    "P-LATE": "6+ mana chain pieces count half on the add side; wide plans need mass grants"
+  },
+  "decks": {
+    "vraska-current": "decks/vraska-current.json",
+    "jyoti-current": "decks/jyoti-current.json",
+    "meren-reanimator": "../decks/meren-reanimator.json",
+    "yuriko-ninjas": "../decks/yuriko-ninjas.json",
+    "korvold-aristocrats": "../decks/korvold-aristocrats.json"
+  },
+  "assertions": [
+    { "id": "EV2-01", "deck": "vraska-current", "kind": "cuts_exclude", "expect": ["Tannuk, Steadfast Second", "Erode"], "confidence": "high", "principle": "P-CRITICAL" },
+    { "id": "EV2-02", "deck": "vraska-current", "kind": "link", "card": "Tannuk, Steadfast Second", "expect": { "link": "critical" }, "confidence": "high", "principle": "P-CRITICAL" },
+    { "id": "EV2-03", "deck": "meren-reanimator", "kind": "link", "card": "Ravenous Chupacabra", "expect": { "link": "recursion_target" }, "confidence": "high", "principle": "P-RECUR" },
+    { "id": "EV2-04", "deck": "meren-reanimator", "kind": "cuts_exclude", "expect": ["Ravenous Chupacabra", "Shriekmaw"], "confidence": "medium", "forced_cut": "tight list — every cut candidate is a keeper; the 8-cut list fills its tail with them (open product question: a keep bar)", "principle": "P-RECUR" },
+    { "id": "EV2-05", "deck": "atraxa-counters", "kind": "direction", "expect": { "top": "poison" }, "confidence": "high", "principle": "P-POISON" },
+    { "id": "EV2-06", "deck": "atraxa-counters", "kind": "not_link", "card": "Hydra's Growth", "expect": { "links": ["amplifier", "converter"] }, "confidence": "high", "principle": "P-POISON" },
+    { "id": "EV2-07", "deck": "atraxa-counters", "kind": "link", "card": "Tekuthal, Inquiry Dominus", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-POISON", "note": "a proliferate doubler for a proliferate engine" },
+    { "id": "EV2-08", "deck": "yuriko-ninjas", "kind": "plan", "expect": { "engine": "Yuriko, the Tiger's Shadow" }, "confidence": "high", "principle": "P-REVEAL" },
+    { "id": "EV2-09", "deck": "yuriko-ninjas", "kind": "link", "card": "Brainstorm", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-REVEAL" },
+    { "id": "EV2-10", "deck": "yuriko-ninjas", "kind": "link", "card": "Ornithopter", "expect": { "link": "fuel" }, "confidence": "high", "principle": "P-REVEAL" },
+    { "id": "EV2-11", "deck": "yuriko-ninjas", "kind": "link", "card": "Commandeer", "expect": { "link": "fuel_enabler" }, "confidence": "medium", "principle": "P-REVEAL" },
+    { "id": "EV2-12", "deck": "krenko-goblins", "kind": "not_link", "card": "Manifold Key", "expect": { "links": ["amplifier", "converter"] }, "confidence": "high", "principle": "P-LATE", "note": "untaps artifacts; single-target unblockable" },
+    { "id": "EV2-13", "deck": "krenko-goblins", "kind": "adds_exclude", "expect": ["Akroma's Memorial", "Chronicle of Victory"], "confidence": "medium", "principle": "P-LATE" },
+    { "id": "EV2-14", "deck": "atraxa-counters", "kind": "not_link", "card": "Coat of Arms", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-LATE", "note": "symmetric anthem without a 20-card tribe" },
+    { "id": "EV2-15", "deck": "jyoti-current", "kind": "link", "card": "Second Harvest", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-RECUR", "note": "copies every Dryad token" },
+    { "id": "EV2-16", "deck": "jyoti-current", "kind": "not_anti_plan", "cards": ["Copycrook", "Cackling Counterpart", "Visage Bandit"], "confidence": "high", "principle": "P-RECUR", "note": "Will 2026-09-29: a legendary Jyoti copy still makes the Dryads" },
+    { "id": "EV2-17", "deck": "korvold-aristocrats", "kind": "cuts_exclude", "expect": ["Nature's Lore"], "confidence": "high", "principle": "P-CHEAP-KEEP" }
+  ]
+}

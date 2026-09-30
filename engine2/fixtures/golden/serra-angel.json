@@ -43,7 +43,7 @@
     "needs": [],
     "roles": [],
     "anti": [],
-    "wincon": { "kind": "combat", "detail": "4-power evasive flier" },
+    "wincon": null,
     "tribal": { "types": ["Angel"], "lord_of": [] },
     "power_level_hint": 1,
     "confidence": 0.99

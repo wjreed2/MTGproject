@@ -1,0 +1,17 @@
+{
+  "meta": { "title": "Eval cycle 7 lock-ins (engine2/eval/cycles/7/triage.md)", "created": "2026-09-29" },
+  "principles": {
+    "P-TEMPO": "A low-curve deck (median nonland MV ≤ 2) wants few ramp pieces and no mana rocks",
+    "P-SCOPE": "A lord for another tribe never reads as a payoff, however it phrases its scope",
+    "P-PIPS": "Colorless {C} costs need colorless sources",
+    "P-FIT": "Without a commander engine, an obscure card needs a real fit to the deck's main goal"
+  },
+  "decks": {},
+  "assertions": [
+    { "id": "EV7-01", "deck": "yuriko-ninjas", "kind": "adds_exclude", "expect": ["Fellwar Stone", "Thought Vessel", "Mana Vault", "Thran Dynamo", "Agility Bobblehead"], "confidence": "high", "principle": "P-TEMPO" },
+    { "id": "EV7-02", "deck": "vren", "kind": "adds_exclude", "expect": ["Lord of Atlantis"], "confidence": "high", "principle": "P-SCOPE" },
+    { "id": "EV7-03", "deck": "weak-karlach-combat", "kind": "adds_exclude", "expect": ["Kozilek's Command"], "confidence": "high", "principle": "P-PIPS" },
+    { "id": "EV7-04", "deck": "chulane-blink", "kind": "anti_plan", "card": "Vaultborn Tyrant", "expect": { "reasons": ["unmet_condition"] }, "confidence": "high", "principle": "P-FIT" },
+    { "id": "EV7-05", "deck": "weak-rev-theft", "kind": "adds_exclude", "expect": ["Aetherworks Marvel", "Sarevok's Tome", "Sloppity Bilepiper"], "confidence": "medium", "principle": "P-FIT" }
+  ]
+}
