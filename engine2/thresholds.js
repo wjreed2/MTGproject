@@ -65,10 +65,13 @@ function applyPlaystyle(thresholds, step) {
   return out;
 }
 
-function computeThresholds({ goal, playstyleStep, overrides } = {}) {
+// colors: the commander's color identity (['G','U'] …) when known. Counterspells are a
+// blue job — a non-blue deck gets no Counterspell target (Pyroblast isn't a gap-filler).
+function computeThresholds({ goal, playstyleStep, overrides, colors } = {}) {
   let t = { ...BASE_THRESHOLDS };
   const goalKey = goal && goal.startsWith('tribal:') ? 'tribal' : goal;
   for (const [k, d] of Object.entries(GOAL_ADJUSTMENTS[goalKey] || {})) t[k] = Math.max(0, (t[k] || 0) + d);
+  if (Array.isArray(colors) && colors.length && !colors.includes('U')) t.Counterspell = 0;
   t = applyPlaystyle(t, playstyleStep);
   for (const [k, v] of Object.entries(overrides || {})) {
     if (Number.isFinite(Number(v))) t[k] = Number(v);

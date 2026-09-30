@@ -82,7 +82,9 @@ function breadth(e) {
       : types.includes('creature') ? 0.8
         : types.includes('spell') ? 1 : 0.7;
   const restr = `${o.text || ''}`;
-  if (/\bnon(?:black|white|blue|red|green|artifact|legendary|token)\b/i.test(restr) || o.mv_cmp || o.power_cmp || o.toughness_cmp || (o.colors || []).length) b -= 0.2;
+  if (/\bnon(?:black|white|blue|red|green|artifact|legendary|token)\b/i.test(restr) || o.mv_cmp || o.power_cmp || o.toughness_cmp) b -= 0.2;
+  // a color hoser ("if it's blue") answers one opponent's deck at best (Pyroblast)
+  if ((o.colors || []).length) b = Math.min(b, 0.25 + 0.15 * (o.colors.length - 1));
   if (/noncreature|creature spell|instant or sorcery|artifact or enchantment/i.test(restr) && types.includes('spell')) b -= 0.25;
   if (types.includes('spell') && types.length > 1 && !types.includes('permanent')) b -= 0.2; // "creature spell"
   return clamp(b, 0.3, 1);
@@ -278,4 +280,34 @@ const CLASS_NOUN = {
 };
 const noun = (cls, n) => (CLASS_NOUN[cls] || [cls.toLowerCase(), cls.toLowerCase()])[n === 1 ? 0 : 1];
 
-module.exports = { classesOf, cardQuality, classTable, popularity, noun, W };
+// ── card power (every card, not just a job class) ───────────────────────────
+// How much a card DOES for its mana, read from the CardIR alone — no EDHREC:
+//   • hint        — extraction's power_level_hint (1–5)
+//   • output      — its three strongest provides, weighted by how often they fire
+//                   (a repeatable or static effect beats a one-shot)
+//   • efficiency  — that output per effective mana
+//   • body        — a creature's stats for its cost (non-creatures neutral)
+// → 0..1. The recommender uses it to separate a great card from on-plan filler.
+const RATE_FACTOR = { once: 0.55, repeatable: 1, static: 1, per_turn: 1.15 };
+function cardPower(card) {
+  const prov = (card.ir?.provides || []).map(p => (p.weight || 1) * (RATE_FACTOR[p.rate] ?? 0.8)).sort((a, b) => b - a);
+  const output = prov.slice(0, 3).reduce((s, x, i) => s + x * [1, 0.6, 0.35][i], 0); // diminishing: breadth helps, not piles
+  const hint = clamp(((Number(card.ir?.power_level_hint) || 2) - 1) / 4);
+  const mv = Math.max(1, effectiveMV(card));
+  const efficiency = clamp(output / (mv * 1.6));
+  const pt = faces(card)[0]?.pt;
+  const p = parseInt(pt?.power, 10), t = parseInt(pt?.toughness, 10);
+  const body = /\bCreature\b/.test(frontType(card)) && Number.isFinite(p) && Number.isFinite(t) ? clamp((p + t) / (2 * mv) * 0.9) : 0.5;
+  // The extracted hint tracks blind judges best (cycle-15: r 0.37 vs 0.29 for the old
+  // 35/30/20/15 mix); output and efficiency only break ties within a hint level.
+  void body;
+  return Math.round(clamp(0.8 * hint + 0.1 * clamp(output / 9) + 0.1 * efficiency) * 1000) / 1000;
+}
+// Does the card's main work repeat (static / repeatable / every turn)?
+function repeats(card) {
+  const prov = card.ir?.provides || [];
+  const top = prov.reduce((b, x) => ((x.weight || 1) > (b?.weight || 0) ? x : b), null);
+  return !!top && ['repeatable', 'static', 'per_turn'].includes(top.rate);
+}
+
+module.exports = { classesOf, cardQuality, classTable, popularity, noun, effectiveMV, cardPower, repeats, W };

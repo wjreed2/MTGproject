@@ -3579,6 +3579,146 @@
    }
   },
   {
+   "name": "Pyroblast",
+   "typeLine": "Instant",
+   "cmc": 1,
+   "edhrecRank": 472,
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "ecc435e2-deb1-420a-a79f-01dd08747314",
+    "name": "Pyroblast",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Pyroblast",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{R}",
+      "mana_value": 1,
+      "colors": [
+       "R"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "modal",
+          "modes": {
+           "choose": 1,
+           "options": [
+            [
+             {
+              "op": "counter_spell",
+              "target": {
+               "who": "any",
+               "object": {
+                "types": [
+                 "spell"
+                ],
+                "colors": [
+                 "U"
+                ]
+               },
+               "n_targets": 1
+              },
+              "condition": {
+               "text": "if it's blue"
+              },
+              "text": "Counter target spell if it's blue."
+             }
+            ],
+            [
+             {
+              "op": "destroy",
+              "target": {
+               "who": "any",
+               "object": {
+                "types": [
+                 "permanent"
+                ],
+                "colors": [
+                 "U"
+                ]
+               },
+               "n_targets": 1
+              },
+              "condition": {
+               "text": "if it's blue"
+              },
+              "text": "Destroy target permanent if it's blue."
+             }
+            ]
+           ]
+          }
+         }
+        ],
+        "text": "Choose one —\n• Counter target spell if it's blue.\n• Destroy target permanent if it's blue."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "control.counter",
+      "param": "blue",
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "removal.spot",
+      "param": "destroy",
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "counterspell",
+     "spot_removal"
+    ],
+    "anti": [
+     {
+      "axis": "cast.instant_sorcery_volume",
+      "scope": "opponents",
+      "note": "punishes opponents' blue spells specifically"
+     }
+    ],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784490915137,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
    "name": "Path to Exile",
    "typeLine": "Instant",
    "cmc": 1,

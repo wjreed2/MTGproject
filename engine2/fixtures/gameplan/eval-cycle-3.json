@@ -1,0 +1,26 @@
+{
+  "meta": { "title": "Eval cycle 3 lock-ins (engine2/eval/cycles/3/triage.md)", "created": "2026-09-29" },
+  "principles": {
+    "P-LAND-LIGHT": "Under 37 lands the swap is a weak spell for a land — ramp is never the cut",
+    "P-REPLAY": "A commander that casts permanents from the graveyard is an engine; self-sacrificing / ETB permanents are its loop",
+    "P-REVEAL": "Delve and self-discounting big spells are reveal ammunition",
+    "P-BREAKER": "A legend-rule breaker multiplies a deck of legendary ETB-engine copies",
+    "P-DFC": "A double-faced card already in the deck (listed by its front face) is never suggested"
+  },
+  "decks": {
+    "muldrotha-graveyard": "../decks/muldrotha-graveyard.json",
+    "ur-dragon-dragons": "../decks/ur-dragon-dragons.json",
+    "edgar-vampires": "../decks/edgar-vampires.json"
+  },
+  "assertions": [
+    { "id": "EV3-01", "deck": "muldrotha-graveyard", "kind": "plan", "expect": { "engine": "Muldrotha, the Gravetide" }, "confidence": "high", "principle": "P-REPLAY" },
+    { "id": "EV3-02", "deck": "muldrotha-graveyard", "kind": "link", "card": "Spore Frog", "expect": { "link": "recursion_target" }, "confidence": "high", "principle": "P-REPLAY" },
+    { "id": "EV3-03", "deck": "muldrotha-graveyard", "kind": "cuts_exclude", "expect": ["Mulldrifter", "Spore Frog"], "confidence": "medium", "forced_cut": "tight list — every cut candidate is a keeper; the 8-cut list fills its tail with them (open product question: a keep bar)", "principle": "P-REPLAY" },
+    { "id": "EV3-04", "deck": "yuriko-ninjas", "kind": "link", "card": "Dig Through Time", "expect": { "link": "fuel_enabler" }, "confidence": "high", "principle": "P-REVEAL" },
+    { "id": "EV3-05", "deck": "yuriko-ninjas", "kind": "cuts_exclude", "expect": ["Shadow of Mortality", "Temporal Trespass"], "confidence": "medium", "principle": "P-REVEAL" },
+    { "id": "EV3-06", "deck": "jyoti", "kind": "link", "card": "Mirror Box", "expect": { "link": "amplifier" }, "confidence": "high", "principle": "P-BREAKER" },
+    { "id": "EV3-07", "deck": "ur-dragon-dragons", "kind": "cuts_exclude", "expect": ["Farseek", "Nature's Lore", "Cultivate", "Kodama's Reach"], "confidence": "medium", "forced_cut": "tight list — every cut candidate is a keeper; the 8-cut list fills its tail with them (open product question: a keep bar)", "principle": "P-LAND-LIGHT", "note": "five colors, 35 lands" },
+    { "id": "EV3-08", "deck": "atraxa-counters", "kind": "cuts_exclude", "expect": ["Farseek", "Nature's Lore", "Doubling Season"], "confidence": "medium", "forced_cut": "tight list — every cut candidate is a keeper; the 8-cut list fills its tail with them (open product question: a keep bar)", "principle": "P-LAND-LIGHT" },
+    { "id": "EV3-09", "deck": "edgar-vampires", "kind": "adds_exclude", "expect": ["Bloodline Keeper // Lord of Lineage", "Edgar, Charmed Groom // Edgar Markov's Coffin"], "confidence": "high", "principle": "P-DFC" }
+  ]
+}

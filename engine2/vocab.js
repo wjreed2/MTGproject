@@ -7,7 +7,8 @@
 // cannot drift between pipeline runs. Additive changes bump VOCAB_VERSION; breaking shape
 // changes to the IR itself bump IR_VERSION (in ir-schema.js).
 
-const VOCAB_VERSION = 5; // v5: + vehicle.body, crew.source, vehicles.matter (gameplan directions; scripts/semantics-backfill-vehicles.js derives them for pre-v5 rows)
+const VOCAB_VERSION = 6; // v6: + damage.amplifier, trigger.copy, combat.keyword_grant, mana.ramp_permanent, heroic.payoff, toughness.matters, body.high_toughness, facedown.source/matters, snow.source/matters, keyword.matters, exile.matters, party.matters, cycling.source/payoff, burn.spell/payoff (2026-09-30 corpus audit; scripts/semantics-p11-targets.js lists pre-v6 rows to re-extract)
+// v5: + vehicle.body, crew.source, vehicles.matter (gameplan directions; scripts/semantics-backfill-vehicles.js derives them for pre-v5 rows)
 // v4: + combat.goad, mill.opponent, mill.matters (precon-audit F1 gaps; pre-v4 rows lack them until re-extraction)
 
 // ── Effect AST ops ───────────────────────────────────────────────────────────
@@ -134,7 +135,8 @@ const AXES = {
   'mana.untap_lands':      'untaps lands or mana producers for reuse',
   'mana.color_fix':        'fixes colors (any-color mana, fetching, filtering)',
   'mana.cost_reduction':   'reduces costs of your spells (param: affected spell class)',
-  'mana.big_mana_payoff':  'wants very large amounts of mana (X-spells, Eldrazi)',
+  'mana.big_mana_payoff':  'IS a payoff for very large amounts of mana (X-spells, Eldrazi) — a PROVIDE marker, never a need',
+  'mana.ramp_permanent':   'nonland, non-rock, non-dork permanent that adds mana — land Auras (Utopia Sprawl, Wild Growth, Fertile Ground)',
 
   // tokens
   'token.creature':        'creates one or a few creature tokens',
@@ -177,10 +179,10 @@ const AXES = {
 
   // graveyard
   'gy.self_fill':          'puts your own cards into your graveyard for value (self-mill, discard)',
-  'gy.recursion':          'returns cards from graveyard to hand',
+  'gy.recursion':          'returns OTHER cards from graveyard to hand (a card that returns only itself is trigger.self_death_value)',
   'gy.reanimate':          'returns creatures/permanents from graveyard to battlefield',
-  'gy.cast_from':          'lets you cast cards from graveyards (yours or all)',
-  'gy.matters':            'gets stronger from cards being in graveyards (delirium, threshold, delve)',
+  'gy.cast_from':          'lets you cast OTHER cards from graveyards, yours or all (flashback on itself is not this)',
+  'gy.matters':            'IS a graveyard payoff — stronger from cards in graveyards (delirium, threshold, delve); a PROVIDE marker, the need is gy.self_fill',
 
   // sacrifice / death
   'sac.outlet_free':       'can sacrifice your creatures/permanents at no mana cost, repeatably',
@@ -210,14 +212,18 @@ const AXES = {
   'combat.extra':          'grants extra combat steps',
   'combat.attack_trigger': 'triggers on attacking (needs go-wide or extra combats)',
   'combat.fog_like':       'prevents or heavily deters combat damage against you',
+  'combat.keyword_grant':  'grants non-evasion combat keywords (double strike, trample, deathtouch, first strike, lifelink) to a group of your creatures',
+  'heroic.payoff':         'triggers when your spells/abilities target it (heroic, valiant) — NEEDS cheap targeted spells (pump.single / protection.single)',
+  'toughness.matters':     'uses toughness instead of power or scales with toughness (Doran, Arcades) — NEEDS body.high_toughness',
+  'body.high_toughness':   'defender or creature with toughness well above its power (walls) — feeds toughness.matters',
   'voltron.aura_equipment':'aura/equipment that builds one big threat (param: aura|equipment)',
   'voltron.carrier':       'wants to be suited up — hexproof/protection bodies, commander-damage threats',
   'pump.single':           'buffs a single creature (pump spells, targeted +1/+1 counters, exalted, Kessig-style activations)',
 
   // protection / interaction
-  'protection.single':     'protects a single permanent (hexproof, indestructible, counters a targeted spell)',
+  'protection.single':     'protects ANOTHER permanent (grants hexproof/indestructible, counters a targeted spell) — a creature\'s own hexproof/ward is not this',
   'protection.mass':       'protects your whole board or team',
-  'removal.spot':          'removes a single threat (param: destroy|exile|bounce|damage)',
+  'removal.spot':          'removes a single threat (param: destroy|exile|bounce|tuck|damage|fight|sacrifice) — tapping/stunning is not removal',
   'removal.wipe':          'sweeps the board or most of it',
   'control.counter':       'counters spells',
   'control.tax':           'taxes or slows opponents (stax pieces, Rule of Law effects)',
@@ -281,6 +287,19 @@ const AXES = {
   // misc engines
   'topdeck.manipulation':  'controls the top of your library (scry, surveil, Sensei’s Top)',
   'topdeck.matters':       'cares about the top card of your library (miracles, cascade payoffs)',
+  'damage.amplifier':      'increases or doubles damage your sources deal (Torbran, Fiery Emancipation, The Flame of Keld) — not a wincon itself',
+  'trigger.copy':          'copies triggered abilities or makes them trigger an additional time (Strionic Resonator, Panharmonicon) — NEEDS etb_value / trigger payoffs',
+  'facedown.source':       'puts face-down creatures onto the battlefield (manifest, cloak, morph/disguise bodies)',
+  'facedown.matters':      'rewards face-down creatures or turning them face up — NEEDS facedown.source',
+  'snow.source':           'is a snow permanent or produces snow mana',
+  'snow.matters':          'spends {S} or counts snow permanents — NEEDS snow.source',
+  'keyword.matters':       'rewards your creatures having a keyword (param: keyword — menace, flying, first strike…; Labyrinth Raptor) — NEEDS evasion.grant / combat.keyword_grant with that keyword',
+  'exile.matters':         'rewards your cards being exiled or cast from exile (foretell/plot payoffs, Laelia) — NEEDS card_advantage.impulse / cast.from_anywhere',
+  'party.matters':         'counts a full party — Cleric, Rogue, Warrior, Wizard (Harper Recruiter, the ZNR party cycle) — NEEDS tribal.body with those types',
+  'cycling.source':        'has cycling or grants cycling to your cards',
+  'cycling.payoff':        'triggers on cycling (Drake Haven, Zenith Flare) — NEEDS cycling.source',
+  'burn.spell':            'instant/sorcery that deals damage to an opponent or any target (Lightning Bolt, Fireblast) — feeds burn.payoff',
+  'burn.payoff':           'rewards your instants/sorceries dealing damage to opponents (Satyr Firedancer, Guttersnipe-style) — NEEDS burn.spell',
   'extra_turns':           'takes extra turns',
   'group.slug':            'damages or drains all opponents symmetrically over time',
   'group.hug':             'gives resources to all players',

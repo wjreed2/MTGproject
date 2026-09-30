@@ -1,0 +1,255 @@
+{
+ "commander": "Gornog, the Red Reaper",
+ "source": "weakened from pulled/warrior-voltron",
+ "seeded_weak": [
+  "Falkenrath Exterminator",
+  "Goblin Balloon Brigade",
+  "Aether Sting",
+  "Rumbling Rockslide",
+  "Hill Gigas",
+  "Devils' Playground",
+  "Reito Lantern",
+  "Bloodfire Colossus",
+  "Spreading Insurrection",
+  "Foraging Wickermaw",
+  "Loki Laufeyson",
+  "Slagdrill Scrapper"
+ ],
+ "removed_staples": [
+  "Swiftfoot Boots",
+  "Lightning Greaves",
+  "Blasphemous Act",
+  "Chaos Warp",
+  "Vandalblast",
+  "Abrade",
+  "Professional Face-Breaker",
+  "Sword of the Animist",
+  "Colossus Hammer",
+  "Moraug, Fury of Akoum",
+  "Mask of Memory",
+  "Combat Celebrant"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Laelia, the Blade Reforged",
+   "qty": 1
+  },
+  {
+   "name": "Jaxis, the Troublemaker",
+   "qty": 1
+  },
+  {
+   "name": "Knuckles the Echidna",
+   "qty": 1
+  },
+  {
+   "name": "Archetype of Aggression",
+   "qty": 1
+  },
+  {
+   "name": "Frontier Warmonger",
+   "qty": 1
+  },
+  {
+   "name": "Ogre Battledriver",
+   "qty": 1
+  },
+  {
+   "name": "Star Athlete",
+   "qty": 1
+  },
+  {
+   "name": "Flamerush Rider",
+   "qty": 1
+  },
+  {
+   "name": "Firion, Wild Rose Warrior",
+   "qty": 1
+  },
+  {
+   "name": "Raubahn, Bull of Ala Mhigo",
+   "qty": 1
+  },
+  {
+   "name": "Dáin Ironfoot",
+   "qty": 1
+  },
+  {
+   "name": "Kargan Intimidator",
+   "qty": 1
+  },
+  {
+   "name": "Dwarven Mauler",
+   "qty": 1
+  },
+  {
+   "name": "Obsidian Battle-Axe",
+   "qty": 1
+  },
+  {
+   "name": "Markov Blademaster",
+   "qty": 1
+  },
+  {
+   "name": "Boldwyr Intimidator",
+   "qty": 1
+  },
+  {
+   "name": "Falkenrath Marauders",
+   "qty": 1
+  },
+  {
+   "name": "Fireblade Charger",
+   "qty": 1
+  },
+  {
+   "name": "Ian the Reckless",
+   "qty": 1
+  },
+  {
+   "name": "Manic Vandal",
+   "qty": 1
+  },
+  {
+   "name": "Vulshok Battlemaster",
+   "qty": 1
+  },
+  {
+   "name": "Countryside Crusher",
+   "qty": 1
+  },
+  {
+   "name": "Diamond Pick-Axe",
+   "qty": 1
+  },
+  {
+   "name": "Bloodforged Battle-Axe",
+   "qty": 1
+  },
+  {
+   "name": "Adaptive Omnitool",
+   "qty": 1
+  },
+  {
+   "name": "Masterwork of Ingenuity",
+   "qty": 1
+  },
+  {
+   "name": "Argentum Armor",
+   "qty": 1
+  },
+  {
+   "name": "Goldvein Pick",
+   "qty": 1
+  },
+  {
+   "name": "Haunted Cloak",
+   "qty": 1
+  },
+  {
+   "name": "Wrecking Ball Arm",
+   "qty": 1
+  },
+  {
+   "name": "Infantry Shield",
+   "qty": 1
+  },
+  {
+   "name": "Umezawa's Jitte",
+   "qty": 1
+  },
+  {
+   "name": "Infiltration Lens",
+   "qty": 1
+  },
+  {
+   "name": "Fiendlash",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 37
+  },
+  {
+   "name": "Wild Magic Surge",
+   "qty": 1
+  },
+  {
+   "name": "Chainsaw",
+   "qty": 1
+  },
+  {
+   "name": "Enduring Courage",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Gloves",
+   "qty": 1
+  },
+  {
+   "name": "Vibranium Strike Gauntlets",
+   "qty": 1
+  },
+  {
+   "name": "Light Up the Stage",
+   "qty": 1
+  },
+  {
+   "name": "Wrenn's Resolve",
+   "qty": 1
+  },
+  {
+   "name": "Reckless Impulse",
+   "qty": 1
+  },
+  {
+   "name": "Falkenrath Exterminator",
+   "qty": 1
+  },
+  {
+   "name": "Goblin Balloon Brigade",
+   "qty": 1
+  },
+  {
+   "name": "Aether Sting",
+   "qty": 1
+  },
+  {
+   "name": "Rumbling Rockslide",
+   "qty": 1
+  },
+  {
+   "name": "Hill Gigas",
+   "qty": 1
+  },
+  {
+   "name": "Devils' Playground",
+   "qty": 1
+  },
+  {
+   "name": "Reito Lantern",
+   "qty": 1
+  },
+  {
+   "name": "Bloodfire Colossus",
+   "qty": 1
+  },
+  {
+   "name": "Spreading Insurrection",
+   "qty": 1
+  },
+  {
+   "name": "Foraging Wickermaw",
+   "qty": 1
+  },
+  {
+   "name": "Loki Laufeyson",
+   "qty": 1
+  },
+  {
+   "name": "Slagdrill Scrapper",
+   "qty": 1
+  }
+ ]
+}

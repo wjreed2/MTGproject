@@ -1,0 +1,333 @@
+{
+ "name": "Average Phenax, God of Deception deck (EDHREC)",
+ "commander": "Phenax, God of Deception",
+ "source": "edhrec-average",
+ "source_url": "https://json.edhrec.com/pages/average-decks/phenax-god-of-deception.json",
+ "archetype_expected": "mill",
+ "cards": [
+  {
+   "name": "Altar of the Brood",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Bonehoard",
+   "qty": 1
+  },
+  {
+   "name": "Dimir Signet",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Mesmeric Orb",
+   "qty": 1
+  },
+  {
+   "name": "Mindcrank",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Dominance",
+   "qty": 1
+  },
+  {
+   "name": "The Water Crystal",
+   "qty": 1
+  },
+  {
+   "name": "Thousand-Year Elixir",
+   "qty": 1
+  },
+  {
+   "name": "Bojuka Bog",
+   "qty": 1
+  },
+  {
+   "name": "Choked Estuary",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Darkwater Catacombs",
+   "qty": 1
+  },
+  {
+   "name": "Dimir Aqueduct",
+   "qty": 1
+  },
+  {
+   "name": "Drowned Catacomb",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 12
+  },
+  {
+   "name": "Morphic Pool",
+   "qty": 1
+  },
+  {
+   "name": "Nephalia Drownyard",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Shipwreck Marsh",
+   "qty": 1
+  },
+  {
+   "name": "Sunken Hollow",
+   "qty": 1
+  },
+  {
+   "name": "Swamp",
+   "qty": 8
+  },
+  {
+   "name": "Tainted Isle",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Deceit",
+   "qty": 1
+  },
+  {
+   "name": "Underground River",
+   "qty": 1
+  },
+  {
+   "name": "Watery Grave",
+   "qty": 1
+  },
+  {
+   "name": "Bruvac the Grandiloquent",
+   "qty": 1
+  },
+  {
+   "name": "Caelorna, Coral Tyrant",
+   "qty": 1
+  },
+  {
+   "name": "Charix, the Raging Isle",
+   "qty": 1
+  },
+  {
+   "name": "Consuming Aberration",
+   "qty": 1
+  },
+  {
+   "name": "Cruel Somnophage",
+   "qty": 1
+  },
+  {
+   "name": "Duskmantle Guildmage",
+   "qty": 1
+  },
+  {
+   "name": "Eater of the Dead",
+   "qty": 1
+  },
+  {
+   "name": "Fleet Swallower",
+   "qty": 1
+  },
+  {
+   "name": "Hedron Crab",
+   "qty": 1
+  },
+  {
+   "name": "Hover Barrier",
+   "qty": 1
+  },
+  {
+   "name": "Mortivore",
+   "qty": 1
+  },
+  {
+   "name": "Nemesis of Reason",
+   "qty": 1
+  },
+  {
+   "name": "Nighthowler",
+   "qty": 1
+  },
+  {
+   "name": "Ruin Crab",
+   "qty": 1
+  },
+  {
+   "name": "Sewer Nemesis",
+   "qty": 1
+  },
+  {
+   "name": "Silent Arbiter",
+   "qty": 1
+  },
+  {
+   "name": "Sire of Stagnation",
+   "qty": 1
+  },
+  {
+   "name": "Syr Konrad, the Grim",
+   "qty": 1
+  },
+  {
+   "name": "The Ancient One",
+   "qty": 1
+  },
+  {
+   "name": "The Mindskinner",
+   "qty": 1
+  },
+  {
+   "name": "The Walls of Ba Sing Se",
+   "qty": 1
+  },
+  {
+   "name": "Tree of Perdition",
+   "qty": 1
+  },
+  {
+   "name": "Wall of Frost",
+   "qty": 1
+  },
+  {
+   "name": "Wight of Precinct Six",
+   "qty": 1
+  },
+  {
+   "name": "Zellix, Sanity Flayer",
+   "qty": 1
+  },
+  {
+   "name": "Court of Cunning",
+   "qty": 1
+  },
+  {
+   "name": "Fraying Sanity",
+   "qty": 1
+  },
+  {
+   "name": "Memory Erosion",
+   "qty": 1
+  },
+  {
+   "name": "Propaganda",
+   "qty": 1
+  },
+  {
+   "name": "Psychic Corrosion",
+   "qty": 1
+  },
+  {
+   "name": "Sphinx's Tutelage",
+   "qty": 1
+  },
+  {
+   "name": "Archive Trap",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Cyclonic Rift",
+   "qty": 1
+  },
+  {
+   "name": "Dark Ritual",
+   "qty": 1
+  },
+  {
+   "name": "Didn't Say Please",
+   "qty": 1
+  },
+  {
+   "name": "Dramatic Reversal",
+   "qty": 1
+  },
+  {
+   "name": "Drown in the Loch",
+   "qty": 1
+  },
+  {
+   "name": "Negate",
+   "qty": 1
+  },
+  {
+   "name": "Psychic Strike",
+   "qty": 1
+  },
+  {
+   "name": "Thought Collapse",
+   "qty": 1
+  },
+  {
+   "name": "Visions of Beyond",
+   "qty": 1
+  },
+  {
+   "name": "Ashiok, Dream Render",
+   "qty": 1
+  },
+  {
+   "name": "Cut Your Losses",
+   "qty": 1
+  },
+  {
+   "name": "Fractured Sanity",
+   "qty": 1
+  },
+  {
+   "name": "Glimpse the Unthinkable",
+   "qty": 1
+  },
+  {
+   "name": "Maddening Cacophony",
+   "qty": 1
+  },
+  {
+   "name": "Mind Funeral",
+   "qty": 1
+  },
+  {
+   "name": "Mind Grind",
+   "qty": 1
+  },
+  {
+   "name": "Singularity Rupture",
+   "qty": 1
+  },
+  {
+   "name": "Tasha's Hideous Laughter",
+   "qty": 1
+  },
+  {
+   "name": "Traumatize",
+   "qty": 1
+  },
+  {
+   "name": "Windfall",
+   "qty": 1
+  }
+ ]
+}

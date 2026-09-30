@@ -29,7 +29,7 @@ module.exports = [
       { axes: ['token.creature', 'token.creature_wide'], min: 6 },
       { axes: ['anthem.global', 'token.payoff', 'counters.plus1_mass', 'token.doubler'], min: 2 },
     ],
-    support: ['evasion.grant', 'combat.extra', 'trigger.etb_payoff', 'sac.fodder'],
+    support: ['evasion.grant', 'combat.extra', 'trigger.etb_payoff', 'sac.fodder', 'combat.keyword_grant'],
   },
   {
     key: 'spellslinger', label: 'Spellslinger',
@@ -38,7 +38,7 @@ module.exports = [
       { axes: ['cast.instant_sorcery_volume'], min: 6 },
       { axes: ['trigger.cast_payoff', 'copy.spell', 'storm.count'], min: 2 },
     ],
-    support: ['card_advantage.draw', 'control.counter', 'mana.ritual', 'topdeck.manipulation'],
+    support: ['card_advantage.draw', 'control.counter', 'mana.ritual', 'topdeck.manipulation', 'burn.payoff'],
   },
   {
     key: 'impulse', label: 'Impulse & exile value',
@@ -50,7 +50,7 @@ module.exports = [
       { axes: ['card_advantage.impulse'], min: 6 },
       { axes: ['cast.from_anywhere', 'trigger.cast_payoff', 'token.treasure'], min: 3 },
     ],
-    support: ['theft.control', 'mana.ritual', 'wincon.damage_burst', 'gy.cast_from'],
+    support: ['theft.control', 'mana.ritual', 'wincon.damage_burst', 'gy.cast_from', 'exile.matters'],
   },
   {
     key: 'reanimator', label: 'Reanimator',
@@ -68,7 +68,7 @@ module.exports = [
       { axes: ['blink.engine'], min: 2 },
       { axes: ['etb_value', 'trigger.etb_payoff'], min: 5 },
     ],
-    support: ['token.creature', 'card_advantage.draw', 'gy.recursion'],
+    support: ['token.creature', 'card_advantage.draw', 'gy.recursion', 'trigger.copy'],
   },
   {
     key: 'lifegain', label: 'Lifegain',
@@ -88,9 +88,21 @@ module.exports = [
     // earlier template wins — a Helga deck is stompy first, counters as a sub-theme.
     core: [
       { axes: ['body.big'], min: 7 },
-      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual', 'mana.extra_land_drop'], min: 5 },
+      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual', 'mana.extra_land_drop', 'mana.ramp_permanent'], min: 5 },
     ],
     support: ['card_advantage.draw_engine', 'mana.big_mana_payoff', 'evasion.grant', 'protection.single', 'etb_value'],
+  },
+  {
+    // Poison: infect / toxic / poison sources plus proliferate. Ahead of 'counters' so
+    // an Atraxa poison list doesn't read as +1/+1 (cycle-2 eval: +1/+1 doublers were
+    // suggested to a deck that wins on poison).
+    key: 'poison', label: 'Poison (infect & proliferate)',
+    verb: 'put poison counters on opponents and proliferate them to ten',
+    core: [
+      { axes: ['counters.poison'], min: 6 },
+      { axes: ['counters.proliferate'], min: 2 },
+    ],
+    support: ['evasion.grant', 'pump.single', 'protection.single', 'wincon.alt'],
   },
   {
     key: 'counters', label: '+1/+1 counters',
@@ -216,7 +228,7 @@ module.exports = [
     verb: 'ramp far past everyone and cash the mana into haymakers',
     core: [
       { axes: ['mana.doubler', 'mana.big_mana_payoff'], min: 3 },
-      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual'], min: 12 },
+      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual', 'mana.ramp_permanent'], min: 12 },
     ],
     support: ['infinite.mana_sink', 'wincon.damage_burst', 'card_advantage.draw'],
   },
@@ -244,12 +256,29 @@ module.exports = [
     core: [
       { axes: ['group.slug', 'drain.incremental', 'lifeloss.payoff'], min: 4 },
     ],
-    support: ['hate.lifegain', 'hate.draw', 'card_advantage.wheel'],
+    support: ['hate.lifegain', 'hate.draw', 'card_advantage.wheel', 'damage.amplifier'],
   },
   {
     key: 'combo', label: 'Combo',
     verb: 'assemble a game-ending combination of pieces',
     usesCombos: true, minCombos: 1,
     support: ['tutor.any', 'tutor.creature', 'tutor.instant_sorcery', 'protection.single', 'control.counter'],
+  },
+  {
+    // Superfriends: a pile of planeswalkers kept alive and ticking up (Commodore Guff).
+    // Planeswalker density has no axis, so the gameplan sets this direction from type
+    // lines; the template supplies what the plan wants around the walkers.
+    key: 'superfriends', label: 'Superfriends (planeswalkers)',
+    verb: 'deploy many planeswalkers, protect them, and grow their loyalty',
+    core: [{ axes: ['counters.proliferate'], min: 3 }],
+    support: ['protection.mass', 'politics.deterrent', 'control.tax', 'removal.wipe', 'counters.doubler'],
+  },
+  {
+    // Upkeep triggers: cards that pay off at the beginning of your upkeep, multiplied by
+    // an engine that grants extra upkeeps (Obeka). Set by the gameplan from the engine.
+    key: 'upkeep', label: 'Upkeep triggers',
+    verb: 'stack upkeep triggers and multiply them with extra upkeep steps',
+    core: [{ axes: ['evasion.grant'], min: 2 }],
+    support: ['card_advantage.draw_engine', 'monarch.initiative', 'protection.single'],
   },
 ];

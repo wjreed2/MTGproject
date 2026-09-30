@@ -1,0 +1,293 @@
+{
+ "name": "Average Zada, Hedron Grinder deck (EDHREC)",
+ "commander": "Zada, Hedron Grinder",
+ "source": "edhrec-average",
+ "source_url": "https://json.edhrec.com/pages/average-decks/zada-hedron-grinder.json",
+ "archetype_expected": "spell-copy",
+ "cards": [
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Ruby Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 1
+  },
+  {
+   "name": "Castle Embereth",
+   "qty": 1
+  },
+  {
+   "name": "Dwarven Mine",
+   "qty": 1
+  },
+  {
+   "name": "Forgotten Cave",
+   "qty": 1
+  },
+  {
+   "name": "Kher Keep",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 29
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Sokenzan, Crucible of Defiance",
+   "qty": 1
+  },
+  {
+   "name": "Beetleback Chief",
+   "qty": 1
+  },
+  {
+   "name": "Dreadhorde Arcanist",
+   "qty": 1
+  },
+  {
+   "name": "Goblin Instigator",
+   "qty": 1
+  },
+  {
+   "name": "Goblin Matron",
+   "qty": 1
+  },
+  {
+   "name": "Goblin Warchief",
+   "qty": 1
+  },
+  {
+   "name": "Guttersnipe",
+   "qty": 1
+  },
+  {
+   "name": "Hexing Squelcher",
+   "qty": 1
+  },
+  {
+   "name": "Howlsquad Heavy",
+   "qty": 1
+  },
+  {
+   "name": "Iron Myr",
+   "qty": 1
+  },
+  {
+   "name": "Krenko, Mob Boss",
+   "qty": 1
+  },
+  {
+   "name": "Krenko, Tin Street Kingpin",
+   "qty": 1
+  },
+  {
+   "name": "Legion Warboss",
+   "qty": 1
+  },
+  {
+   "name": "Mogg War Marshal",
+   "qty": 1
+  },
+  {
+   "name": "Ornithopter of Paradise",
+   "qty": 1
+  },
+  {
+   "name": "Runaway Steam-Kin",
+   "qty": 1
+  },
+  {
+   "name": "Searslicer Goblin",
+   "qty": 1
+  },
+  {
+   "name": "Siege-Gang Commander",
+   "qty": 1
+  },
+  {
+   "name": "Siege-Gang Lieutenant",
+   "qty": 1
+  },
+  {
+   "name": "Skirk Prospector",
+   "qty": 1
+  },
+  {
+   "name": "Storm-Kiln Artist",
+   "qty": 1
+  },
+  {
+   "name": "Young Pyromancer",
+   "qty": 1
+  },
+  {
+   "name": "Frontline Heroism",
+   "qty": 1
+  },
+  {
+   "name": "Impact Tremors",
+   "qty": 1
+  },
+  {
+   "name": "Accelerate",
+   "qty": 1
+  },
+  {
+   "name": "Ancestors' Aid",
+   "qty": 1
+  },
+  {
+   "name": "Battle Hymn",
+   "qty": 1
+  },
+  {
+   "name": "Blazing Crescendo",
+   "qty": 1
+  },
+  {
+   "name": "Brightstone Ritual",
+   "qty": 1
+  },
+  {
+   "name": "Brute Force",
+   "qty": 1
+  },
+  {
+   "name": "Chaos Warp",
+   "qty": 1
+  },
+  {
+   "name": "Crimson Wisps",
+   "qty": 1
+  },
+  {
+   "name": "Expedite",
+   "qty": 1
+  },
+  {
+   "name": "Fists of Flame",
+   "qty": 1
+  },
+  {
+   "name": "Flick a Coin",
+   "qty": 1
+  },
+  {
+   "name": "Haste Magic",
+   "qty": 1
+  },
+  {
+   "name": "Might of the Meek",
+   "qty": 1
+  },
+  {
+   "name": "Monstrous Rage",
+   "qty": 1
+  },
+  {
+   "name": "Reckless Ransacking",
+   "qty": 1
+  },
+  {
+   "name": "Seething Song",
+   "qty": 1
+  },
+  {
+   "name": "Siege Smash",
+   "qty": 1
+  },
+  {
+   "name": "Stun",
+   "qty": 1
+  },
+  {
+   "name": "Sudden Breakthrough",
+   "qty": 1
+  },
+  {
+   "name": "Temur Battle Rage",
+   "qty": 1
+  },
+  {
+   "name": "Titan's Strength",
+   "qty": 1
+  },
+  {
+   "name": "Ancestral Anger",
+   "qty": 1
+  },
+  {
+   "name": "Dragon Fodder",
+   "qty": 1
+  },
+  {
+   "name": "Empty the Warrens",
+   "qty": 1
+  },
+  {
+   "name": "Hordeling Outburst",
+   "qty": 1
+  },
+  {
+   "name": "Impolite Entrance",
+   "qty": 1
+  },
+  {
+   "name": "Kari Zev's Expertise",
+   "qty": 1
+  },
+  {
+   "name": "Kick in the Door",
+   "qty": 1
+  },
+  {
+   "name": "Krenko's Command",
+   "qty": 1
+  },
+  {
+   "name": "Mana Geyser",
+   "qty": 1
+  },
+  {
+   "name": "Past in Flames",
+   "qty": 1
+  },
+  {
+   "name": "Reckless Charge",
+   "qty": 1
+  },
+  {
+   "name": "Renegade Tactics",
+   "qty": 1
+  },
+  {
+   "name": "Traitorous Greed",
+   "qty": 1
+  },
+  {
+   "name": "Twinflame",
+   "qty": 1
+  },
+  {
+   "name": "Witch's Mark",
+   "qty": 1
+  }
+ ]
+}

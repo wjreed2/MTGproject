@@ -24,7 +24,14 @@ const ONLY = opt('--only') ? new Set(opt('--only').split(',')) : null;
 const ONLY_DECK = opt('--deck');
 const VERBOSE = argv.includes('--verbose');
 const FX_DIR = path.join(__dirname, '..', 'engine2', 'fixtures', 'gameplan');
-const FX = JSON.parse(fs.readFileSync(path.join(FX_DIR, 'chat-2026-09-28.json'), 'utf8'));
+// Every fixture file in the folder: the chat's assertions plus eval-cycle lock-ins.
+// Deck paths are relative to the gameplan fixture folder.
+const FX = { decks: {}, assertions: [] };
+for (const f of fs.readdirSync(FX_DIR).filter(f => f.endsWith('.json')).sort()) {
+  const one = JSON.parse(fs.readFileSync(path.join(FX_DIR, f), 'utf8'));
+  Object.assign(FX.decks, one.decks || {});
+  FX.assertions.push(...(one.assertions || []));
+}
 
 let db;
 const cardCache = new Map(); // name → card row object
@@ -73,12 +80,14 @@ async function analyze(fx, commanderOverride) {
   const top = goalsRes.goals[0];
   const gameplan = GP.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
   const planGoal = gameplan.commanderCentric && gameplan.direction ? gameplan.direction.top : top?.goal;
-  const thresholds = E.thresholds.computeThresholds({ goal: planGoal });
+  const thresholds = E.thresholds.computeThresholds({ goal: planGoal, colors: commander.ci });
   const roleCounts = E.thresholds.countRoles(deckCards);
   const base = { deckCards, commander, goals: GP.planGoals(gameplan, goalsRes.goals), thresholds, roleCounts, gameplan };
   // Two views: the cut list users SEE (default size) and a wider candidate pool.
   const cuts = E.recommender.scoreCuts({ ...base, limit: 14 });
-  const cutsShown = E.recommender.scoreCuts({ ...base });
+  // Real lists are exactly 100 and get no cuts (cuts = cards over 100); rank the
+  // 8 weakest to keep testing cut QUALITY as if the list were 8 over.
+  const cutsShown = E.recommender.scoreCuts({ ...base, limit: 8 });
   let addsMemo = null;
   const adds = async () => {
     if (addsMemo) return addsMemo;
@@ -108,12 +117,13 @@ async function analyze(fx, commanderOverride) {
     fx._projected = await analyze(proj, commanderOverride);
     return fx._projected;
   };
-  return { deckCards, commander, goalsRes, gameplan, cuts, cutsShown, adds, scoreAs, projected };
+  return { deckCards, commander, goalsRes, gameplan, thresholds, cuts, cutsShown, adds, scoreAs, projected };
 }
 
 // ── assertion checks ─────────────────────────────────────────────────────────
 const lc = s => String(s || '').toLowerCase();
 async function check(a, A) {
+  await loadCards([a.card, ...(a.cards || [])].filter(Boolean));
   let plan = A.gameplan;
   const ev = n => plan.deckEval.get(n) || (cardCache.get(n)?.ir ? GP.evaluateCard(plan, cardCache.get(n)) : null);
   const R = [];
@@ -130,7 +140,7 @@ async function check(a, A) {
       break;
     }
     case 'direction': {
-      ok(`direction = ${a.expect.top}`, plan.direction?.top === a.expect.top, `got ${plan.direction?.top}`);
+      if (a.expect.top) ok(`direction = ${a.expect.top}`, plan.direction?.top === a.expect.top, `got ${plan.direction?.top}`);
       if (a.expect.not_top) ok(`not ${a.expect.not_top}`, plan.direction?.top !== a.expect.not_top);
       break;
     }
@@ -140,6 +150,15 @@ async function check(a, A) {
       const has = wants.some(want => want.startsWith('foundation:') ? e?.links.some(l => lc(l).startsWith('foundation:')) : e?.links.includes(want));
       ok(`${a.card} is ${wants.join(' or ')}`, has, `links=${e?.links.join(',')}`);
       if (a.expect.also_fuel) ok(`${a.card} also fuels the engine`, e?.alsoFuel || e?.links.includes('fuel'), `alsoFuel=${e?.alsoFuel}`);
+      break;
+    }
+    case 'not_link': {
+      const e = ev(a.card);
+      for (const l of [].concat(a.expect.links)) ok(`${a.card} is not ${l}`, e && !e.links.includes(l), `links=${e?.links.join(',')}`);
+      break;
+    }
+    case 'threshold': {
+      for (const [cat, n] of Object.entries(a.expect)) ok(`${cat} target = ${n}`, A.thresholds[cat] === n, `got ${A.thresholds[cat]}`);
       break;
     }
     case 'anti_plan': {
@@ -233,7 +252,9 @@ function invariants(name, A) {
   const castFuel = plan.fuel.find(s => s.kind === 'cast');
   for (const [n, e] of plan.deckEval) {
     const c = A.deckCards.find(x => x.name === n);
-    if (castFuel && castFuel.notTypes.includes('creature') && /\bCreature\b/.test(c?.typeLine || '') && e.links.includes('fuel')) fails.push(`INV-01 ${n} is a creature marked fuel`);
+    // every castable face is a creature (an MDFC / prepared card's spell side is real fuel)
+    const castable = ['modal_dfc', 'prepare', 'adventure', 'split'].includes(c?.ir?.layout) ? String(c.typeLine).split('//') : [String(c?.typeLine || '').split('//')[0]];
+    if (castFuel && castFuel.notTypes.includes('creature') && castable.every(t => /\bCreature\b/.test(t)) && e.links.includes('fuel')) fails.push(`INV-01 ${n} is a creature marked fuel`);
     if (e.anti.includes('copy_not_cast') && !castFuel) fails.push(`INV-03 ${n} copy_not_cast without a cast engine`);
     if (e.anti.includes('symmetric_benefit') && plan.direction?.top === 'group-hug') fails.push(`INV-04 ${n} symmetric_benefit in a group-hug plan`);
     for (const r of e.riders) if (plan.engine && (A.commander.ir?.tribal?.types || []).includes(r.type) && r.reliability < 1) fails.push(`INV-05 ${n} rider ${r.type} < 1`);

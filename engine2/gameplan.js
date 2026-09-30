@@ -13,6 +13,8 @@
 
 const R = require('./rules');
 const th = require('./thresholds');
+const Q = require('./quality');
+const TEMPLATES = require('./goal-templates');
 
 const COMMANDER_CENTRAL = 0.35;   // centrality at which the commander's chain drives scoring
 const COMMANDER_AMPLIFIERS = 8;   // …or this many cards that multiply the commander's output
@@ -30,6 +32,10 @@ const hasAxis = (c, re) => provides(c).some(p => (re instanceof RegExp ? re.test
 const abilities = c => R.abilitiesOf(c?.ir);
 const allEffects = c => R.allEffects(c?.ir);
 const typesOf = c => (c?.ir?.tribal?.types || []).map(String);
+// Changeling is every creature type, in every zone (Mothdust Changeling is a Ninja).
+const isChangeling = c => (c?.ir?.faces || []).some(f => (f.keywords || []).some(k => /^changeling$/i.test(k.name || '')))
+  || R.abilitiesOf(c?.ir).some(a => /is every creature type/i.test(a.text || ''));
+const hasType = (c, t) => isChangeling(c) || typesOf(c).some(x => x.toLowerCase() === String(t).toLowerCase() || singular(x) === singular(t));
 const cmp = (a, op, b) => op === '>=' ? a >= b : op === '<=' ? a <= b : op === '>' ? a > b : op === '<' ? a < b : a === b;
 const CARD_TYPES = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'land', 'battle'];
 
@@ -41,6 +47,66 @@ function pAtLeastOne(q, n = DECK_SIZE, seen = CARDS_SEEN) {
   for (let i = 0; i < seen; i++) pNone *= Math.max(0, (n - q - i)) / (n - i);
   return Math.max(0, Math.min(1, 1 - pNone));
 }
+
+// ── what the engine's bodies ARE ─────────────────────────────────────────────
+// A payoff scoped to a type only touches the output when it names that type: a Zombie
+// lord does nothing for Rats, "colorless creatures" nothing for blue Drakes, a
+// proliferate doubler nothing for an engine that places counters itself.
+const singular = w => w.toLowerCase().replace(/ves$/, 'f').replace(/s$/, '');
+const GENERIC_WORD = /^(?:creatures?|tokens?|chosen|choice|type|any|all|other|another|nontoken|attacking|blocking|untapped|you|your|each|and|or|of|the|a|an|control|with|power|toughness|\+1\/\+1|p1p1|plus1|white|blue|black|red|green|multicolored|monocolored|w|u|b|r|g)$/i;
+// Axes whose param names WHO benefits (tribe, card type, color, counter kind).
+const PARAM_AXES = new Set(['tribal.lord', 'anthem.global', 'evasion.grant', 'haste.enabler', 'token.payoff', 'protection.mass',
+  'counters.doubler', 'token.doubler', 'trigger.etb_payoff', 'mana.doubler', 'untap.permanent', 'untap.creature']);
+function planKinds(plan) {
+  if (plan._kinds) return plan._kinds;
+  const k = new Set();
+  for (const o of plan.output) {
+    if (o.sub) k.add(singular(o.sub));
+    if (o.artifact) { k.add('artifact'); k.add('colorless'); }
+    if (o.land) k.add('land');
+    if (o.proliferate) k.add('proliferate');
+  }
+  for (const s of plan.fuel) if (s.sub) k.add(singular(s.sub));
+  const d = String(plan.direction?.top || '');
+  if (d.startsWith('tribal:')) k.add(singular(d.slice(7)));
+  if (plan.direction) plan._kinds = k; // cache once the direction is settled
+  return k;
+}
+// Does a qualifier ("Zombie tokens", "artifact", "colorless", "Legendary") reach the
+// engine's bodies? Generic words always do; a specific word must be one of the kinds.
+function qualifierFits(plan, q) {
+  const words = String(q || '').split(/[\s,/;]+/).filter(Boolean).filter(w => !GENERIC_WORD.test(w));
+  if (!words.length) return true;
+  const kinds = planKinds(plan);
+  return words.some(w => kinds.has(singular(w)));
+}
+const paramFits = (plan, p) => !PARAM_AXES.has(p.axis) || !p.param || qualifierFits(plan, p.param);
+// Paramless grants still say who they reach in their text ("Other artifact creatures
+// you control have flying"): every scoped clause must reach the engine's bodies.
+function scopeFits(plan, card) {
+  const text = abilities(card).filter(a => a.kind === 'static' || a.kind === 'triggered').map(a => a.text || '').join(' ');
+  const scopes = [...text.matchAll(/\b((?:[A-Za-z-]+ ){0,2})creatures you control (?:get|have|gain)\b/g)].map(m => m[1].trim())
+    // "Skeletons and Zombies you control get +1/+1" — tribes named without "creatures"
+    .concat([...text.matchAll(/\b((?:[A-Z][a-z]+s(?:,? (?:and|or) )?)+) you control (?:get|have|gain)\b/g)].map(m => m[1].replace(/\b(?:and|or)\b/g, ' ').trim()))
+    // "Other Merfolk get +1/+1 and have islandwalk" (Lord of Atlantis) — a tribe, no "you control"
+    .concat([...text.matchAll(/\b[Oo]ther ([A-Z][a-z]+)(?: creatures)? (?:you control )?(?:get|have|gain)\b/g)].map(m => m[1]));
+  if (!scopes.length) return true;
+  return scopes.some(s => qualifierFits(plan, s));
+}
+// A trigger subject ("another colorless creature", "a Zombie") the engine's bodies meet.
+function subjectFits(plan, subject) {
+  if (!subject) return true;
+  const kinds = planKinds(plan);
+  if ((subject.sub || []).length && !(subject.sub || []).some(s => kinds.has(singular(s)))) return false;
+  const colors = subject.colors || [];
+  if ((colors.includes('C') || /colorless/i.test(String(subject.text || ''))) && !kinds.has('colorless')) return false;
+  const outColors = plan.output.filter(o => o.kind === 'tokens' && o.colors).flatMap(o => o.colors);
+  if (colors.length && !colors.includes('C') && outColors.length && !colors.some(c => outColors.includes(c))) return false;
+  return true;
+}
+// A standing payoff's reach: every param'd axis names the engine's bodies, and a
+// paramless grant's own text doesn't scope it elsewhere.
+const provideFits = (plan, card, p) => paramFits(plan, p) && !(!p.param && PARAM_AXES.has(p.axis) && !scopeFits(plan, card));
 
 const IRREGULAR = { elf: 'Elves', dwarf: 'Dwarves', wolf: 'Wolves' };
 const plural = t => IRREGULAR[String(t).toLowerCase()] || (/(?:s|x|ch|sh)$/i.test(t) ? `${t}es` : `${t}s`);
@@ -59,7 +125,10 @@ function fuelSpecs(cmdr) {
       const notTypes = [...text.matchAll(/\bnon-?(creature|artifact|enchantment|instant|sorcery|planeswalker|land)\b/g)].map(m => m[1]);
       for (const ty of CARD_TYPES) if (new RegExp(`\\b${ty}\\b`).test(text) && !notTypes.includes(ty) && !types.includes(ty)) types.push(ty);
       const sub = (s.sub || [])[0] || null;
-      specs.push({ kind: 'cast', types, notTypes, sub, mv: s.mv_cmp || null, label: castLabel(types, notTypes, s.mv_cmp, sub) });
+      // "targets only Zada": the fuel is spells that TARGET a creature (they get copied)
+      const targetsEngine = /targets only/i.test(text);
+      specs.push({ kind: 'cast', types, notTypes, sub, mv: s.mv_cmp || null, targetsEngine,
+        label: targetsEngine ? 'instants and sorceries that target it' : castLabel(types, notTypes, s.mv_cmp, sub) });
     }
     // Event engines: the commander triggers on something the 99 supplies.
     if (a.kind === 'triggered' && EVENT_FUEL[t?.event] && !(t.subject?.or_self && !(t.subject?.sub || []).length && !(t.subject?.types || []).length)
@@ -68,6 +137,15 @@ function fuelSpecs(cmdr) {
       const ev = EVENT_FUEL[t.event];
       specs.push({ kind: 'event', event: t.event, opp, axes: opp && ev.opp ? ev.opp : ev.you, label: opp && ev.oppLabel ? ev.oppLabel : ev.label });
     }
+    // Combat-damage engines (Yuriko: "whenever a Ninja you control deals combat damage"):
+    // the fuel is bodies that connect — the tribe itself, and cheap evasive creatures
+    // that carry ninjutsu in.
+    if (a.kind === 'triggered' && t?.event === 'deal_combat_damage' && t.controller_scope !== 'opponent'
+        && !(t.subject?.or_self && !(t.subject?.sub || []).length)) { // Obeka connecting herself isn't a fuel pool
+      const sub = (t.subject?.sub || [])[0] || null;
+      specs.push({ kind: 'combat', sub, reveals: R.effectsOf(a).some(e => e.op === 'reveal' && /library/.test(JSON.stringify(e.target || {}))),
+        label: `${sub ? plural(sub) : 'creatures'} connecting in combat` });
+    }
     if (a.kind === 'replacement' && a.replaces?.event === 'dies' && /^opp/.test(String(a.replaces.scope?.controller || ''))) {
       specs.push({ kind: 'opp_leaves', label: "opponents' creatures leaving the battlefield" });
     }
@@ -75,6 +153,15 @@ function fuelSpecs(cmdr) {
       specs.push({ kind: 'type_enters', sub: t.subject.sub[0], label: `${plural(t.subject.sub[0])} entering` });
     }
     for (const e of R.effectsOf(a)) {
+      // Casts permanents from the graveyard every turn (Muldrotha): the fuel is
+      // getting them there — self-mill, loot, discard.
+      if (e.op === 'play_from_zone' && e.zone_from === 'graveyard' && (e.target?.object?.types || []).some(t => ['permanent', 'creature'].includes(t))) {
+        specs.push({ kind: 'gy_replay', label: 'permanents going to your graveyard' });
+      }
+      // Phenax: every creature taps to mill X = its toughness — fuel is high-toughness bodies
+      if (e.op === 'grant_ability' && (e.sub || []).some(x => x.op === 'mill') && /toughness/i.test(`${e.text || ''} ${a.text || ''}`)) {
+        specs.push({ kind: 'toughness', label: 'high-toughness creatures' });
+      }
       if (e.op === 'grant_ability') {
         const m = /activated abilities of (?:all )?([A-Z][a-z]+) cards in your graveyard/i.exec(e.text || a.text || '');
         if (m) specs.push({ kind: 'gy_type', sub: m[1], label: `${m[1]} cards in the graveyard` });
@@ -84,6 +171,8 @@ function fuelSpecs(cmdr) {
       }
     }
   }
+  // A planeswalker commander (Commodore Guff) runs on planeswalkers.
+  if (/\bPlaneswalker\b/.test(frontType(cmdr))) specs.push({ kind: 'cast', types: ['planeswalker'], notTypes: [], sub: null, mv: null, label: 'planeswalker spells' });
   // de-dup by kind
   const seen = new Set();
   return specs.filter(s => { const k = s.kind + (s.sub || ''); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -112,23 +201,49 @@ const EVENT_FUEL = {
   mill: { you: ['gy.self_fill', 'mill.opponent'], label: 'cards being milled' },
 };
 
+const CASTABLE_LAYOUTS = new Set(['modal_dfc', 'prepare', 'adventure', 'split']);
+function castFaceFits(card, spec, ft, i) {
+  if (/\bland\b/.test(ft) && !/\bcreature\b/.test(ft)) return false;
+  if (spec.notTypes.some(t => new RegExp(`\\b${t}\\b`).test(ft))) return false;
+  if (spec.types.length && !spec.types.some(t => new RegExp(`\\b${t}\\b`).test(ft))) return false;
+  if (spec.sub && !hasType(card, spec.sub)
+    && !new RegExp(`\\b${spec.sub}\\b`, 'i').test(ft)) return false;
+  if (spec.mv) {
+    const face = card.ir?.faces?.[i];
+    const mv = i > 0 && face?.mana_value != null ? Number(face.mana_value) : (Number(card.cmc) || 0);
+    // {X} spells count X on the stack: an X creature can always be cast big enough.
+    if (!cmp(mv, spec.mv.op, spec.mv.n) && !(hasX(card) && /^>/.test(spec.mv.op))) return false;
+  }
+  return true;
+}
+
 // Does this card feed the engine? (doc §3.2 table)
 function fuelTest(card, spec) {
   if (!card?.ir) return false;
   const ft = frontType(card).toLowerCase();
   switch (spec.kind) {
     case 'cast': {
-      if (isLand(card)) return false;
-      if (spec.notTypes.some(t => new RegExp(`\\b${t}\\b`).test(ft))) return false;
-      if (spec.types.length && !spec.types.some(t => new RegExp(`\\b${t}\\b`).test(ft))) return false;
-      if (spec.sub && !typesOf(card).some(t => t.toLowerCase() === spec.sub.toLowerCase())
-        && !new RegExp(`\\b${spec.sub}\\b`, 'i').test(ft)) return false;
-      if (spec.mv) {
-        const mv = Number(card.cmc) || 0;
-        // {X} spells count X on the stack: an X creature can always be cast big enough.
-        if (!cmp(mv, spec.mv.op, spec.mv.n) && !(hasX(card) && /^>/.test(spec.mv.op))) return false;
-      }
+      // Every face that can be CAST counts: an MDFC's or prepared card's spell side
+      // (Emeritus of Conflict // Lightning Bolt), an adventure, a split card.
+      const faces = CASTABLE_LAYOUTS.has(card.ir?.layout) ? String(card.typeLine || '').split('//') : [frontType(card)];
+      if (!faces.some((t, i) => castFaceFits(card, spec, t.toLowerCase(), i))) return false;
+      // Zada: only a spell that targets a (single) creature gets copied across the team
+      if (spec.targetsEngine) return abilities(card).some(a => /\btarget creature\b/i.test(a.text || '') && !/\beach creature\b/i.test(a.text || ''));
       return true;
+    }
+    case 'toughness': {
+      if (!isCreatureCard(card)) return false;
+      const tough = parseInt(card.ir?.faces?.[0]?.pt?.toughness, 10);
+      return (Number.isFinite(tough) && tough >= 4) || (card.ir?.faces || []).some(f => (f.keywords || []).some(k => /^defender$/i.test(k.name || '')));
+    }
+    case 'gy_replay':
+      return provides(card).some(p => ['gy.self_fill', 'card_advantage.loot', 'discard.outlet', 'mill.self'].includes(p.axis) && (p.weight || 1) >= 2);
+    case 'combat': {
+      if (!isCreatureCard(card)) return false;
+      if (spec.sub && hasType(card, spec.sub)) return true;
+      const evasive = hasAxis(card, 'body.evasive') || (card.ir?.faces || []).some(f => (f.keywords || []).some(k => /^(flying|menace|shadow|fear|intimidate|skulk|horsemanship)$/i.test(k.name || '')))
+        || abilities(card).some(a => /can't be blocked/i.test(a.text || ''));
+      return evasive && (Number(card.cmc) || 0) <= 2;
     }
     case 'opp_leaves':
       return hasAxis(card, /^removal\.(spot|wipe|edict)/) || hasAxis(card, 'opp.token_kill')
@@ -138,10 +253,10 @@ function fuelTest(card, spec) {
     case 'event':
       return provides(card).some(p => spec.axes.includes(p.axis));
     case 'type_enters':
-      return typesOf(card).some(t => t.toLowerCase() === spec.sub.toLowerCase())
+      return hasType(card, spec.sub)
         || provides(card).some(p => /^token\.creature/.test(p.axis) && String(p.param || '').toLowerCase() === spec.sub.toLowerCase());
     case 'gy_type':
-      return typesOf(card).some(t => t.toLowerCase() === spec.sub.toLowerCase()) && abilities(card).some(a => a.kind === 'activated' || a.kind === 'mana');
+      return hasType(card, spec.sub) && abilities(card).some(a => a.kind === 'activated' || a.kind === 'mana');
     case 'land_creatures':
       return /\bland\b/.test(ft) && /\bcreature\b/.test(ft)
         || allEffects(card).some(e => (e.op === 'create_token' && /land/i.test(e.token?.types || '') && /creature/i.test(e.token?.types || ''))
@@ -165,13 +280,19 @@ function outputsOf(cmdr) {
   const out = [];
   if (!cmdr?.ir) return out;
   for (const a of abilities(cmdr)) {
+    // Phenax's static grant is his output: every creature mills
+    if (a.kind === 'static' && R.effectsOf(a).some(e => e.op === 'grant_ability' && (e.sub || []).some(x => x.op === 'mill'))) out.push({ kind: 'mill', label: 'milled cards' });
     if (a.kind !== 'triggered' && a.kind !== 'activated' && a.kind !== 'mana') continue;
     for (const e of R.effectsOf(a)) {
+      if (e.op === 'put_counter' && e.counter_kind === 'loyalty') { out.push({ kind: 'loyalty', label: 'loyalty on your planeswalkers' }); continue; }
+      if (e.op === 'copy_spell' && /creature/i.test(JSON.stringify(e.target?.object || {}))) { out.push({ kind: 'spell_copies', label: 'spell copies across the team' }); continue; }
+      if (e.op === 'extra_turn' && /upkeep/i.test(`${e.text || ''} ${a.text || ''}`)) { out.push({ kind: 'upkeeps', label: 'extra upkeep steps' }); continue; }
       if (e.op === 'create_token' && /creature/i.test(e.token?.types || '') && !['target_opponent', 'each_opponent'].includes(e.target?.who)) {
         const sub = (/—\s*(.+)$/.exec(e.token.types || '')?.[1] || '').split(/\s+/)[0] || null;
-        out.push({ kind: 'tokens', artifact: /artifact/i.test(e.token.types), land: /\bland\b/i.test(e.token.types), sub,
+        out.push({ kind: 'tokens', artifact: /artifact/i.test(e.token.types), land: /\bland\b/i.test(e.token.types), sub, colors: e.token.colors || null,
+          keywords: String(e.token.abilities_text || '').toLowerCase().split(/[,.\s]+/).filter(Boolean), power: parseInt(String(e.token.pt || '').split('/')[0], 10),
           label: `${/artifact/i.test(e.token.types) ? 'artifact ' : ''}creature tokens` });
-      } else if (e.op === 'put_counter' && e.counter_kind === '+1/+1') out.push({ kind: 'counters', label: '+1/+1 counters' });
+      } else if ((e.op === 'put_counter' && e.counter_kind === '+1/+1') || e.op === 'proliferate') out.push({ kind: 'counters', proliferate: e.op === 'proliferate', label: e.op === 'proliferate' ? 'proliferated counters' : '+1/+1 counters' });
       else if (e.op === 'add_mana' && a.kind === 'mana' && (e.n?.kind !== 'fixed')) out.push({ kind: 'mana', label: 'scaling mana' });
       else if (e.op === 'draw' && /opponent/.test(e.target?.who || '')) out.push({ kind: 'opp_draw', label: 'cards for opponents' });
       else if (e.op === 'pump' && a.trigger?.event === 'begin_combat') out.push({ kind: 'pump', label: 'a combat pump' });
@@ -185,11 +306,15 @@ function outputsOf(cmdr) {
 // Which directions can spend which output (doc §3 "direction").
 const DIRECTION_FOR_OUTPUT = {
   tokens: ['tokens-wide', 'vehicles', 'aristocrats', 'artifacts', 'go-wide', 'voltron'],
-  counters: ['counters', 'voltron', 'group-hug'],
+  counters: ['counters', 'poison', 'voltron', 'group-hug'],
   opp_draw: ['group-hug', 'wheels', 'counters'],
   mana: ['big-mana', 'stompy', 'counters'],
   pump: ['tokens-wide', 'landfall', 'stompy', 'voltron'],
   borrowed: ['combo', 'graveyard'],
+  mill: ['mill'],
+  loyalty: ['superfriends'],
+  spell_copies: ['tokens-wide', 'go-wide'],
+  upkeeps: ['upkeep'],
 };
 
 // Converters per direction: provides that turn the output into a win.
@@ -197,6 +322,7 @@ const CONVERTER_AXES = {
   'tokens-wide': ['token.payoff', 'anthem.global', 'trigger.etb_payoff', 'drain.incremental', 'combat.extra', 'wincon.damage_burst', 'evasion.grant'],
   vehicles: ['vehicles.matter', 'vehicle.body'],
   counters: ['counters.payoff', 'counters.proliferate', 'evasion.grant', 'voltron.aura_equipment'],
+  poison: ['counters.poison', 'counters.proliferate', 'evasion.grant', 'wincon.alt'],
   voltron: ['voltron.aura_equipment', 'evasion.grant', 'pump.single'],
   'group-hug': ['wincon.alt', 'hate.draw', 'group.slug'],
   aristocrats: ['drain.incremental', 'trigger.death_payoff'],
@@ -210,6 +336,9 @@ const CONVERTER_AXES = {
   enchantress: ['enchantments.matter'],
   spellslinger: ['trigger.cast_payoff', 'copy.spell'],
   lifegain: ['lifegain.payoff'],
+  mill: ['mill.opponent', 'mill.matters'],
+  superfriends: ['counters.proliferate', 'protection.mass', 'politics.deterrent'],
+  upkeep: [],
 };
 // Payoffs that only make sense for ONE direction — what off-direction reads (a generic
 // pump or evasion grant is useful everywhere and never counts).
@@ -220,11 +349,12 @@ const DIRECTION_AMPLIFIERS = {
   aristocrats: ['token.doubler'],
   'big-mana': ['mana.doubler'],
 };
-const STRUCTURAL_ANTI = new Set(['fights_fuel', 'copy_not_cast', 'symmetric_benefit', 'legendary_copy', 'redundant_with_engine', 'off_color_cost_reducer', 'no_engine_target']);
+const STRUCTURAL_ANTI = new Set(['wrong_color', 'crew_burden', 'exiled_not_dies', 'self_harm', 'no_tribe', 'swaps_tokens', 'fights_fuel', 'copy_not_cast', 'symmetric_benefit', 'legendary_copy', 'redundant_with_engine', 'off_color_cost_reducer', 'no_engine_target']);
 const DIRECTION_SPECIFIC = {
   'tokens-wide': ['token.payoff', 'trigger.etb_payoff'],
   vehicles: ['vehicles.matter', 'vehicle.body'],
   counters: ['counters.payoff'],
+  poison: ['counters.poison'],
   voltron: ['voltron.aura_equipment'],
   'group-hug': ['wincon.alt', 'hate.draw'],
   aristocrats: ['trigger.death_payoff'],
@@ -235,6 +365,9 @@ const DIRECTION_SPECIFIC = {
 const TRIBAL_CONVERTERS = ['tribal.lord', 'anthem.global', 'evasion.grant', 'combat.extra'];
 const converterAxes = dir => CONVERTER_AXES[dir] || (String(dir || '').startsWith('tribal:') ? TRIBAL_CONVERTERS : []);
 const AMPLIFIER_FOR_OUTPUT = {
+  loyalty: ['counters.proliferate', 'counters.doubler'],
+  upkeeps: ['evasion.grant'],
+  spell_copies: ['token.creature_wide'],
   tokens: ['token.doubler'],
   counters: ['counters.doubler'],
   mana: ['mana.doubler'],
@@ -249,7 +382,17 @@ function inferGameplan({ deckCards, commander, goals, interactions }) {
   const plan = {
     engine: cmdr ? { card: cmdr.name, types: typesOf(cmdr) } : null,
     fuel, output, direction: null, centrality: 0, commanderCentric: false,
-    legendBreakers: (deckCards || []).filter(c => abilities(c).some(a => /legend rule[^.]*doesn't apply/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`))).map(c => c.name),
+    // A {T}-ability engine (Krenko, Helga's mana): untap effects and haste multiply it.
+    // what it replays: 'creature' (Meren) or 'permanent' (Muldrotha casts them from the yard)
+    recursionTypes: cmdr && allEffects(cmdr).some(e => e.op === 'play_from_zone' && e.zone_from === 'graveyard'
+      && (e.target?.object?.types || []).includes('permanent')) ? ['permanent'] : ['creature'],
+    recursionEngine: !!cmdr && allEffects(cmdr).some(e => e.op === 'play_from_zone' && e.zone_from === 'graveyard'
+      && (e.target?.object?.types || []).some(t => ['permanent', 'creature'].includes(t))) || !!cmdr && allEffects(cmdr).some(e => (e.op === 'reanimate' || e.op === 'return_from_gy')
+      && (/creature/i.test(JSON.stringify(e.target?.object || {})) || /creature card/i.test(e.text || ''))) || !!cmdr && abilities(cmdr).some(a => R.effectsOf(a).some(e => e.op === 'branch'
+      && /creature card in your graveyard/i.test(e.text || '') && (e.sub || []).some(x => x.op === 'reanimate'))),
+    tapEngine: !!cmdr && R.isCreature(cmdr.ir) && abilities(cmdr).some(a => (a.kind === 'activated' || a.kind === 'mana') && a.cost?.tap
+      && R.effectsOf(a).some(e => ['create_token', 'damage', 'draw', 'put_counter', 'drain'].includes(e.op) || (e.op === 'add_mana' && e.n?.kind !== 'fixed'))),
+    legendBreakers: (deckCards || []).filter(legendBreaker).map(c => c.name),
     deckColors: null, bottleneck: null, critical: {}, goals: goals || [],
     _deck: deckCards || [], _cmdr: cmdr, _interactions: interactions || null,
   };
@@ -257,7 +400,10 @@ function inferGameplan({ deckCards, commander, goals, interactions }) {
   // Direction: the best-ranked goal the engine's output can feed; runner-up shown.
   const compatible = new Set(output.flatMap(o => DIRECTION_FOR_OUTPUT[o.kind] || []));
   const ranked = (goals || []).filter(g => (g.confidence || 0) >= 0.3);
-  const fits = g => compatible.has(g.goal) || String(g.goal).startsWith('tribal:');
+  // A tribe is a plan only when the 99 pays it off (lords, "other Elves" payoffs) or the
+  // engine makes / eats it — Kozilek's Eldrazi and Rakdos's Demons are just creature
+  // types those decks happen to run (cycle-8 eval).
+  const fits = g => compatible.has(g.goal) || (String(g.goal).startsWith('tribal:') && realTribe(deckCards, String(g.goal).slice(7), cmdr, output, fuel));
   let pick = ranked.find(fits) || ranked[0] || null;
   if (pick && fits(pick)) {
     // Near-ties between compatible directions (artifacts@1 vs vehicles@1 in a Vraska
@@ -276,9 +422,26 @@ function inferGameplan({ deckCards, commander, goals, interactions }) {
     const best = near.sort((a, b) => evidence(b) - evidence(a) || (b.confidence || 0) - (a.confidence || 0))[0];
     // Switch only on clearly stronger evidence (1.5× and +4 cards) — a near-tie on
     // generic axes shouldn't overturn the inference's own order.
-    const ownTribe = String(first.goal).startsWith('tribal:')
-      && typesOf(cmdr).some(t => `tribal:${t}`.toLowerCase() === String(first.goal).toLowerCase());
+    // The commander's own tribe holds only when its ENGINE makes or eats that tribe
+    // (Krenko's Goblins, Thranduil's Elves) — Atraxa is a Phyrexian, her engine is proliferate.
+    const tribe = String(first.goal).startsWith('tribal:') ? singular(String(first.goal).slice(7)) : null;
+    const ownTribe = !!tribe && typesOf(cmdr).some(t => singular(t) === tribe)
+      && (output.some(o => o.kind === 'tokens' && o.sub && singular(o.sub) === tribe) || fuel.some(s => s.sub && singular(s.sub) === tribe));
     if (best !== first && !ownTribe && evidence(best) >= Math.max(evidence(first) * 1.5, evidence(first) + 4)) pick = best;
+  }
+  // Engines whose plan the 99's axes can't see name their own direction: a planeswalker
+  // pile, extra upkeeps, a mill engine (cycle-12 eval: Guff read as token swarm, Obeka
+  // as voltron, Phenax as big creatures).
+  const walkers = (deckCards || []).filter(c => /\bPlaneswalker\b/.test(frontType(c))).length;
+  const own = key => ({ goal: key, label: (TEMPLATES.find(t => t.key === key) || {}).label || key, confidence: Math.max(0.6, pick?.confidence || 0) });
+  if (output.some(o => o.kind === 'loyalty') || walkers >= 10) pick = own('superfriends');
+  else if (output.some(o => o.kind === 'upkeeps')) pick = own('upkeep');
+  else if (output.some(o => o.kind === 'mill')) pick = own('mill');
+  // A colorless commander (Kozilek) plays colorless big mana: rocks, Eldrazi lands and
+  // titans. With no color to hang a tribe or theme on, that IS the plan (cycle-9 eval:
+  // "Big creatures" pulled random colorless Vehicles).
+  if (cmdr && Array.isArray(cmdr.ci) && cmdr.ci.length === 0) {
+    pick = { goal: 'big-mana', label: 'Colorless big mana', confidence: Math.max(0.6, pick?.confidence || 0) };
   }
   if (pick) {
     const second = ranked.find(g => g !== pick && (g.confidence || 0) >= 0.6 && g.goal !== pick.goal);
@@ -306,7 +469,7 @@ function inferGameplan({ deckCards, commander, goals, interactions }) {
     for (const c of deckCards || []) {
       if (!c.ir) continue;
       const ev = plan.deckEval.get(c.name);
-      const linked = edgeTo.has(c.name) || (ev && ev.links.some(l => ['fuel', 'amplifier', 'converter'].includes(l)));
+      const linked = edgeTo.has(c.name) || (ev && ev.links.some(l => ['fuel', 'amplifier', 'converter', 'recursion_target'].includes(l)));
       // lands count only when they ARE fuel (manlands for a land-creature engine)
       if (linked && (!isLand(c) || ev.links.includes('fuel'))) tied++;
       if (ev?.links.includes('amplifier')) amps++;
@@ -370,6 +533,13 @@ function inferGameplan({ deckCards, commander, goals, interactions }) {
     }
     plan.critical.wipe_turn_return = { counts, not_counted: notCounted, rule: "indestructible doesn't stop −X/−X or sacrifice — only returning after death does" };
   }
+  // critical pieces are plan links too — re-read them now that coverage is known
+  for (const cov of Object.values(plan.critical)) {
+    for (const n of cov.counts || []) {
+      const c = (deckCards || []).find(x => x.name === n);
+      if (c?.ir && plan.deckEval.has(n)) plan.deckEval.set(n, evaluateCard(plan, c));
+    }
+  }
   return plan;
 }
 
@@ -402,22 +572,33 @@ function evaluateCard(plan, card) {
   // amplifier: doubles the engine's output kind, a parallel engine on the same fuel,
   // or a rules-layer edge that multiplies the engine (extra triggers, untaps).
   const ampAxes = plan.output.flatMap(o => AMPLIFIER_FOR_OUTPUT[o.kind] || []);
-  let amp = !isCmdr && provides(card).some(p => ampAxes.includes(p.axis));
+  let amp = !isCmdr && provides(card).some(p => ampAxes.includes(p.axis) && provideFits(plan, card, p)
+    // a +1/+1 doubler does nothing for a poison plan's proliferation
+    && !(direction === 'poison' && p.axis === 'counters.doubler' && !/proliferat/i.test(p.param || '')
+      && !(plan._deck.filter(c => /\bPlaneswalker\b/.test(frontType(c))).length >= 4
+        && abilities(card).some(a => /\b(?:permanents?|planeswalkers?|loyalty)\b/i.test(a.text || '') && !/\+1\/\+1 counter/i.test(a.text || ''))))
+    // a doubler that only touches one creature's counters needs a +1/+1 creature deck
+    // (Arcade Cabinet in Guff's superfriends, Arna in a poison/loyalty Atraxa)
+    && !(p.axis === 'counters.doubler' && creatureOnlyDoubler(card)
+      && plan._deck.filter(c => (c.ir?.provides || []).some(q => /^counters\.plus1/.test(q.axis))).length < 8));
   if (!amp && !isCmdr && plan.fuel.some(s => s.kind === 'cast')) {
     // A second engine on the same fuel multiplies the output only when it makes the
     // SAME kind of thing: Vraska's plan runs on artifact tokens (mana, artifact count),
     // so a Spirit or Shark engine is just more bodies; a Rat engine is Rats.
     amp = abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && a.trigger.controller_scope === 'you'
       && R.effectsOf(a).some(e => (e.op === 'create_token' && plan.output.some(o => o.kind === 'tokens' && sameTokenKind(o, e.token)))
-        || (e.op === 'put_counter' && plan.output.some(o => o.kind === 'counters'))));
+        || (e.op === 'put_counter' && plan.output.some(o => o.kind === 'counters')))
+      && castSubstrate(plan, a.trigger.subject));
   }
   if (!amp && !isCmdr && plan.engine) {
     amp = engineEdges(plan, card).some(e => ['trigger.doubler_equipped', 'untap.mana_creature'].includes(e.axis));
   }
-  if (!amp && !isCmdr && plan._cmdr && abilities(plan._cmdr).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb'
-      && a.trigger.subject?.or_self && !(a.trigger.subject.sub || []).length && R.effectsOf(a).some(e => e.op === 'create_token'))) {
-    // An engine whose ETB makes the output (Jyoti's Dryads): every blink re-runs it.
-    amp = isBlink(card);
+  if (!amp && !isCmdr && engineEtbOutput(plan) && legendBreaker(card) && plan._deck.filter(clonesCreature).length >= 3) amp = true;
+  if (!amp && !isCmdr && engineEtbOutput(plan)) {
+    // An engine whose ETB makes the output (Jyoti's Dryads): every blink re-runs it,
+    // and every copy of it enters and triggers — even a legendary copy the legend
+    // rule then removes (Will: "it makes the dryads even if it doesn't stick around").
+    amp = isBlink(card) || clonesCreature(card);
   }
   if (!amp && !isCmdr && plan.output.some(o => o.kind === 'pump')) {
     // Multiplicative plans (Jyoti: X = her power): anything that grows the engine's
@@ -426,40 +607,111 @@ function evaluateCard(plan, card) {
       || provides(card).some(p => ['voltron.aura_equipment', 'pump.single'].includes(p.axis) && (p.weight || 1) >= 3)
       || engineEdges(plan, card).some(e => e.axis === 'copy.trigger_source');
   }
+  // A {T}-ability engine runs again when untapped, and a turn early with haste
+  // (Thousand-Year Elixir, Sting in Krenko; an untapper doubles Helga's mana).
+  let hasteOnly = false;
+  if (!amp && !isCmdr && plan.tapEngine) {
+    const untaps = provides(card).some(p => /^untap\.(permanent|creature)/.test(p.axis) && provideFits(plan, card, p));
+    const hastes = provides(card).some(p => p.axis === 'haste.enabler' && provideFits(plan, card, p));
+    amp = untaps || hastes;
+    hasteOnly = !untaps && hastes; // haste buys the first activation, an untap buys one every turn
+  }
+  // A clone that breaks the legend rule is a second copy of a legendary engine (Sakashima).
+  if (!amp && !isCmdr && plan._cmdr && R.isCreature(plan._cmdr.ir) && legendBreaker(card)
+    && allEffects(card).some(e => e.op === 'clone' || e.op === 'copy_permanent')) amp = true;
+  // An engine that reveals the top card (Yuriko) is multiplied by stacking the top.
+  if (!amp && !isCmdr && plan.fuel.some(s => s.reveals)) amp = provides(card).some(p => p.axis === 'topdeck.manipulation' && (p.weight || 1) >= 2);
+  // Copying every token you control doubles a token engine's output (Second Harvest).
+  if (!amp && !isCmdr && plan.output.some(o => o.kind === 'tokens') && hasAxis(card, 'token.copy')
+    && abilities(card).some(a => /each token you control|for each token/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`))) amp = true;
   if (amp) links.push('amplifier');
-  // Side engine: a second engine on the same fuel whose tokens AREN'T the engine's kind
-  // (Kykar's Spirits beside Vraska's Sculptures) — more bodies for go-wide payoffs, but
-  // no mana and no artifact count. Worth keeping; not worth leading the adds.
-  const sideEngine = !amp && !isCmdr && plan.fuel.some(s => s.kind === 'cast')
-    && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && a.trigger.controller_scope === 'you'
-      && R.effectsOf(a).some(e => e.op === 'create_token' && /creature/i.test(e.token?.types || '')));
+  // Side engine: a payoff riding the SAME fuel — a second token engine whose tokens
+  // AREN'T the engine's kind (Kykar's Spirits beside Vraska's Sculptures), or a draw /
+  // mana / counter trigger on the same spells (Up the Beanstalk beside Helga). Worth
+  // keeping; not worth leading the adds. Its trigger has to fire off what the deck
+  // actually casts (Mirrodin Besieged wants artifact spells a Vraska list barely has).
+  const sideTrig = !amp && !isCmdr ? sideEngineTrigger(plan, card) : null;
+  const sideEngine = !!sideTrig;
   if (sideEngine) links.push('side_engine');
+  // Fuel enabler: makes the fuel cheaper or puts it where the engine wants it — cost
+  // reducers for a cast engine's spells (Sapphire Medallion under Talrand), graveyard
+  // fillers for a graveyard engine (Dina's Guidance for Thranduil).
+  const enabler = !isCmdr && !amp && fuelEnabler(plan, card);
+  if (enabler) links.push('fuel_enabler');
+  // An engine that returns creatures from the graveyard every turn (Meren) replays
+  // every ETB: Ravenous Chupacabra, Shriekmaw are its loop, not surplus removal.
+  // …and anything that spends itself for value (Mulldrifter's evoke, Spore Frog's fog)
+  const recurTarget = !isCmdr && plan.recursionEngine && !isLand(card)
+    && (plan.recursionTypes.includes('permanent') ? !/\b(?:Instant|Sorcery)\b/.test(frontType(card)) : isCreatureCard(card))
+    && (etbValue(card) || selfSacrifice(card));
+  if (recurTarget) links.push('recursion_target');
+  // A plan-critical piece the deck already runs (Tannuk's team haste for Vraska).
+  if (!isCmdr && Object.values(plan.critical || {}).some(cov => (cov.counts || []).includes(card.name))) links.push('critical');
 
   // converter: spends the output the way the chosen direction wins
   const convAxes = converterAxes(direction);
   const castFuel = plan.fuel.some(s => s.kind === 'cast');
   const tokenOut = plan.output.some(o => o.kind === 'tokens');
-  const convHit = !isCmdr && (provides(card).some(p => convAxes.includes(p.axis))
+  // Single-target carriers (Equipment, Auras) don't convert a WIDE output; a scoped
+  // payoff must reach the engine's bodies (param or "Other artifact creatures…" text).
+  const wideDir = !['voltron', 'counters', 'poison'].includes(direction);
+  const singleCarrier = /\b(?:Equipment|Aura)\b/.test(frontType(card)) && wideDir;
+  const oppDrawOut = plan.output.some(o => o.kind === 'opp_draw');
+  const castLocked = castFuel && abilities(card).some(a => a.kind === 'triggered')
+    && abilities(card).filter(a => a.kind === 'triggered').every(a => a.trigger?.event === 'cast_spell' && !castSubstrate(plan, a.trigger.subject));
+  const convHit = !isCmdr && (provides(card).some(p => convAxes.includes(p.axis) && provideFits(plan, card, p) && !castLocked
+      && !(singleCarrier && ['evasion.grant', 'pump.single', 'anthem.global'].includes(p.axis))
+      // "big body" means a big CREATURE — a Vehicle isn't a titan (Mole Module in Kozilek)
+      && !(p.axis === 'body.big' && (!isCreatureCard(card) || (Number(card.cmc) || 0) < 6))
+      // a wide output needs a MASS grant — one creature made unblockable converts nothing (Manifold Key)
+      && !(wideDir && ['evasion.grant', 'pump.single'].includes(p.axis) && !massGrant(card))
+      // …and a grant the tokens already have is nothing (Wonder's flying for Talrand's Drakes)
+      && !(p.axis === 'evasion.grant' && grantsOnlyWhatTokensHave(plan, card)))
+    // a proliferate engine grows whatever counters the 99 plants — poison (infect,
+    // toxic) and loyalty are how Atraxa's proliferation wins
+    || (plan.output.some(o => o.proliferate) && (hasAxis(card, 'counters.poison') || /\bPlaneswalker\b/.test(frontType(card))))
+    // extra upkeeps are spent by "at the beginning of your upkeep" payoffs (Obeka)
+    || (plan.output.some(o => o.kind === 'upkeeps') && abilities(card).some(a => a.kind === 'triggered'
+      && (a.trigger?.event === 'upkeep' || /at the beginning of (?:your|each) upkeep/i.test(a.text || ''))
+      && R.effectsOf(a).some(e => !['sacrifice_forced', 'lose_life'].includes(e.op) || /opponent/.test(e.target?.who || ''))))
+    // an engine that hands opponents cards is converted by punishing the draws
+    // (Scrawling Crawler beside Bumbleflower), whatever the direction
+    || (oppDrawOut && (hasAxis(card, 'hate.draw') || abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'draw'
+      && /^opp/.test(String(a.trigger.subject?.controller || a.trigger.controller_scope || ''))
+      && R.effectsOf(a).some(e => ['damage', 'drain', 'lose_life'].includes(e.op)))))
     // pays off the FUEL itself (Guttersnipe: every spell cast pings each opponent)
-    || (castFuel && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell'
+    || (castFuel && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && castSubstrate(plan, a.trigger.subject)
       && R.effectsOf(a).some(e => ['damage', 'drain', 'lose_life'].includes(e.op) && /opponent/.test(e.target?.who || ''))))
     // pumps the whole team off the fuel (Jeskai Ascendancy) — spends a wide output
-    || (castFuel && tokenOut && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell'
+    || (castFuel && tokenOut && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell' && castSubstrate(plan, a.trigger.subject)
       && R.effectsOf(a).some(e => e.op === 'pump' && (e.target?.object?.all || /creatures you control/i.test(e.text || '')))))
     // cashes the engine's token OUTPUT for cards or damage (Mister Fantastic)
     || (tokenOut && abilities(card).some(a => a.kind === 'triggered'
       && (a.trigger?.event === 'token_created' || (a.trigger?.event === 'etb' && (a.trigger.subject?.token || (a.trigger.subject?.types || []).includes('artifact'))))
       && R.effectsOf(a).some(e => ['draw', 'damage', 'drain', 'lose_life'].includes(e.op))))
-    || (direction === 'tokens-wide' && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb'
+    || (direction === 'tokens-wide' && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb' && subjectFits(plan, a.trigger.subject)
       && (a.trigger.subject?.other || (a.trigger.subject?.types || []).includes('creature') || (a.trigger.subject?.types || []).includes('artifact'))
       && R.effectsOf(a).some(e => ['damage', 'drain', 'lose_life'].includes(e.op))))
     || (direction === 'group-hug' && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'draw'
       && R.effectsOf(a).some(e => ['damage', 'drain', 'lose_life'].includes(e.op) && /opponent|each_player/.test(e.target?.who || '')))));
-  if (convHit) links.push('converter');
+  // A sweeper that only hits big creatures leaves a small-token output standing — it's
+  // one-sided in this deck (Fell the Mighty, Expel the Interlopers beside 1/1 Sculptures).
+  const smallTokens = plan.output.some(o => o.kind === 'tokens' && Number.isFinite(o.power) && o.power <= 2);
+  const oneSidedWipe = !isCmdr && smallTokens && allEffects(card).some(e => ['destroy', 'exile'].includes(e.op) && e.target?.object?.all
+    && /power (?:greater than|\d or greater)|greater than or equal to the chosen number/i.test(e.target.object.text || ''));
+  if (oneSidedWipe) links.push('one_sided_wipe');
+  // "As long as you control seven or more enchantments…" — a payoff the deck can't
+  // switch on converts nothing (Hallowed Haunting in an 8-enchantment list).
+  const unmet = !isCmdr && conditionUnmet(plan, card);
+  // "Each creature gets +1/+1 for each other creature that shares a type" (Coat of Arms)
+  // pays everyone; it's a converter only with a real tribe of 20+.
+  const symmetricAnthem = convHit && abilities(card).some(a => a.kind === 'static' && /\beach creature gets\b/i.test(a.text || ''))
+    && plan._deck.filter(c => typesOf(c).some(t => planKinds(plan).has(singular(t)))).length < 20;
+  if (convHit && !unmet && !symmetricAnthem) links.push('converter');
 
   // protection — mass vs single matters: a go-wide output needs board protection
   let protection = null;
-  if (!isCmdr && (hasAxis(card, /^protection\./) || hasAxis(card, 'politics.deterrent'))) {
+  if (!isCmdr && (provides(card).some(p => /^protection\./.test(p.axis) && provideFits(plan, card, p)) || hasAxis(card, 'politics.deterrent'))) {
     links.push('protection');
     protection = hasAxis(card, 'protection.mass') || hasAxis(card, 'politics.deterrent') ? 'mass' : 'single';
   }
@@ -476,7 +728,7 @@ function evaluateCard(plan, card) {
   // riders (doc §5.3)
   for (const r of ridersOf(card)) {
     const onType = plan.engine && typesOf(plan._cmdr).some(t => t.toLowerCase() === r.type.toLowerCase());
-    const q = onType ? DECK_SIZE : plan._deck.filter(c => typesOf(c).some(t => t.toLowerCase() === r.type.toLowerCase())
+    const q = onType ? DECK_SIZE : plan._deck.filter(c => hasType(c, r.type)
       || provides(c).some(p => /^token\.creature/.test(p.axis) && String(p.param || '').toLowerCase() === r.type.toLowerCase())).length;
     const reliability = onType ? 1 : Math.round(pAtLeastOne(q) * 100) / 100;
     riders.push({ type: r.type, reliability, why: onType ? `${plan.engine.card} is a ${r.type}` : `${q} ${r.type} source${q === 1 ? '' : 's'} in the deck` });
@@ -492,11 +744,14 @@ function evaluateCard(plan, card) {
     if (plan.fuel.some(sp => sp.kind === 'event' && fuelTest(card, sp))) reasons = reasons.filter(r => r !== 'symmetric_benefit');
     // a reliable rider turns a small-tax counter into a real one (Dazzling Denial + Bird)
     if (riders.some(r => r.reliability >= 0.5)) reasons = reasons.filter(r => r !== 'narrow');
+    // a draw-punisher's gift pays YOU when the engine's own output is opponents' cards
+    if (oppDrawOut && links.includes('converter')) reasons = reasons.filter(r => r !== 'symmetric_benefit');
+    if (unmet) reasons.push('unmet_condition');
     noFuelPenalty = reasons.includes('no_fuel');
     // no_fuel is LISTED only when nothing else ties the card to the plan (or it is a
     // copy card, whose "value" never reaches the engine); the mild point cost stays —
     // in a noncreature engine every creature slot is a turn the engine doesn't fire.
-    const tied = links.some(l => ['amplifier', 'side_engine', 'converter', 'combo'].includes(l)) && !reasons.includes('copy_not_cast');
+    const tied = links.some(l => ['amplifier', 'side_engine', 'fuel_enabler', 'recursion_target', 'critical', 'converter', 'combo', 'one_sided_wipe'].includes(l)) && !reasons.includes('copy_not_cast');
     anti.push(...reasons.filter(r => !((r === 'no_fuel' || r === 'no_engine_target') && tied)));
   }
 
@@ -505,7 +760,12 @@ function evaluateCard(plan, card) {
   // weigh anti-plan harder: a card working against the plan is the best cut there is.
   const cutTrace = [];
   let cutPts = 0;
+  // A plan piece that works EVERY turn (a static anthem, a repeatable engine) is worth
+  // more than one that works once (eval rounds 12–13: great vs filler).
+  const rep = Q.repeats(card) ? 1.2 : 0.8;
+  const CHAIN = new Set(['plan_amplifier', 'plan_converter', 'plan_side_engine', 'plan_fuel_enabler', 'plan_recursion_target']);
   const credit = (kind, addP, cutP, extra = {}) => {
+    if (CHAIN.has(kind) && addP > 0) addP = Math.round(addP * rep * 100) / 100;
     if (addP) { pts += addP; trace.push({ kind, pts: addP, ...extra }); }
     if (cutP) { cutPts += cutP; cutTrace.push({ kind, pts: cutP, ...extra }); }
   };
@@ -515,13 +775,24 @@ function evaluateCard(plan, card) {
   // when its storm copies never trigger Vraska; Primal Vigor doubles everyone's tokens.
   const structural = anti.some(r => STRUCTURAL_ANTI.has(r));
   if (plan.commanderCentric) {
-    if (fuelHit) {
+    // an engine that triggers on ANY spell makes every card fuel — flat credit on every
+    // card only drowns the real signal (Kozilek)
+    const anySpell = plan.fuel.length && plan.fuel.every(s => s.kind === 'cast' && !s.types.length && !s.notTypes.length && !s.sub && !s.mv);
+    if (fuelHit && !anySpell) {
       const p = plan.fuel.some(s => s.kind === 'cast') ? 2.5 : 3;
       credit('plan_fuel', p, p, { fuel: plan.fuel.find(s => fuelTest(card, s))?.label, engine: plan.engine.card });
     }
-    if (links.includes('amplifier') && !structural) credit('plan_amplifier', 5, 5, { engine: plan.engine.card });
+    // a legendary copy of an ETB engine triggers once and dies to the legend rule — it
+    // multiplies less than a copy that stays (JYO-07: Ember Island Production > Visage Bandit)
+    if (links.includes('amplifier') && !structural) {
+      const p = isLegendaryCopy(plan, card) || hasteOnly ? 3 : 5;
+      credit('plan_amplifier', p, p, { engine: plan.engine.card, ...(p < 5 ? { legendaryCopy: true } : {}) });
+    }
     if (links.includes('converter') && !structural) credit('plan_converter', 4, 4, { direction: plan.direction?.label || direction });
-    if (links.includes('side_engine') && !structural) credit('plan_side_engine', 2, 3, { engine: plan.engine.card });
+    if (links.includes('side_engine') && !structural) credit('plan_side_engine', 2, 3, { engine: plan.engine.card, what: sideTrig.what });
+    if (links.includes('fuel_enabler') && !structural) credit('plan_fuel_enabler', 2.5, 3, { engine: plan.engine.card, how: enabler });
+    if (recurTarget && !structural) credit('plan_recursion_target', 2.5, 5, { engine: plan.engine.card });
+    if (oneSidedWipe) credit('plan_one_sided_wipe', 2.5, 4, { engine: plan.engine.card });
     const bn = plan.bottleneck?.link;
     if (bn && (links.includes(bn) || (bn === 'fuel' && fuelHit))) credit('plan_bottleneck', 2.5, 1, { link: bn });
     // Mass protection saves a wide output; single-target protection saves the engine
@@ -560,6 +831,18 @@ function evaluateCard(plan, card) {
     }
     credit('plan_anti', Math.round(addP * 100) / 100, Math.round(cutP * 100) / 100, { reason: a });
   }
+  // A 6+ mana card (after free / alternate costs) arrives after the game is decided
+  // often enough that its chain credit on the ADD side counts half (Akroma's Memorial,
+  // Chronicle of Victory); what it does in a deck already running it is unchanged.
+  if (Q.effectiveMV(card) >= 6 && !isLand(card)) {
+    let cut = 0;
+    for (const t of trace) {
+      if (t.pts > 0 && ['plan_amplifier', 'plan_converter', 'plan_protection', 'plan_bottleneck', 'plan_side_engine'].includes(t.kind)) {
+        const half = Math.round(t.pts / 2 * 100) / 100; cut += t.pts - half; t.pts = half; t.late = true;
+      }
+    }
+    pts -= cut;
+  }
   pts = Math.round(pts * 100) / 100;
   cutPts = Math.round(cutPts * 100) / 100;
   return { links, alsoFuel, anti, riders, pts, trace, cutPts, cutTrace };
@@ -590,6 +873,109 @@ function sameTokenKind(out, token) {
   return true;
 }
 
+// "double the counters on target / a modified creature" — never a planeswalker's loyalty or poison
+function creatureOnlyDoubler(card) {
+  const txt = abilities(card).map(a => a.text || '').join(' ');
+  return /double the number of (?:each kind of )?counters? on (?:target creature|it|that creature|each creature)|modified creature/i.test(txt)
+    && !/\b(?:planeswalkers?|loyalty|each player)\b|\bpermanents? you control\b/i.test(txt);
+}
+const legendBreaker = c => abilities(c).some(a => /legend rule[^.]*doesn't apply/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`));
+
+// A cast trigger on the same spells the engine eats, whose subject the deck actually
+// casts in volume → { what: 'bodies' | 'value' } or null.
+const SIDE_OPS = ['create_token', 'draw', 'add_mana', 'put_counter', 'pump'];
+function sideEngineTrigger(plan, card) {
+  const spec = plan.fuel.find(s => s.kind === 'cast');
+  if (!spec) return null;
+  for (const a of abilities(card)) {
+    if (a.kind !== 'triggered' || a.trigger?.event !== 'cast_spell' || a.trigger.controller_scope === 'opponent') continue;
+    if (/^opp/.test(String(a.trigger.subject?.controller || ''))) continue;
+    const effs = R.effectsOf(a).filter(e => SIDE_OPS.includes(e.op) && e.target?.who !== 'each_opponent' && e.target?.who !== 'target_opponent');
+    if (!effs.length) continue;
+    const sub = a.trigger.subject || {};
+    const text = String(sub.text || '').toLowerCase();
+    if (/colorless/.test(text) || (sub.colors || []).includes('C')) continue; // Eldrazi engines ride their own fuel
+    if (!castSubstrate(plan, sub)) continue;
+    return { what: effs.some(e => e.op === 'create_token' && /creature/i.test(e.token?.types || '')) ? 'bodies' : 'value' };
+  }
+  return null;
+}
+
+// Does the deck cast enough spells that fire BOTH the engine and this cast trigger?
+function castSubstrate(plan, sub) {
+  const spec = plan.fuel.find(s => s.kind === 'cast');
+  if (!spec) return true;
+  sub = sub || {};
+  const text = String(sub.text || '').toLowerCase();
+  const subSpec = {
+    kind: 'cast',
+    types: (sub.types || []).map(x => String(x).toLowerCase()).filter(x => CARD_TYPES.includes(x)),
+    notTypes: [...text.matchAll(/\bnon-?(creature|artifact|enchantment|instant|sorcery|planeswalker|land)\b/g)].map(m => m[1]),
+    sub: (sub.sub || [])[0] || null, mv: sub.mv_cmp || null,
+  };
+  const both = plan._deck.filter(c => c.ir && !isLand(c) && fuelTest(c, spec) && fuelTest(c, subSpec)).length;
+  const fuelN = plan._deck.filter(c => c.ir && !isLand(c) && fuelTest(c, spec)).length;
+  return both >= 8 && both >= fuelN * 0.35;
+}
+
+// Makes the fuel cheaper or puts it where the engine wants it → 'cost' | 'graveyard' | null.
+function fuelEnabler(plan, card) {
+  const spec = plan.fuel.find(s => s.kind === 'cast');
+  if (spec) {
+    for (const p of provides(card)) {
+      if (p.axis !== 'mana.cost_reduction' || (p.weight || 1) < 2) continue;
+      const par = String(p.param || '').toLowerCase();
+      if (!par) return 'cost';
+      if (/^[wubrg]$/.test(par)) {
+        const fuelCards = plan._deck.filter(c => c.ir && !isLand(c) && fuelTest(c, spec));
+        const share = fuelCards.length ? fuelCards.filter(c => (c.ir?.faces?.[0]?.colors || []).includes(par.toUpperCase())).length / fuelCards.length : 0;
+        if (share >= 0.5) return 'cost';
+        continue;
+      }
+      const kinds = par.split(/[_\s,/]+/).filter(Boolean);
+      const fits = kinds.some(k => spec.types.includes(k) || (spec.sub && singular(k) === singular(spec.sub))
+        || (spec.notTypes.length && CARD_TYPES.includes(k) && !spec.notTypes.includes(k))
+        || (k === 'noncreature' && spec.notTypes.includes('creature')));
+      if (fits && !(spec.types.length && kinds.every(k => CARD_TYPES.includes(k) && !spec.types.includes(k)))) return 'cost';
+    }
+  }
+  // A reveal engine (Yuriko) wants big mana values it can actually cast: free spells
+  // (Commandeer), MDFC lands with a 7-drop face (Sea Gate Restoration).
+  if (plan.fuel.some(s => s.reveals) && (Number(card.cmc) || 0) >= 5
+    && (Q.effectiveMV(card) <= 2 || (card.ir?.layout === 'modal_dfc' && /\bLand\b/.test(String(card.typeLine || '').split('//')[1] || ''))
+      // delve / convoke / "costs {1} less for each…" — a big number cast for little
+      || (card.ir?.faces || []).some(f => (f.keywords || []).some(k => /^(?:delve|convoke|improvise|affinity)/i.test(k.name || '')))
+      || abilities(card).some(a => /costs? \{\d\} less (?:to cast )?for each|costs? \{X\} less/i.test(a.text || '')))) return 'reveal';
+  if (plan.fuel.some(s => s.kind === 'gy_type')) {
+    const sub = plan.fuel.find(s => s.kind === 'gy_type').sub;
+    if (provides(card).some(p => p.axis === 'gy.self_fill' && (p.weight || 1) >= 3
+      && (!p.param || /creature/i.test(p.param) || singular(p.param) === singular(sub)))) return 'graveyard';
+  }
+  return null;
+}
+
+// "As long as you control seven or more enchantments" against what the deck runs.
+const NUM_WORDS = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+function conditionUnmet(plan, card) {
+  // "Whenever a creature with power 4 or greater enters…" (Garruk's Uprising, Vaultborn
+  // Tyrant) — a deck of small creatures rarely fires it.
+  if (abilities(card).some(a => a.kind === 'triggered' && /creature (?:spell |you control )?with power (\d) or greater/i.test(a.text || ''))) {
+    const n = Number(/power (\d) or greater/i.exec(abilities(card).map(a => a.text || '').join(' '))[1]);
+    const big = plan._deck.filter(c => isCreatureCard(c) && parseInt(c.ir?.faces?.[0]?.pt?.power, 10) >= n).length;
+    if (big < 14) return true;
+  }
+  for (const a of abilities(card)) {
+    const m = /as long as you control (\w+) or more ([a-z]+?)s?\b/i.exec(a.text || '');
+    if (!m) continue;
+    const n = NUM_WORDS[m[1].toLowerCase()] || Number(m[1]);
+    if (!n || n < 3) continue;
+    const ty = m[2].toLowerCase();
+    const have = plan._deck.filter(c => new RegExp(`\\b${ty}`, 'i').test(c.typeLine || '')).reduce((s, c) => s + (c.qty || 1), 0);
+    if (have < n * 1.5) return true;
+  }
+  return false;
+}
+
 // Does this card fill a plan-critical piece the deck is short on?
 function criticalFit(plan, card) {
   const c = plan.critical || {};
@@ -610,6 +996,97 @@ function returnsAfterDeath(card) {
   if (!targetsOther) return false;
   return (/return (?:it|that card|that creature|target creature card)[^.]*to the battlefield/i.test(text) && /\bdies\b|graveyard/i.test(text))
     || /\bgains? (?:undying|persist)\b/i.test(text);
+}
+
+// The engine makes its output when it ENTERS (Jyoti's Dryads).
+const engineEtbOutput = plan => !!plan._cmdr && abilities(plan._cmdr).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb'
+  && a.trigger.subject?.or_self && !(a.trigger.subject.sub || []).length && R.effectsOf(a).some(e => e.op === 'create_token'));
+// Copies one of your creatures (clone, token copy) — not an opponent's, not itself.
+function clonesCreature(card) {
+  return abilities(card).some(a => {
+    const text = `${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`;
+    return R.effectsOf(a).some(e => (e.op === 'clone' || e.op === 'copy_permanent' || (e.op === 'create_token' && /\bcopy of (?:target|another|a creature|any)/i.test(`${e.text || ''} ${a.text || ''}`)))
+        && !/^opp/.test(String(e.target?.object?.controller || '')) && !/copy of (?:it|this|~)\b/i.test(`${e.text || ''} ${a.text || ''}`))
+      && /creature/i.test(text + JSON.stringify(R.effectsOf(a).map(e => e.target?.object?.types || [])));
+  });
+}
+
+// A copy of the legendary engine that the legend rule will remove (no breaker in the
+// deck, the copy stays legendary).
+function isLegendaryCopy(plan, card) {
+  // a creature clone can only copy a CREATURE engine (Commodore Guff is a planeswalker)
+  if (!plan.engine || !R.isLegendary(plan._cmdr?.ir) || !R.isCreature(plan._cmdr?.ir) || (plan.legendBreakers || []).includes(card.name) || legendBreaker(card)) return false;
+  return abilities(card).some(a => {
+    const text = `${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`;
+    return R.effectsOf(a).some(e => (e.op === 'clone' || e.op === 'copy_permanent' || (e.op === 'create_token' && /\bcopy of (?:target|another|a creature|any)/i.test(`${e.text || ''} ${a.text || ''}`)))
+        && !/^opp/.test(String(e.target?.object?.controller || '')) && !/copy of (?:it|this|~|one of them|that creature|those creatures|each)\b/i.test(`${e.text || ''} ${a.text || ''}`))
+      && !/\b(?:isn't|is not|aren't|it's not|not) legendary\b/i.test(text) && !/nonlegendary/i.test(text)
+      && /creature/i.test(text + JSON.stringify(R.effectsOf(a).map(e => e.target?.object?.types || [])));
+  });
+}
+
+const COLOR_CODE = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+function colorsMissing(plan, card) {
+  const ci = plan._cmdr?.ci;
+  if (!Array.isArray(ci)) return false;
+  const quals = [...provides(card).map(p => String(p.param || '')), ...abilities(card).map(a => a.text || '')]
+    .flatMap(t => [...t.matchAll(/\b(white|blue|black|red|green|multicolored|monocolored)\b(?= (?:creature|spell|permanent|card)s?\b)/gi)].map(m => m[1].toLowerCase()));
+  if (!quals.length) return false;
+  const fits = q => q === 'multicolored' ? ci.length >= 2 : q === 'monocolored' ? ci.length >= 1 : ci.includes(COLOR_CODE[q]);
+  return !quals.some(fits);
+}
+
+// Tribal payoffs for `tribe` in the 99, or the engine making / eating it.
+function tribalPayoffs(deckCards, tribe) {
+  const t = singular(tribe);
+  return (deckCards || []).filter(c => provides(c).some(p => ['tribal.lord', 'tribal.synergy', 'anthem.global', 'tribal.payoff'].includes(p.axis)
+    && String(p.param || '').split(/[,/]/).some(x => singular(x.trim()) === t))
+    || abilities(c).some(a => new RegExp(`\\b(?:other )?${tribe}s?\\b[^.]*you control|\\b${tribe} spells?\\b`, 'i').test(a.text || ''))).length;
+}
+function realTribe(deckCards, tribe, cmdr, output, fuel) {
+  const t = singular(tribe);
+  if ((output || []).some(o => o.kind === 'tokens' && o.sub && singular(o.sub) === t)) return true;
+  if ((fuel || []).some(f => f.sub && singular(f.sub) === t)) return true;
+  return tribalPayoffs(deckCards, tribe) >= 5;
+}
+
+// "Choose a creature type" / "shares a creature type" payoffs.
+const choosesType = card => provides(card).some(p => /chosen/i.test(String(p.param || '')))
+  || abilities(card).some(a => /choose a creature type|of the chosen type|shares? (?:at least one )?(?:a )?creature type/i.test(a.text || ''));
+// The deck's deepest creature type: creature cards of it, plus the engine's own tokens.
+function tribeDepth(plan, castOnly = false) {
+  const key = castOnly ? '_tribeDepthCast' : '_tribeDepth';
+  if (plan[key] != null) return plan[key];
+  const counts = new Map();
+  for (const c of plan._deck) if (isCreatureCard(c)) for (const t of typesOf(c)) counts.set(t.toLowerCase(), (counts.get(t.toLowerCase()) || 0) + (c.qty || 1));
+  // the engine's tokens are bodies of the type — but never CAST
+  if (!castOnly) for (const o of plan.output) if (o.kind === 'tokens' && o.sub) counts.set(o.sub.toLowerCase(), (counts.get(o.sub.toLowerCase()) || 0) + 10);
+  plan[key] = Math.max(0, ...counts.values());
+  return plan[key];
+}
+// Every keyword the card grants is one the engine's tokens already have.
+function grantsOnlyWhatTokensHave(plan, card) {
+  const toks = plan.output.filter(o => o.kind === 'tokens');
+  if (!toks.length) return false;
+  const granted = allEffects(card).filter(e => e.op === 'grant_keyword').map(e => String(e.keyword || '').toLowerCase());
+  return granted.length > 0 && granted.every(k => toks.every(o => (o.keywords || []).includes(k)));
+}
+
+// Grants to the team, not one creature.
+const massGrant = card => abilities(card).some(a => a.applies_to?.all || (a.applies_to && !a.applies_to.n_targets && a.kind === 'static')
+  || /creatures you control|each creature you control|attacking creatures|creatures get|creatures have|other [A-Z][a-z]+s you control/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`)
+  || R.effectsOf(a).some(e => e.target?.object?.all));
+
+// Sacrifices itself for an effect, or is evoked (value that a recursion engine re-buys).
+const selfSacrifice = card => (card.ir?.faces || []).some(f => (f.keywords || []).some(k => /^evoke$/i.test(k.name || '')))
+  || abilities(card).some(a => a.kind === 'activated' && /sacrifice (?:~|this|it|[A-Z][a-z]+(?: [A-Z][a-z]+)*)\s*:/i.test(`${a.text || ''}`)
+    && /^Sacrifice (?:~|this)/i.test(String(a.cost?.other || a.text || '')));
+
+// Does the creature do something when it enters (removal, draw, tokens)?
+function etbValue(card) {
+  if (hasAxis(card, 'etb_value')) return true;
+  return abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb' && a.trigger.subject?.or_self
+    && R.effectsOf(a).some(e => ['destroy', 'exile', 'bounce', 'damage', 'draw', 'create_token', 'sacrifice_forced', 'tutor', 'return_from_gy', 'reanimate', 'discard'].includes(e.op)));
 }
 
 // Blink: exiles one of YOUR creatures and returns it (Essence Flux, Conjurer's Closet,
@@ -675,18 +1152,9 @@ function antiPlan(plan, card, fuelHit) {
       && (!a.replaces?.scope?.controller || a.replaces.scope.controller === 'any'));
     if (hug || symDoubler) out.push('symmetric_benefit');
   }
-  // legendary_copy: clones the legendary engine without a legend-rule breaker
-  if (plan.engine && R.isLegendary(plan._cmdr?.ir) && !(plan.legendBreakers || []).includes(card.name)
-      && !abilities(card).some(a => /legend rule[^.]*doesn't apply/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`))) {
-    const clones = abilities(card).some(a => {
-      const text = `${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`;
-      return R.effectsOf(a).some(e => (e.op === 'clone' || e.op === 'copy_permanent' || (e.op === 'create_token' && /\bcopy of (?:target|another|a creature|any)/i.test(`${e.text || ''} ${a.text || ''}`)))
-          && !/^opp/.test(String(e.target?.object?.controller || '')) && !/copy of (?:it|this|~)\b/i.test(`${e.text || ''} ${a.text || ''}`))
-        && !/\b(?:isn't|is not|aren't|it's not|not) legendary\b/i.test(text) && !/nonlegendary/i.test(text)
-        && /creature/i.test(text + JSON.stringify(R.effectsOf(a).map(e => e.target?.object?.types || [])));
-    });
-    if (clones) out.push('legendary_copy');
-  }
+  // legendary_copy: clones the legendary engine without a legend-rule breaker — unless
+  // the engine's value is its ETB, which the copy gets before the legend rule applies
+  if (!engineEtbOutput(plan) && isLegendaryCopy(plan, card)) out.push('legendary_copy');
   // redundant_with_engine: grants creatures a mana ability when the plan's creatures are lands
   if (plan.fuel.some(s => s.kind === 'land_creatures') && abilities(card).some(a => a.kind === 'static'
       && /creatures you control have[^.]*\{T\}: Add/i.test(`${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`))) out.push('redundant_with_engine');
@@ -694,10 +1162,17 @@ function antiPlan(plan, card, fuelHit) {
   const red = /(white|blue|black|red|green) spells you cast cost/i.exec(abilities(card).map(a => a.text || '').join(' '));
   if (red) {
     const code = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[red[1].toLowerCase()];
-    const core = [...(plan.deckEval || new Map()).entries()].filter(([, e]) => e.links.some(l => ['amplifier', 'converter'].includes(l)) || e.alsoFuel).map(([n]) => n);
+    // key cards: what feeds the engine and what spends its output; amplifiers only
+    // when those are thin (a blue blink suite doesn't make Jyoti's lands blue)
+    const entries = [...(plan.deckEval || new Map()).entries()];
+    let core = entries.filter(([, e]) => e.links.some(l => ['fuel', 'converter'].includes(l))).map(([n]) => n);
+    if (core.length < 6) core = entries.filter(([, e]) => e.links.some(l => ['amplifier', 'converter'].includes(l)) || e.alsoFuel).map(([n]) => n);
     const coreCards = plan._deck.filter(c => core.includes(c.name));
-    const share = coreCards.length ? coreCards.filter(c => (c.ir?.faces?.[0]?.colors || []).includes(code)).length / coreCards.length : 1;
-    if (share < 0.5) out.push('off_color_cost_reducer');
+    // colorless pieces (Conjurer's Closet) are cheap to everyone — share over colored cards
+    const colored = cs => cs.filter(c => (c.ir?.faces?.[0]?.colors || []).length);
+    const shareOf = cs => { const k = colored(cs); return k.length ? k.filter(c => c.ir.faces[0].colors.includes(code)).length / k.length : 1; };
+    // …and what the deck casts overall
+    if (shareOf(coreCards) < 0.5 || shareOf(plan._deck.filter(c => c.ir && !isLand(c))) < 0.4) out.push('off_color_cost_reducer');
   }
   // narrow: a small-tax soft counter
   if (effs.some(e => e.op === 'counter_spell' && /unless[^.]*pays? \{[12]\}/i.test(`${e.text || ''} ${e.condition?.text || ''}`))
@@ -709,6 +1184,43 @@ function antiPlan(plan, card, fuelHit) {
     const engineEtb = plan._cmdr && abilities(plan._cmdr).some(a => a.kind === 'triggered' && a.trigger?.event === 'etb' && a.trigger.subject?.or_self && !(a.trigger.subject.sub || []).length);
     if (etbValue < 5 && !engineEtb) out.push('no_engine_target');
   }
+  // wrong_color: a payoff for colors the deck doesn't have (Glass of the Guildpact's
+  // multicolored creatures, Bontu's Monument's black creature spells in colorless Kozilek)
+  if (colorsMissing(plan, card)) out.push('wrong_color');
+  // self_harm: sacrifices your own board or locks you to one spell a turn
+  // (Hellcarver Demon, Colfenor's Plans)
+  const cardText = abilities(card).map(a => `${a.text || ''} ${R.effectsOf(a).map(e => e.text || '').join(' ')}`).join(' ');
+  if (/sacrifice all other permanents you control|you can't cast more than one spell each turn|skip your draw step|players can't draw cards/i.test(cardText)) out.push('self_harm');
+  // no_tribe: a "chosen type" payoff (Metallic Mimic, Chronicle of Victory, Coat of Arms)
+  // in a deck without a real tribe
+  const castTyped = abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell');
+  // …and a commander whose plan isn't a tribe (Atraxa's poison) doesn't want one even
+  // when the 99 happen to share a type
+  const tribalPlan = !plan.commanderCentric || String(direction || '').startsWith('tribal:') || plan.output.some(o => o.kind === 'tokens' && o.sub);
+  if (choosesType(card) && (!tribalPlan || (castTyped ? tribeDepth(plan, true) < 15 : tribeDepth(plan) < 12))) out.push('no_tribe');
+  // exiled_not_dies: an engine that exiles opponents' creatures instead (Vren) never
+  // lets "whenever a creature an opponent controls dies" fire (Meathook Massacre II)
+  if (plan.fuel.some(f => f.kind === 'opp_leaves') && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'dies'
+    && /^opp/.test(String(a.trigger.subject?.controller || a.trigger.controller_scope || '')))) out.push('exiled_not_dies');
+  // damage_in_poison: a damage overrun in a deck that wins on poison
+  if (direction === 'poison' && hasAxis(card, 'wincon.damage_burst') && !hasAxis(card, 'counters.poison')) out.push('damage_in_poison');
+  // redundant_grant: a one-creature trick granting only what the commander already has
+  // (Charge Through's trample on Treebeard)
+  if (plan._cmdr && !massGrant(card) && /\b(?:Instant|Sorcery)\b/i.test(ft)) {
+    const granted = allEffects(card).filter(e => e.op === 'grant_keyword').map(e => String(e.keyword || '').toLowerCase());
+    const cmdrKw = (plan._cmdr.ir?.faces || []).flatMap(f => (f.keywords || []).map(k => String(k.name || '').toLowerCase()));
+    if (granted.length && granted.every(k => cmdrKw.includes(k)) && !allEffects(card).some(e => ['destroy', 'exile', 'counter_spell', 'damage'].includes(e.op))) out.push('redundant_grant');
+  }
+  // crew_burden: a Vehicle payoff outside a Vehicles plan (Lifecraft Engine crew 3)
+  if (/\bvehicle\b/.test(ft) && direction !== 'vehicles' && ((card.ir?.faces || []).some(f => (f.keywords || []).some(k => /^crew$/i.test(k.name || '') && Number(k.param || k.n || 0) >= 3
+      || /^crew\s*[3-9]/i.test(`${k.name} ${k.param || ''}`)))
+    // any Vehicle in a deck with few creatures to crew it (Kozilek's titans don't crew)
+    || plan._deck.filter(isCreatureCard).length < 20)) out.push('crew_burden');
+  // swaps_tokens: replaces the engine's tokens with a different kind — Divine Visitation
+  // turns Vraska's mana-making Treasure Sculptures into plain Angels
+  if (plan.output.some(o => o.kind === 'tokens' && (o.artifact || o.land || o.sub)) && abilities(card).some(a => a.kind === 'replacement'
+    && a.replaces?.event === 'token_created' && R.effectsOf(a).some(e => e.op === 'create_token' && e.token
+      && !plan.output.some(o => o.kind === 'tokens' && sameTokenKind(o, e.token))))) out.push('swaps_tokens');
   // fights_fuel: counters/taxes the spells the engine runs on (Dovescape counters every
   // noncreature spell — including yours)
   if (castFuel && abilities(card).some(a => a.kind === 'triggered' && a.trigger?.event === 'cast_spell'
@@ -726,8 +1238,10 @@ function rebalance(trace) {
   let sum = 0;
   for (const t of trace) {
     if (typeof t.pts !== 'number') continue;
-    // role_deficit is a gap against the user's slider target — sliders own the numbers.
-    if (!/^(plan_|quality|role_deficit)/.test(String(t.kind))) t.pts = Math.round(t.pts * LEGACY_WEIGHT * 100) / 100;
+    // role_deficit / role_protects measure the user's slider targets — sliders own the
+    // numbers;
+    // castability is whether the card can be cast on time at all (Akroma's Memorial at 7).
+    if (!/^(plan_|quality|role_deficit|role_protects|role_full|thin_substrate|castability|commander_meta)/.test(String(t.kind))) t.pts = Math.round(t.pts * LEGACY_WEIGHT * 100) / 100;
     sum += t.pts;
   }
   return Math.round(sum * 100) / 100;
@@ -736,8 +1250,14 @@ function rebalance(trace) {
 // Axes the candidate pool should also retrieve by, beyond the goal's wanted axes: the
 // engine's event fuel, what amplifies its output, the removal a Vren-class engine eats,
 // thin must-draw pieces. `landCreatures` asks for a type/text query (no axis for it).
+//   tribe       — the engine's own tribe: its bodies by type line (Imperious Perfect,
+//                 Heritage Druid for Thranduil were never in reach of the axis windows)
+//   castFuel    — a cast engine's spell volume: {types, notTypes, mvMin} for a type-line
+//                 query (Mana Drain, Fierce Guardianship for Talrand; Hydroid Krasis for Helga)
+//   removalWide — an engine fed by opponents' creatures leaving wants the whole removal
+//                 shelf, not the top 60 (Deadly Rollick, Fatal Push for Vren)
 function poolHints(plan) {
-  if (!plan?.commanderCentric) return { axes: [], landCreatures: false };
+  if (!plan?.commanderCentric) return { axes: [], landCreatures: false, tribe: null, castFuel: null, removalWide: false };
   const axes = new Set();
   for (const s of plan.fuel) {
     if (s.kind === 'event') s.axes.forEach(a => axes.add(a));
@@ -746,14 +1266,30 @@ function poolHints(plan) {
   for (const o of plan.output) (AMPLIFIER_FOR_OUTPUT[o.kind] || []).forEach(a => axes.add(a));
   if (plan.critical?.haste_for_tokens && plan.critical.haste_for_tokens.counts.length < 4) axes.add('haste.enabler');
   if (plan.critical?.wipe_turn_return && plan.critical.wipe_turn_return.counts.length < 6) axes.add('protection.single');
-  return { axes: [...axes].slice(0, 6), landCreatures: plan.fuel.some(s => s.kind === 'land_creatures') };
+  const dir = String(plan.direction?.top || '');
+  const tribe = (dir.startsWith('tribal:') ? dir.slice(7) : null)
+    || plan.fuel.find(s => s.sub && (s.kind === 'type_enters' || s.kind === 'gy_type'))?.sub || null;
+  const cast = plan.fuel.find(s => s.kind === 'cast');
+  const castFuel = cast && (cast.types.length || cast.notTypes.length || cast.mv)
+    ? { types: cast.types, notTypes: cast.notTypes, mvMin: cast.mv && /^>/.test(cast.mv.op) ? cast.mv.n + (cast.mv.op === '>' ? 1 : 0) : null }
+    : null;
+  return {
+    axes: [...axes].slice(0, 6), landCreatures: plan.fuel.some(s => s.kind === 'land_creatures'),
+    tribe: tribe && /^[A-Za-z][A-Za-z' -]{1,30}$/.test(tribe) ? tribe : null,
+    castFuel, removalWide: plan.fuel.some(s => s.kind === 'opp_leaves'),
+  };
 }
 
 // Goals in the order scoring should read them: when the commander runs the deck, the
 // plan's DIRECTION is the top goal (wanted axes, category targets, cut shields all key
 // off goals[0]) — otherwise the inference's own order stands.
 function planGoals(plan, goals) {
-  const list = goals || [];
+  let list = goals || [];
+  // a tribe the 99 doesn't pay off never leads the scoring goals (Rakdos's Demons)
+  if (plan && list.length > 1 && String(list[0].goal).startsWith('tribal:')
+      && !realTribe(plan._deck, String(list[0].goal).slice(7), plan._cmdr, plan.output, plan.fuel)) {
+    list = [...list.slice(1), list[0]];
+  }
   if (!plan?.commanderCentric || !plan.direction) return list;
   const i = list.findIndex(g => g.goal === plan.direction.top);
   if (i <= 0) return list;
@@ -801,9 +1337,10 @@ function readout(plan) {
 function planReason(t) {
   switch (t.kind) {
     case 'plan_fuel': return `Feeds ${t.engine} — ${t.fuel}`;
-    case 'plan_amplifier': return `Multiplies ${t.engine}'s output`;
-    case 'plan_converter': return `Turns the engine's output into a win (${t.direction})`;
+    case 'plan_amplifier': return t.legendaryCopy ? `Copies ${t.engine} for its enter trigger (the legend rule then keeps one)` : `Multiplies ${t.engine}'s output`;
+    case 'plan_converter': return t.late ? `Turns the engine's output into a win (${t.direction}) — at a steep cost` : `Turns the engine's output into a win (${t.direction})`;
     case 'plan_bottleneck': return `Shores up the plan's weakest link`;
+    case 'plan_tutor': return `Finds ${t.engine}'s key pieces`;
     case 'plan_rider': return t.reliability >= 0.95 ? `Bonus always on — ${t.why}` : `Bonus on ~${Math.round(t.reliability * 100)}% of the time (${t.why})`;
     case 'plan_anti': return ANTI_TEXT[t.reason] || 'Works against the plan';
     case 'plan_protection': return t.scope === 'mass' ? 'Protects the whole board' : 'Protects a key piece';
@@ -811,7 +1348,11 @@ function planReason(t) {
     case 'plan_critical_add': return `Adds to a thin must-draw piece (${CRITICAL_TEXT[t.piece] || 'plan-critical'})`;
     case 'plan_off_direction': return `Built for a different plan than ${t.direction}`;
     case 'plan_idle': return "Doesn't do anything for the plan";
-    case 'plan_side_engine': return `More bodies off the same spells as ${t.engine} (a different token type)`;
+    case 'plan_one_sided_wipe': return `Sweeps big creatures and leaves ${t.engine}'s small tokens standing`;
+    case 'plan_recursion_target': return `${t.engine} brings it back — its enter trigger again every turn`;
+    case 'plan_side_engine': return t.what === 'value' ? `Pays off the same spells as ${t.engine}` : `More bodies off the same spells as ${t.engine} (a different token type)`;
+    case 'plan_fuel_enabler': return t.how === 'graveyard' ? `Stocks the graveyard ${t.engine} works from`
+      : t.how === 'reveal' ? `A big mana value ${t.engine} can reveal, cheap to cast` : `Makes ${t.engine}'s spells cheaper — more of them each turn`;
     case 'plan_wrong_bodies': return `Makes creatures ${t.engine} can't use`;
     case 'plan_creature_slot': return "A creature — casting it doesn't feed the engine";
     case 'plan_critical': return `One of only ${t.have} ${CRITICAL_TEXT[t.piece] || 'plan-critical pieces'}`;
@@ -834,6 +1375,15 @@ const ANTI_TEXT = {
   no_engine_target: 'Nothing in the plan to re-trigger',
   tapped_mana: 'Enters tapped',
   fights_fuel: 'Counters the very spells the engine runs on',
+  unmet_condition: "Its payoff needs more of a card type than the deck runs",
+  self_harm: 'Costs you your own board or your own spells',
+  no_tribe: "Pays off a creature type — the deck doesn't have one deep enough",
+  wrong_color: 'Pays off colors the deck doesn\'t have',
+  exiled_not_dies: "Its trigger needs opponents' creatures to die — the engine exiles them",
+  damage_in_poison: 'Deals damage in a deck that wins on poison',
+  redundant_grant: 'Grants what the commander already has',
+  crew_burden: 'A Vehicle to crew in a deck that isn\'t built to crew',
+  swaps_tokens: "Replaces the engine's tokens with a different kind — they lose what the plan uses them for",
 };
 
 module.exports = { STRUCTURAL_ANTI, LEGACY_WEIGHT, rebalance, planGoals, poolHints, engineSupplies, inferGameplan, evaluateCard, fuelSpecs, fuelTest, outputsOf, readout, planReason, pAtLeastOne, COMMANDER_CENTRAL };

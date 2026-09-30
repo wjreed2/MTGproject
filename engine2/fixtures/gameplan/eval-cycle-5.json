@@ -1,0 +1,28 @@
+{
+  "meta": { "title": "Eval cycle 5 lock-ins (engine2/eval/cycles/5 report)", "created": "2026-09-29" },
+  "principles": {
+    "P-NOT-NEEDED": "A card whose main job the deck already covers at its target is not needed; staples only fill real gaps",
+    "P-GEAR": "Protection equipment only where it works: not a second pair, not on a commander that returns to hand, no shroud when the deck targets its own creatures",
+    "P-TRIBE": "A 'chosen type' payoff needs a real tribe (12+ of one type)",
+    "P-SUBSTRATE": "A payoff's trigger or condition must be met by what the deck actually casts and runs",
+    "P-SELF-HARM": "Cards that sacrifice your board or lock your own spells are anti-plan"
+  },
+  "decks": {
+    "chulane-blink": "../decks/chulane-blink.json",
+    "weak-rev-theft": "../decks/weak-rev-theft.json"
+  },
+  "assertions": [
+    { "id": "EV5-01", "deck": "talrand-spellslinger", "kind": "not_link", "card": "Wonder", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-SUBSTRATE", "note": "the Drakes already fly" },
+    { "id": "EV5-02", "deck": "talrand-spellslinger", "kind": "not_link", "card": "Bontu's Monument", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-SUBSTRATE", "note": "creature-spell drain in an instants/sorceries deck" },
+    { "id": "EV5-03", "deck": "weak-karlach-combat", "kind": "anti_plan", "card": "Metallic Mimic", "expect": { "reasons": ["no_tribe"] }, "confidence": "high", "principle": "P-TRIBE" },
+    { "id": "EV5-04", "deck": "krenko-goblins", "kind": "not_anti_plan", "cards": ["Metallic Mimic"], "confidence": "high", "principle": "P-TRIBE", "note": "Goblins are a real tribe" },
+    { "id": "EV5-05", "deck": "weak-rev-theft", "kind": "anti_plan", "card": "Hellcarver Demon", "expect": { "reasons": ["self_harm"] }, "confidence": "high", "principle": "P-SELF-HARM" },
+    { "id": "EV5-06", "deck": "atraxa-counters", "kind": "anti_plan", "card": "Garruk's Uprising", "expect": { "reasons": ["unmet_condition"] }, "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV5-07", "deck": "atraxa-counters", "kind": "not_link", "card": "Solid Ground", "expect": { "links": ["amplifier"] }, "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV5-08", "deck": "vren", "kind": "anti_plan", "card": "Lifecraft Engine", "expect": { "reasons": ["crew_burden"] }, "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV5-09", "deck": "thranduil", "kind": "adds_exclude", "expect": ["Fellwar Stone", "Thought Vessel"], "confidence": "high", "principle": "P-NOT-NEEDED" },
+    { "id": "EV5-10", "deck": "chulane-blink", "kind": "adds_exclude", "expect": ["Fellwar Stone"], "confidence": "high", "principle": "P-NOT-NEEDED" },
+    { "id": "EV5-11", "deck": "yuriko-ninjas", "kind": "adds_exclude", "expect": ["Swiftfoot Boots", "Lightning Greaves"], "confidence": "high", "principle": "P-GEAR" },
+    { "id": "EV5-12", "deck": "bumbleflower", "kind": "adds_exclude", "expect": ["Lightning Greaves"], "confidence": "high", "principle": "P-GEAR" }
+  ]
+}
