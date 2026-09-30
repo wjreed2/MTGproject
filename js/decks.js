@@ -4749,25 +4749,56 @@ function _imageIsForPrinting(url, scryfallId) {
   return !!u && !!sid && u.includes(sid);
 }
 
+/**
+ * What the user themselves put on a deck slot, as opposed to what the printing decides.
+ * Re-printing a commander through the picker rebuilds the slot, and without this the tags,
+ * tiers and per-card overrides on it were thrown away with the old printing.
+ */
+const _DECK_SLOT_USER_FIELDS = ['customTags', 'customTagTiers', 'deckTags', 'roleTags',
+  'starred', 'customCmc', 'customPips'];
+
+function _carryDeckSlotUserFields(from, to) {
+  if (!from || !to) return;
+  for (const k of _DECK_SLOT_USER_FIELDS) {
+    if (from[k] != null) to[k] = from[k];
+  }
+}
+
+/** Same card, a different printing of it — as opposed to swapping in another commander. */
+function _isSamePrintedCard(a, b) {
+  if (!a || !b) return false;
+  const oa = String(a.oracleId || a.oracle_id || '').toLowerCase();
+  const ob = String(b.oracleId || b.oracle_id || '').toLowerCase();
+  if (oa && ob) return oa === ob;
+  return String(a.name || '').trim().toLowerCase() === String(b.name || '').trim().toLowerCase();
+}
+
 async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
-  const foil = !!opts.foil;
-  // Remove any existing commander card slot first
+  // Keep the outgoing commander: when this is the same card in a new printing, its slot is
+  // being re-printed, not replaced, and the collection copy behind it should follow too.
+  const prev = (deck.cards || []).find(c => c.isCommander) || null;
   deck.cards = deck.cards.filter(c => !c.isCommander);
 
   // Prefer an owned copy of this printing (matching finish first) as a rich template,
   // otherwise fetch from Scryfall.
-  let base = _ownershipCollection().find(c => c.scryfallId === scryfallId && !!c.foil === foil)
+  let base = _ownershipCollection().find(c => c.scryfallId === scryfallId && !!c.foil === !!opts.foil)
           || _ownershipCollection().find(c => c.scryfallId === scryfallId);
   let card;
+  let sc = null;
   if (base) {
     card = { ...base };
   } else {
     try {
-      const sc = await fetchCardById(scryfallId);
+      sc = await fetchCardById(scryfallId);
       if (!sc) return;
       card = cardToEntry(sc, 1);
     } catch(e) { return; }
   }
+  // A printing is only sold in the finishes it was printed in: picking a foil-only or etched
+  // version while the finish box is clear used to mint a plain copy that was never made, and
+  // the price log has no number for it, so the commander showed no price and the deck total
+  // dropped by its value.
+  const foil = _finishOfferedByPrinting(sc || card, opts.foil);
   card.scryfallId = scryfallId;
   card.foil = foil;
   card.uid = scryfallId + (foil ? '_f' : '_n');
@@ -4781,10 +4812,28 @@ async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
   }
 
   const newCmd = { ...card, qty: 1, isCommander: true };
+  const reprint = _isSamePrintedCard(prev, newCmd);
+  if (reprint) _carryDeckSlotUserFields(prev, newCmd);
   _applyGlobalCustomTagsToCard(newCmd);
   deck.cards.unshift(newCmd);
 
-  if (opts.addToCollection) _addCommanderCopyToCollection(newCmd, scryfallId, foil);
+  if (opts.addToCollection) {
+    _addCommanderCopyToCollection(newCmd, scryfallId, foil);
+  } else if (reprint && prev.scryfallId && prev.scryfallId !== scryfallId) {
+    // Re-printing through this picker moves the collection copy behind the commander the same
+    // way the version picker does; otherwise the deck showed one printing and the collection
+    // went on showing the other.
+    const moved = _transferCollectionCopyForDeckReprint(
+      prev.scryfallId, !!prev.foil,
+      { id: scryfallId, finishes: (sc || card).finishes },
+      prev.qty || 1,
+      { ...card, isCommander: false, qty: 1 });
+    if (moved) {
+      save('collection');
+      if (typeof renderCollection === 'function') renderCollection();
+      if (typeof updateStats === 'function') updateStats();
+    }
+  }
 }
 
 /** Add a single copy of the chosen commander printing+finish to the user's collection,
@@ -18292,9 +18341,30 @@ function _findCollectionRowForDeckCard(deckCard) {
   return collection.find(c => (c.name || '').trim().toLowerCase() === nameKey) || null;
 }
 
+/**
+ * The finish a printing can actually be had in. Printings are not interchangeable here:
+ * an alt-art or ripple-foil version is often sold foil-only, and an etched one has no plain
+ * version at all. Carrying the old slot's finish onto the new printing therefore minted a
+ * copy that does not exist — and the price log prices the finishes a printing was really
+ * sold in, so that copy had no price either, which is what made a re-printed card read as
+ * nothing in the collection and count as $0 toward the deck.
+ *
+ * Etched has no inventory key of its own (uids are `_n` / `_f`), so it rides with foil.
+ * @returns {boolean} true when the copy should be foil
+ */
+function _finishOfferedByPrinting(sc, wantFoil) {
+  const finishes = Array.isArray(sc?.finishes)
+    ? sc.finishes.map(f => String(f || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!finishes.length) return !!wantFoil; // nothing to go on — the caller's finish stands
+  if (wantFoil && finishes.includes('foil')) return true;
+  if (!wantFoil && finishes.includes('nonfoil')) return false;
+  return !finishes.includes('nonfoil');
+}
+
 function _applyScryfallPrintingFields(card, sc) {
   if (!card || !sc) return;
-  const foil = !!card.foil;
+  const foil = _finishOfferedByPrinting(sc, card.foil);
   const qty = card.qty || 1;
   let entry = null;
   if (typeof cardToEntry === 'function' && typeof applyEntryMetadataToCard === 'function') {
@@ -18317,6 +18387,7 @@ function _applyScryfallPrintingFields(card, sc) {
     card.setName = sc.set_name || card.setName;
     card.number = sc.collector_number || card.number;
     card.rarity = sc.rarity || card.rarity;
+    card.foil = foil;
   }
   // A version change is a different printing, so its price replaces the old printing's
   // outright — including when we don't know it yet (null), which the price-log pass then
@@ -18331,7 +18402,7 @@ function _applyScryfallPrintingFields(card, sc) {
 /** When a deck printing changes, update the matching collection row to the same printing. */
 function _syncCollectionPrintingFromDeckChange(collRow, sc) {
   if (!collRow || !sc || typeof cardToEntry !== 'function') return false;
-  const foil = !!collRow.foil;
+  const foil = _finishOfferedByPrinting(sc, collRow.foil);
   const qty = collRow.qty || 1;
   const fresh = cardToEntry(sc, qty);
   fresh.foil = foil;
@@ -18390,7 +18461,7 @@ function applyCollectionCardVersion(sc) {
   const foil = !!collRow.foil;
 
   _syncCollectionPrintingFromDeckChange(collRow, sc);
-  const newUid = sc.id + (foil ? '_f' : '_n');
+  const newUid = sc.id + (_finishOfferedByPrinting(sc, foil) ? '_f' : '_n');
 
   const deckChanged = _syncDeckSlotsForPrintingChange(oldUid, oldKey, oldNameKey, sc);
 
@@ -18447,7 +18518,7 @@ function _mergeDuplicateDeckSlotAfterPrintingChange(deck, card) {
  * old printing + finish (never by name), so unrelated copies are never touched. Returns true
  * if the collection changed.
  */
-function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
+function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty, template) {
   if (typeof _useOwnerCollectionForOwnership === 'function' && _useOwnerCollectionForOwnership()) return false;
   if (!oldSid || !sc || !sc.id || oldSid === sc.id) return false;
   if (!Array.isArray(collection) || !(moveQty > 0)) return false;
@@ -18470,18 +18541,24 @@ function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('remove', oldRow, move);
   }
 
-  // Add them to the new-printing row (same finish), creating it if needed.
-  const newUid = sc.id + (f ? '_f' : '_n');
+  // Add them to the new-printing row, creating it if needed. The finish follows the copies
+  // only as far as the new printing sells it — moving a plain copy onto a foil-only version
+  // has to land foil, or the row is a card that was never made and carries no price.
+  const newF = _finishOfferedByPrinting(sc, f);
+  const newUid = sc.id + (newF ? '_f' : '_n');
   const newRow = collection.find(c => c.uid === newUid)
-    || collection.find(c => c.scryfallId === sc.id && !!c.foil === f);
+    || collection.find(c => c.scryfallId === sc.id && !!c.foil === newF);
   if (newRow) {
     newRow.qty = (newRow.qty || 0) + move;
     newRow.addedAt = Date.now();
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newRow, move);
   } else {
-    const fresh = (typeof cardToEntry === 'function') ? cardToEntry(sc, move) : { ...oldRow };
+    // `template` is the already-built card for this printing, for callers that have one and
+    // only a stub `sc` (the commander picker reusing an owned copy as its template).
+    const fresh = template ? { ...template }
+      : (typeof cardToEntry === 'function') ? cardToEntry(sc, move) : { ...oldRow };
     fresh.scryfallId = sc.id;
-    fresh.foil = f;
+    fresh.foil = newF;
     fresh.uid = newUid;
     fresh.qty = move;
     fresh.addedAt = Date.now();
