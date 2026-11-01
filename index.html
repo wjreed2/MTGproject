@@ -768,6 +768,10 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9"/><path d="M13.5 8a5.5 5.5 0 0 1-9.4 3.9"/><path d="M11.8 2.8v2.8H9"/><path d="M4.2 13.2v-2.8H7"/></svg>
               Refresh Tags
             </button>
+            <button id="deckCompareBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openDeckCompare()" title="Scan your physical deck and compare it with this list">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="2" width="7" height="10" rx="1"/><path d="M6.5 14h6a1 1 0 0 0 1-1V5.5"/><path d="M4.5 7.2l1.4 1.4 2.4-2.6"/></svg>
+              Compare physical deck
+            </button>
             <div class="settings-divider"></div>
             <div class="settings-section-label">Playtest</div>
             <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openGoldfish()">
@@ -2211,6 +2215,32 @@
     </div>
     <div class="welcome-actions">
       <button type="button" class="btn btn-primary" onclick="closeWelcomeModal()">Let’s go</button>
+    </div>
+  </div>
+</div>
+
+<!-- DECK COMPARE (physical deck vs digital deck) — js/deck-compare.js -->
+<div class="modal-overlay" id="deckCompareModal">
+  <div class="modal deck-compare-modal" style="width:min(640px,96vw);max-height:min(90vh,820px);display:flex;flex-direction:column;padding:1.5rem 1.25rem 1.25rem">
+    <button type="button" class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckCompare()" aria-label="Close">✕</button>
+    <div class="modal-title" id="deckCompareTitle" style="flex-shrink:0;margin-bottom:0.5rem;padding-right:2rem">Compare physical deck</div>
+    <p class="dc-note" style="flex-shrink:0">Scan the cards in your physical deck to see what matches this list. Nothing in the deck changes until you choose an action.</p>
+    <div id="deckCompareProgress" class="dc-progress" style="flex-shrink:0"></div>
+    <div id="deckCompareScanBar" class="dc-toolbar" style="flex-shrink:0">
+      <button type="button" class="btn btn-primary btn-sm" onclick="deckCompareStartScan()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;flex-shrink:0"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Scan cards
+      </button>
+      <input id="deckCompareSearch" type="text" class="dc-search" placeholder="Find a card…" autocomplete="off" spellcheck="false" oninput="deckCompareFilter(this.value)">
+      <label class="deck-export-check dc-extras-check"><input type="checkbox" id="deckCompareIncludeExtras" onchange="deckCompareToggleExtras(this.checked)"> Include maybeboard &amp; sideboard</label>
+    </div>
+    <div id="deckCompareBody" class="dc-body"></div>
+    <div class="dc-footer" style="flex-shrink:0">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="deckCompareReset()">Start over</button>
+      <button type="button" class="btn btn-outline btn-sm hidden" id="deckCompareUndoBtn" onclick="deckCompareUndo()">Undo</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-outline btn-sm hidden" id="deckCompareBackBtn" onclick="deckCompareBackToScan()">Back to scanning</button>
+      <button type="button" class="btn btn-primary btn-sm" id="deckCompareFinishBtn" onclick="deckCompareFinish()">I've scanned everything</button>
     </div>
   </div>
 </div>

@@ -41,6 +41,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [23-semantics-holes.md](./23-semantics-holes.md) | Gaps where Scryfall otags already split a role but CardIR does not |
 | [24-gameplan-model.md](./24-gameplan-model.md) | **IMPLEMENTED v1:** engine2 plan-first suggestions — engine + direction, fuel/output from the engine, anti-plan, riders, bottleneck, readout; fixtures + invariants in `engine2/fixtures/gameplan/` |
 | [25-card-quality.md](./25-card-quality.md) | **IMPLEMENTED v1:** card quality within a job (roleStrength) — effective cost, breadth, hardness, tempo; weakest-in-class cuts, upgrade-over adds; 26 orderings in `npm test` |
+| [26-deck-compare.md](./26-deck-compare.md) | **IMPLEMENTED v1:** compare the physical deck with the digital deck using the existing scanner (scanner untouched); report + clean-up actions |
 
 ## Related in-repo docs
 
