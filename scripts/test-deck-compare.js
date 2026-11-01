@@ -276,4 +276,33 @@ test('queueToAddOps aggregates a scanner run per name and keeps entries on reque
   assert.ok(!('qty' in ops[1].entry));
 });
 
+test('prototype keys are refused everywhere (no shared-prototype pollution)', () => {
+  const ops = C.sanitizeTallyOps([
+    { t: 'add', key: '__proto__', name: '__proto__', n: 5, entry: { polluted: true } },
+    { t: 'set', key: 'constructor', name: 'constructor', qty: 2 },
+    { t: 'add', key: 'opt', name: 'Opt', n: 1 },
+  ]);
+  assert.deepStrictEqual(ops.map(o => o.key), ['opt']);
+  // Even unsanitised ops must not touch the prototype.
+  const st = C.applyTallyOps({}, [
+    { t: 'add', key: '__proto__', name: '__proto__', n: 5, entry: { polluted: true } },
+    { t: 'set', key: '__proto__', qty: 3 },
+  ]);
+  assert.strictEqual(({}).qty, undefined);
+  assert.strictEqual(({}).entry, undefined);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(st.scanned, '__proto__'), false);
+  const merged = C.mergeScanned({}, [{ name: '__proto__', qty: 2 }]);
+  assert.strictEqual(({}).qty, undefined);
+  assert.deepStrictEqual(Object.keys(merged), []);
+  assert.ok(!C.isSafeKey('__proto__') && !C.isSafeKey('constructor') && C.isSafeKey('sol ring'));
+});
+
+test('surplus copies of a listed card are added with the deck entry (printing kept)', () => {
+  const deck = deckOf({ cards: [card('Sol Ring', 1, { sid: 'sr-cmm', set: 'cmm', customTags: ['Ramp'] })] });
+  const rep = C.buildReport(deck, scan({ 'Sol Ring': 2 })); // typed count — no scanned entry
+  C.addNotInDeck(deck, rep.notInDeck, 'add');
+  assert.deepStrictEqual(deck.adds.map(c => [c.name, c.qty, c.scryfallId, c.set]), [['Sol Ring', 1, 'sr-cmm', 'cmm']]);
+  assert.ok(!('customTags' in deck.adds[0]));
+});
+
 console.log(`\n${n} deck-compare tests passed`);

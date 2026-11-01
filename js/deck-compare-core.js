@@ -27,6 +27,19 @@ const DeckCompareCore = (() => {
     return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').split(' // ')[0].trim();
   }
 
+  /**
+   * Tally keys become object properties (client and server). A key that names a
+   * built-in property — '__proto__' above all — must never be used: assigning
+   * to it would write onto the shared Object prototype.
+   */
+  function isSafeKey(key) {
+    return !!key && key !== '__proto__' && !Object.prototype.hasOwnProperty.call(Object.prototype, key);
+  }
+
+  function _own(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
+  }
+
   function isBasicLand(name) {
     return BASIC_LANDS.has(nameKey(name));
   }
@@ -102,7 +115,7 @@ const DeckCompareCore = (() => {
     for (const [k, s] of Object.entries(scanned || {})) {
       const key = nameKey(k);
       const n = qtyOf({ qty: s?.qty });
-      if (!key || !n) continue;
+      if (!isSafeKey(key) || !n) continue;
       let r = rows.get(key);
       if (!r) { r = _emptyRow(key, s.name || k); rows.set(key, r); }
       r.scanned += n;
@@ -320,6 +333,14 @@ const DeckCompareCore = (() => {
     return { mainChanged, planningChanged: false };
   }
 
+  function _deckEntryFor(deck, key) {
+    for (const z of ['main', 'add', 'mb', 'sb', 'cut']) {
+      const c = _list(deck, z).find(x => nameKey(x?.name) === key);
+      if (c) return c;
+    }
+    return null;
+  }
+
   /** Scanned cards that aren't in the deck go to a zone: 'add' (default), 'main' or 'mb'. */
   function addNotInDeck(deck, rows, zone = 'add', opts = {}) {
     const onEvent = opts.onEvent || _noop;
@@ -327,9 +348,12 @@ const DeckCompareCore = (() => {
     let changed = false;
     for (const r of rows) {
       if (!(r.extra > 0)) continue;
-      const card = r.entry || { name: r.name, image: r.image || '' };
+      // Surplus copies of a card the deck already lists carry no scanned entry —
+      // reuse the deck's own entry so the printing and card data come along.
+      const card = r.entry || _deckEntryFor(deck, r.key) || { name: r.name, image: r.image || '' };
       const base = { ...card };
       delete base.qty;
+      delete base.customTags;
       const { entry, merged } = _put(_list(deck, target), base, r.extra);
       if (target === 'main') onEvent(merged ? 'qty_change' : 'add', entry);
       else if (target === 'mb') onEvent(merged ? 'qty_change_sb' : 'add_sb', entry);
@@ -364,7 +388,8 @@ const DeckCompareCore = (() => {
       const key = nameKey(e?.name);
       const n = qtyOf(e);
       if (!key || !n) continue;
-      const cur = out[key] || (out[key] = { name: e.name, qty: 0 });
+      if (!isSafeKey(key)) continue;
+      const cur = _own(out, key) || (out[key] = { name: e.name, qty: 0 });
       cur.qty = qtyOf({ qty: cur.qty }) + n;
       if (!cur.image && e.image) cur.image = e.image;
       if (keepEntry && keepEntry(key) && !cur.entry) {
@@ -401,7 +426,7 @@ const DeckCompareCore = (() => {
       if (op.t !== 'add' && op.t !== 'set') continue;
       const name = String(op.name || op.key || '').slice(0, 255);
       const key = nameKey(op.key || name).slice(0, 255);
-      if (!key) continue;
+      if (!isSafeKey(key)) continue;
       if (op.t === 'set') {
         out.push({ t: 'set', key, name: name || key, qty: _clampQty(op.qty) });
         continue;
@@ -437,7 +462,8 @@ const DeckCompareCore = (() => {
       if (op.t === 'extras') { st.includeExtras = !!op.on; continue; }
       const key = nameKey(op.key || op.name);
       if (!key) continue;
-      const cur = st.scanned[key];
+      if (!isSafeKey(key)) continue;
+      const cur = _own(st.scanned, key);
       const qty = op.t === 'set'
         ? _clampQty(op.qty)
         : _clampQty((cur ? Number(cur.qty) || 0 : 0) + (Number(op.n) || 0));
@@ -457,7 +483,7 @@ const DeckCompareCore = (() => {
     for (const e of entries || []) {
       const key = nameKey(e?.name);
       const n = qtyOf(e);
-      if (!key || !n) continue;
+      if (!isSafeKey(key) || !n) continue;
       let op = byKey.get(key);
       if (!op) { op = { t: 'add', key, name: e.name, n: 0 }; byKey.set(key, op); }
       op.n += n;
@@ -471,7 +497,7 @@ const DeckCompareCore = (() => {
   }
 
   return {
-    nameKey, isBasicLand, invKey, buildRows, allocate, lastCopyBucket, buildReport, mergeScanned,
+    nameKey, isSafeKey, isBasicLand, invKey, buildRows, allocate, lastCopyBucket, buildReport, mergeScanned,
     sanitizeTallyOps, applyTallyOps, queueToAddOps,
     removeUnscannedCuts, removeMissing, keepScannedCuts, promoteScannedAdds,
     promoteScannedExtras, addNotInDeck, removeUnscannedExtras,

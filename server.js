@@ -2094,6 +2094,16 @@ async function ensureDeckCompareTables() {
         PRIMARY KEY (deck_id, name_key)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    // Applied op batches, so a retried POST (response lost) is not applied twice.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_batches (
+        deck_id    VARCHAR(50) NOT NULL,
+        batch_id   VARCHAR(64) NOT NULL,
+        applied_at BIGINT      NOT NULL,
+        PRIMARY KEY (deck_id, batch_id),
+        INDEX idx_dcb_applied (applied_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
   } finally {
     conn.release();
   }
@@ -5877,6 +5887,7 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
     await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
     await db().query('DELETE FROM deck_compare_scans WHERE deck_id=?', [deckId]).catch(() => {});
     await db().query('DELETE FROM deck_compare_sessions WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_batches WHERE deck_id=?', [deckId]).catch(() => {});
     invalidateTradelistCache(accountId);
     void reconcileAccountWishlist(accountId);
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
@@ -5913,6 +5924,7 @@ async function deckCompareAccess(accountId, deckId) {
 function _deckCompareRowsToScanned(rows) {
   const scanned = {};
   for (const r of rows) {
+    if (!DeckCompareCore.isSafeKey(r.name_key)) continue;
     const row = { name: r.name, qty: Number(r.qty) || 0 };
     if (r.entry) {
       try {
@@ -5947,7 +5959,20 @@ app.get('/api/decks/:id/compare', requireAuth, async (req, res) => {
   try {
     const access = await deckCompareAccess(req.accountId, deckId);
     if (!access.ok) return res.status(access.status).json({ error: access.error });
-    res.json(await loadDeckCompareState(db(), deckId, false));
+    // Both tables from one snapshot, so revision/flag and counts always belong together.
+    const conn = await db().getConnection();
+    let state;
+    try {
+      await conn.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+      state = await loadDeckCompareState(conn, deckId, false);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json(state);
   } catch (e) {
     console.error('[deck-compare] load failed:', e);
     res.status(500).json({ error: e.message });
@@ -5963,11 +5988,13 @@ app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
   const ops = DeckCompareCore.sanitizeTallyOps(body.ops);
   if (!ops.length) return res.status(400).json({ error: 'No valid ops' });
   const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null;
+  const batchId = typeof body.batchId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.batchId) ? body.batchId : null;
   try {
     const access = await deckCompareAccess(accountId, deckId);
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const now = Date.now();
     let state;
+    let duplicate = false;
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
@@ -5976,40 +6003,59 @@ app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
         [deckId, now]
       );
       const before = await loadDeckCompareState(conn, deckId, true);
-      const beforeJson = {};
-      for (const [k, v] of Object.entries(before.scanned)) beforeJson[k] = JSON.stringify(v);
-      const after = DeckCompareCore.applyTallyOps(
-        { scanned: JSON.parse(JSON.stringify(before.scanned)), includeExtras: before.includeExtras },
-        ops
-      );
-      const gone = Object.keys(before.scanned).filter(k => !after.scanned[k]);
-      if (gone.length) {
-        await conn.query('DELETE FROM deck_compare_scans WHERE deck_id = ? AND name_key IN (?)', [deckId, gone]);
-      }
-      for (const [k, v] of Object.entries(after.scanned)) {
-        if (beforeJson[k] === JSON.stringify(v)) continue;
-        await conn.query(
-          `INSERT INTO deck_compare_scans (deck_id, name_key, name, qty, entry, updated_at, updated_by)
-           VALUES (?,?,?,?,?,?,?)
-           ON DUPLICATE KEY UPDATE name=VALUES(name), qty=VALUES(qty),
-             entry=COALESCE(VALUES(entry), entry), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)`,
-          [deckId, k, String(v.name || k).slice(0, 255), v.qty, v.entry ? JSON.stringify(v.entry) : null, now, accountId]
+      if (batchId) {
+        // Under the session row lock: a batch id seen before means this is a retry of a
+        // POST that already committed — answer with the current state, apply nothing.
+        const [ins] = await conn.query(
+          'INSERT IGNORE INTO deck_compare_batches (deck_id, batch_id, applied_at) VALUES (?,?,?)',
+          [deckId, batchId, now]
         );
+        if (!ins.affectedRows) duplicate = true;
       }
-      await conn.query(
-        'UPDATE deck_compare_sessions SET include_extras = ?, revision = revision + 1, updated_at = ?, updated_by = ? WHERE deck_id = ?',
-        [after.includeExtras ? 1 : 0, now, accountId, deckId]
-      );
-      state = await loadDeckCompareState(conn, deckId, false);
-      await conn.commit();
+      if (duplicate) {
+        await conn.commit();
+        state = before;
+      } else {
+        const beforeJson = {};
+        for (const [k, v] of Object.entries(before.scanned)) beforeJson[k] = JSON.stringify(v);
+        const after = DeckCompareCore.applyTallyOps(
+          { scanned: JSON.parse(JSON.stringify(before.scanned)), includeExtras: before.includeExtras },
+          ops
+        );
+        const gone = Object.keys(before.scanned).filter(k => !after.scanned[k]);
+        if (gone.length) {
+          await conn.query('DELETE FROM deck_compare_scans WHERE deck_id = ? AND name_key IN (?)', [deckId, gone]);
+        }
+        for (const [k, v] of Object.entries(after.scanned)) {
+          if (beforeJson[k] === JSON.stringify(v)) continue;
+          await conn.query(
+            `INSERT INTO deck_compare_scans (deck_id, name_key, name, qty, entry, updated_at, updated_by)
+             VALUES (?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE name=VALUES(name), qty=VALUES(qty),
+               entry=COALESCE(VALUES(entry), entry), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)`,
+            [deckId, k, String(v.name || k).slice(0, 255), v.qty, v.entry ? JSON.stringify(v.entry) : null, now, accountId]
+          );
+        }
+        await conn.query(
+          'UPDATE deck_compare_sessions SET include_extras = ?, revision = revision + 1, updated_at = ?, updated_by = ? WHERE deck_id = ?',
+          [after.includeExtras ? 1 : 0, now, accountId, deckId]
+        );
+        state = await loadDeckCompareState(conn, deckId, false);
+        await conn.commit();
+      }
     } catch (e) {
       await conn.rollback();
       throw e;
     } finally {
       conn.release();
     }
-    if (_io) {
-      _io.to(`deck:${deckId}`).emit('deck:compare', await deckBroadcastMeta(accountId, { ...state, clientId }));
+    if (!duplicate) {
+      // Editors only — view-only collaborators share the deck room but not the tally.
+      if (_io) {
+        _io.to(`deckcompare:${deckId}`).emit('deck:compare', await deckBroadcastMeta(accountId, { ...state, clientId }));
+      }
+      // Batch ids only need to outlive client retries.
+      void db().query('DELETE FROM deck_compare_batches WHERE applied_at < ?', [now - 7 * 24 * 3600 * 1000]).catch(() => {});
     }
     res.json(state);
   } catch (e) {
@@ -7705,9 +7751,15 @@ function attachRealtime(httpServer) {
         const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
         if (!access) return;
         socket.join(`deck:${deckId}`);
+        // Deck Compare tally is for editors only (owner + 'edit' collaborators).
+        if ((await deckCompareAccess(socket.accountId, deckId)).ok) socket.join(`deckcompare:${deckId}`);
       } catch (_) {}
     });
-    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
+    socket.on('deck:leave', ({ deckId } = {}) => {
+      if (!deckId) return;
+      socket.leave(`deck:${deckId}`);
+      socket.leave(`deckcompare:${deckId}`);
+    });
   });
   console.log('[realtime] socket.io attached');
 }

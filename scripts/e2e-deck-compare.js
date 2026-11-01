@@ -98,9 +98,14 @@ function nextEvent(socket, name, ms = 4000) {
   assert.deepStrictEqual(r.data, { deckId, revision: 0, includeExtras: false, scanned: {} });
   console.log('empty tally: ok');
 
-  // The editor's "computer" has the deck open (joined the room).
+  // The editor's "computer" has the deck open (joined the room). So does the view-only
+  // collaborator — who shares the deck room but must not receive the tally.
   const editorSock = await connectSocket(editor);
   editorSock.emit('deck:join', { deckId });
+  const viewerSock = await connectSocket(viewer);
+  viewerSock.emit('deck:join', { deckId });
+  const viewerGot = [];
+  viewerSock.on('deck:compare', m => viewerGot.push(m));
   await new Promise(res => setTimeout(res, 300));
 
   // Owner's "phone" finishes a scanner run.
@@ -125,6 +130,19 @@ function nextEvent(socket, name, ms = 4000) {
   assert.deepStrictEqual(Object.keys(msg.scanned).sort(), ['island', 'ponder', 'sol ring']);
   console.log('live push to another device: ok');
 
+  // A retried batch (response lost) is applied once.
+  const retryBody = { batchId: 'retry-batch-0001', ops: [{ t: 'add', key: 'island', name: 'Island', n: 1 }] };
+  r = await call(owner, 'POST', `/decks/${deckId}/compare/ops`, retryBody);
+  assert.strictEqual(r.data.scanned.island.qty, 4);
+  const revAfterFirst = r.data.revision;
+  r = await call(owner, 'POST', `/decks/${deckId}/compare/ops`, retryBody);
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.data.scanned.island.qty, 4, 'retry must not count again');
+  assert.strictEqual(r.data.revision, revAfterFirst, 'retry must not bump the revision');
+  r = await call(owner, 'POST', `/decks/${deckId}/compare/ops`, { ops: [{ t: 'add', key: 'island', name: 'Island', n: -1 }] });
+  assert.strictEqual(r.data.scanned.island.qty, 3);
+  console.log('retried batch applied once: ok');
+
   // Two devices counting at the same moment: adds stack, nothing lost.
   const [a, b] = await Promise.all([
     call(owner, 'POST', `/decks/${deckId}/compare/ops`, { ops: [{ t: 'add', key: 'island', name: 'Island', n: 2 }] }),
@@ -134,7 +152,7 @@ function nextEvent(socket, name, ms = 4000) {
   assert.strictEqual(b.status, 200);
   r = await call(editor, 'GET', `/decks/${deckId}/compare`);
   assert.strictEqual(r.data.scanned.island.qty, 9, 'concurrent adds both counted');
-  assert.strictEqual(r.data.revision, 3);
+  assert.strictEqual(r.data.revision, 5);
   console.log('concurrent adds stack: ok');
 
   // Typed count + extras toggle + going to zero removes the row.
@@ -158,6 +176,9 @@ function nextEvent(socket, name, ms = 4000) {
   assert.strictEqual(r.status, 401, 'signed out refused');
   r = await call(owner, 'GET', '/decks/nope-not-a-deck/compare');
   assert.strictEqual(r.status, 404);
+  assert.deepStrictEqual(viewerGot, [], 'view-only collaborator never receives tally pushes');
+  r = await call(owner, 'POST', `/decks/${deckId}/compare/ops`, { ops: [{ t: 'add', key: '__proto__', name: '__proto__', n: 1 }] });
+  assert.strictEqual(r.status, 400, 'prototype key rejected');
   console.log('permissions: ok');
 
   // Bad input.
@@ -182,6 +203,7 @@ function nextEvent(socket, name, ms = 4000) {
   console.log('deck delete: ok');
 
   editorSock.close();
+  viewerSock.close();
   console.log('\ne2e deck-compare: all ok');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
