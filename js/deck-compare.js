@@ -10,22 +10,50 @@
 // is written to the collection) and the originals are put back the moment the
 // scanner closes. Outside a compare scan the scanner is untouched.
 //
-// Pure counting / allocation / deck mutations live in js/deck-compare-core.js.
+// Shared tally: everyone who can edit the deck shares one scan tally on the
+// server (GET/POST /api/decks/:id/compare). Each device shows the last server
+// state plus its own unsent ops (an outbox kept in localStorage), so edits are
+// instant and survive going offline; the outbox is sent when a scanner run
+// finishes and on every manual edit. The server pushes the new state to the
+// deck's socket room ('deck:compare'), so other devices update without a refresh.
+//
+// Pure counting / allocation / deck mutations / tally ops live in js/deck-compare-core.js.
 
 const _DC_STORE_PREFIX = 'mtg_deck_compare_v1_';
 
 let _dcDeckId = null;
-let _dcSession = null;       // { scanned: {key:{name,qty,image?,entry?}}, includeExtras, phase, updatedAt }
+// { scanned, includeExtras  — what this device shows (base + outbox)
+//   base: { revision, scanned, includeExtras } — last state from the server
+//   outbox: [ops] not yet acknowledged by the server
+//   phase: 'scan' | 'report' (this device only), updatedAt }
+let _dcSession = null;
+const _dcClientId = 'dc-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+let _dcSync = { inFlight: false, retryTimer: 0, state: 'idle', localOnly: false };
 let _dcUndo = null;          // { label, zones } — one level, the last deck change made from this screen
 let _dcHooks = null;         // live scanner hook state while a compare scan is running
 let _dcFilter = '';
 const _dcMissingUnchecked = new Set(); // report: missing rows the user un-ticked
 const _dcExtrasUnchecked = new Set();  // report: unscanned maybe/side rows the user un-ticked
 
-// ── Session storage (per deck, this device only) ─────────────────────────────
+// ── Session storage (per deck; this device's cache of the shared tally) ──────
+
+function _dcEmptyBase() {
+  return { revision: 0, scanned: {}, includeExtras: false };
+}
 
 function _dcEmptySession() {
-  return { scanned: {}, includeExtras: false, phase: 'scan', updatedAt: Date.now() };
+  return { scanned: {}, includeExtras: false, base: _dcEmptyBase(), outbox: [], phase: 'scan', updatedAt: Date.now() };
+}
+
+/** Displayed tally = server base + unsent ops. */
+function _dcRecompute(sess) {
+  const st = DeckCompareCore.applyTallyOps(
+    { scanned: JSON.parse(JSON.stringify(sess.base.scanned || {})), includeExtras: !!sess.base.includeExtras },
+    sess.outbox
+  );
+  sess.scanned = st.scanned;
+  sess.includeExtras = st.includeExtras;
+  return sess;
 }
 
 function _dcLoadSession(deckId) {
@@ -33,21 +61,191 @@ function _dcLoadSession(deckId) {
     const raw = localStorage.getItem(_DC_STORE_PREFIX + deckId);
     if (!raw) return _dcEmptySession();
     const s = JSON.parse(raw);
-    if (!s || typeof s !== 'object' || typeof s.scanned !== 'object') return _dcEmptySession();
-    return { ..._dcEmptySession(), ...s, scanned: s.scanned || {} };
+    if (!s || typeof s !== 'object') return _dcEmptySession();
+    const sess = { ..._dcEmptySession(), ...s };
+    if (!sess.base || typeof sess.base !== 'object') {
+      // Saved before the tally was shared: upload what this device counted.
+      const old = s.scanned && typeof s.scanned === 'object' ? s.scanned : {};
+      sess.base = _dcEmptyBase();
+      sess.outbox = Object.entries(old)
+        .filter(([, v]) => Number(v?.qty) > 0)
+        .map(([k, v]) => ({ t: 'set', key: k, name: v.name || k, qty: Number(v.qty) }));
+      if (s.includeExtras) sess.outbox.push({ t: 'extras', on: true });
+    }
+    if (!Array.isArray(sess.outbox)) sess.outbox = [];
+    return _dcRecompute(sess);
   } catch (_) {
     return _dcEmptySession();
   }
 }
 
-function _dcSaveSession() {
-  if (!_dcDeckId || !_dcSession) return;
-  _dcSession.updatedAt = Date.now();
-  try { localStorage.setItem(_DC_STORE_PREFIX + _dcDeckId, JSON.stringify(_dcSession)); } catch (_) {}
+function _dcStoreSession(deckId, sess) {
+  if (!deckId || !sess) return;
+  sess.updatedAt = Date.now();
+  const { scanned, includeExtras, ...persist } = sess; // displayed state is derived
+  try { localStorage.setItem(_DC_STORE_PREFIX + deckId, JSON.stringify(persist)); } catch (_) {}
 }
 
-function _dcClearSessionStore(deckId) {
-  try { localStorage.removeItem(_DC_STORE_PREFIX + deckId); } catch (_) {}
+function _dcSaveSession() {
+  _dcStoreSession(_dcDeckId, _dcSession);
+}
+
+// ── Server sync ──────────────────────────────────────────────────────────────
+
+function _dcServerAvailable() {
+  return typeof mtgApiRoot === 'function' && typeof fetch === 'function';
+}
+
+async function _dcApi(method, path, body) {
+  const res = await fetch(mtgApiRoot() + path, {
+    method,
+    credentials: 'include',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Adopt a server state if it is newer than what this device has. */
+function _dcAdoptBase(sess, st) {
+  if (!st || typeof st !== 'object') return false;
+  const rev = Number(st.revision) || 0;
+  if (rev < (Number(sess.base.revision) || 0)) return false;
+  sess.base = { revision: rev, scanned: st.scanned || {}, includeExtras: !!st.includeExtras };
+  _dcRecompute(sess);
+  return true;
+}
+
+function _dcSetSyncState(state) {
+  _dcSync.state = state;
+  const el = document.getElementById('deckCompareSyncState');
+  if (el) el.textContent = _dcSyncLabel();
+}
+
+function _dcSyncLabel() {
+  if (_dcSync.localOnly) return 'Saved on this device';
+  if (_dcSync.state === 'saving') return 'Saving…';
+  if (_dcSync.state === 'offline') return 'Offline — will sync';
+  if (_dcSync.state === 'synced') return 'Synced';
+  return '';
+}
+
+function _dcScheduleRetry() {
+  clearTimeout(_dcSync.retryTimer);
+  _dcSync.retryTimer = setTimeout(() => { void _dcFlush(); }, 5000);
+}
+
+/** Send this device's unsent ops. Safe to call any time; one request at a time. */
+async function _dcFlush() {
+  if (!_dcSession || !_dcDeckId || _dcSync.inFlight || _dcSync.localOnly) return;
+  if (!_dcSession.outbox.length) return;
+  if (!_dcServerAvailable()) { _dcSetSyncState('offline'); return; }
+  const deckId = _dcDeckId;
+  const sess = _dcSession;
+  const sending = sess.outbox.slice();
+  _dcSync.inFlight = true;
+  _dcSetSyncState('saving');
+  try {
+    const r = await _dcApi('POST', `/decks/${encodeURIComponent(deckId)}/compare/ops`, { ops: sending, clientId: _dcClientId });
+    if (r.ok) {
+      sess.outbox = sess.outbox.slice(sending.length);
+      _dcAdoptBase(sess, r.data);
+      _dcRecompute(sess);
+      _dcStoreSession(deckId, sess);
+      _dcSetSyncState('synced');
+      if (sess === _dcSession) _dcRender();
+    } else if (r.status === 400) {
+      // Malformed ops will never be accepted — drop them rather than retry forever.
+      sess.outbox = sess.outbox.slice(sending.length);
+      _dcRecompute(sess);
+      _dcStoreSession(deckId, sess);
+      _dcSetSyncState('synced');
+    } else if (r.status === 401 || r.status === 403 || r.status === 404) {
+      // View-only / signed out / deck not on the server yet: keep counting on this device.
+      _dcSync.localOnly = true;
+      _dcSetSyncState('idle');
+    } else {
+      _dcSetSyncState('offline');
+      _dcScheduleRetry();
+    }
+  } catch (_) {
+    _dcSetSyncState('offline');
+    _dcScheduleRetry();
+  } finally {
+    _dcSync.inFlight = false;
+  }
+  if (sess === _dcSession && sess.outbox.length && _dcSync.state === 'synced') void _dcFlush();
+}
+
+/** Load the shared tally from the server (on open and when the socket reconnects). */
+async function _dcPull() {
+  if (!_dcSession || !_dcDeckId || !_dcServerAvailable()) return;
+  const deckId = _dcDeckId;
+  const sess = _dcSession;
+  try {
+    const r = await _dcApi('GET', `/decks/${encodeURIComponent(deckId)}/compare`);
+    if (r.ok) {
+      _dcSync.localOnly = false;
+      if (_dcAdoptBase(sess, r.data)) {
+        _dcStoreSession(deckId, sess);
+        if (sess === _dcSession) _dcRender();
+      }
+      if (sess.outbox.length) void _dcFlush();
+      else _dcSetSyncState('synced');
+    } else if (r.status === 401 || r.status === 403 || r.status === 404) {
+      _dcSync.localOnly = true;
+      _dcSetSyncState('idle');
+    } else {
+      _dcSetSyncState('offline');
+    }
+  } catch (_) {
+    _dcSetSyncState('offline');
+  }
+}
+
+/** Record a change: show it now, send it to the server. */
+function _dcApplyOps(ops) {
+  if (!_dcSession || !ops || !ops.length) return;
+  _dcSession.outbox.push(...ops);
+  _dcRecompute(_dcSession);
+  _dcSaveSession();
+  void _dcFlush();
+}
+
+/** Socket push from the server ('deck:compare'): another device changed the tally. */
+function deckCompareOnRemote(msg) {
+  if (!msg || !msg.deckId || msg.clientId === _dcClientId) return;
+  const isOpenDeck = _dcSession && _dcDeckId === msg.deckId;
+  const sess = isOpenDeck ? _dcSession : _dcLoadSession(msg.deckId);
+  if (!_dcAdoptBase(sess, msg)) return;
+  _dcStoreSession(msg.deckId, sess);
+  if (!isOpenDeck) return;
+  _dcSetSyncState(sess.outbox.length ? _dcSync.state : 'synced');
+  const modalOpen = document.getElementById('deckCompareModal')?.classList.contains('open');
+  if (modalOpen) {
+    const inc = document.getElementById('deckCompareIncludeExtras');
+    if (inc) inc.checked = !!sess.includeExtras;
+    _dcRender();
+    if (typeof showNotif === 'function') {
+      const mine = typeof currentUser !== 'undefined' && currentUser?.id != null
+        && Number(msg.actorAccountId) === Number(currentUser.id);
+      showNotif(mine || !msg.actorEmail
+        ? 'Scan counts updated on another device'
+        : 'Scan counts updated by ' + (String(msg.actorEmail).split('@')[0] || msg.actorEmail));
+    }
+  }
+}
+
+/** Socket reconnected: catch up on anything missed while disconnected. */
+function deckCompareOnReconnect() {
+  if (!_dcSession || !_dcDeckId) return;
+  void _dcPull();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { if (_dcSession) { _dcSync.state = 'idle'; void _dcFlush(); } });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,11 +283,15 @@ function _dcSetScanned(key, name, qty) {
   const k = DeckCompareCore.nameKey(key || name);
   if (!k) return;
   const n = Math.max(0, Math.min(999, Math.floor(Number(qty) || 0)));
-  const cur = _dcSession.scanned[k];
-  if (!n) { if (cur) { if (cur.entry) cur.qty = 0; else delete _dcSession.scanned[k]; } }
-  else if (cur) cur.qty = n;
-  else _dcSession.scanned[k] = { name: name || k, qty: n };
-  _dcSaveSession();
+  if ((_dcSession.scanned[k]?.qty || 0) === n) return;
+  _dcApplyOps([{ t: 'set', key: k, name: name || k, qty: n }]);
+}
+
+function _dcAddScanned(key, name, n) {
+  const k = DeckCompareCore.nameKey(key || name);
+  if (!k || !n) return;
+  if (n < 0 && !(_dcSession.scanned[k]?.qty > 0)) return;
+  _dcApplyOps([{ t: 'add', key: k, name: name || k, n }]);
 }
 
 const _DC_BUCKET_LABEL = {
@@ -125,7 +327,10 @@ function openDeckCompare() {
     _dcFilter = '';
     _dcMissingUnchecked.clear();
     _dcExtrasUnchecked.clear();
+    _dcSync = { inFlight: false, retryTimer: 0, state: 'idle', localOnly: false };
   }
+  // Same deck: keep the in-memory session (a send may be in flight on it) —
+  // _dcPull below catches up on anything other devices changed meanwhile.
   const title = document.getElementById('deckCompareTitle');
   if (title) title.textContent = 'Compare physical deck' + (deck.name ? ` — ${deck.name}` : '');
   const inc = document.getElementById('deckCompareIncludeExtras');
@@ -134,6 +339,7 @@ function openDeckCompare() {
   if (search) search.value = _dcFilter;
   document.getElementById('deckCompareModal')?.classList.add('open');
   _dcRender();
+  void _dcPull();
 }
 
 function closeDeckCompare() {
@@ -142,8 +348,7 @@ function closeDeckCompare() {
 
 function deckCompareToggleExtras(on) {
   if (!_dcSession) return;
-  _dcSession.includeExtras = !!on;
-  _dcSaveSession();
+  _dcApplyOps([{ t: 'extras', on: !!on }]);
   _dcRender();
 }
 
@@ -170,13 +375,13 @@ async function deckCompareReset() {
   if (!_dcSession) return;
   const ok = await showConfirmModal({
     title: 'Start over?',
-    body: 'This clears every scanned card for this deck. Your deck is not changed.',
+    body: 'This clears every scanned card for this deck, on every device. Your deck is not changed.',
     okLabel: 'Start over',
     okClass: 'btn-danger',
   });
-  if (!ok) return;
-  _dcClearSessionStore(_dcDeckId);
-  _dcSession = _dcEmptySession();
+  if (!ok || !_dcSession) return;
+  _dcSession.phase = 'scan';
+  _dcApplyOps([{ t: 'reset' }]);
   _dcUndo = null;
   _dcMissingUnchecked.clear();
   _dcExtrasUnchecked.clear();
@@ -215,7 +420,7 @@ function _dcRenderProgress(rep) {
   el.innerHTML = `
     <div class="dc-progress-line">
       <span><strong>${rep.matched}</strong> / ${rep.expected} cards found</span>
-      <span class="dc-progress-sub">${rep.scannedTotal} scanned${extra > 0 ? ` · ${extra} elsewhere or not in deck` : ''}</span>
+      <span class="dc-progress-sub">${rep.scannedTotal} scanned${extra > 0 ? ` · ${extra} elsewhere or not in deck` : ''}<span class="dc-sync" id="deckCompareSyncState">${_dcEsc(_dcSyncLabel())}</span></span>
     </div>
     <div class="dc-progress-track"><div class="dc-progress-fill" style="width:${pct}%"></div></div>`;
 }
@@ -544,8 +749,7 @@ function _dcBodyClick(e) {
   const rowEl = el.closest('.dc-row');
   const key = el.getAttribute('data-key') || rowEl?.getAttribute('data-key') || '';
   if (act === 'inc' || act === 'dec') {
-    const cur = _dcSession.scanned[key]?.qty || 0;
-    _dcSetScanned(key, rowEl?.getAttribute('data-name') || key, cur + (act === 'inc' ? 1 : -1));
+    _dcAddScanned(key, rowEl?.getAttribute('data-name') || key, act === 'inc' ? 1 : -1);
     _dcRender();
     return;
   }
@@ -704,8 +908,8 @@ function _dcFinishScannerRun({ closeScanner: doClose }) {
     const deck = _dcDeck();
     const inDeck = new Set(deck ? DeckCompareCore.buildRows(deck, {}, { swaps: true, sideboard: true }).map(r => r.key) : []);
     // Keep the full card only for cards the deck doesn't list — they may get added later.
-    DeckCompareCore.mergeScanned(_dcSession.scanned, queued, { keepEntry: k => !inDeck.has(k) });
-    _dcSaveSession();
+    // This is the moment the run's scans go to the server (and to every other device).
+    _dcApplyOps(DeckCompareCore.queueToAddOps(queued, { keepEntry: k => !inDeck.has(k) }));
   }
   if (doClose && typeof window.closeScanner === 'function') window.closeScanner();
   const n = queued.reduce((s, e) => s + Math.max(1, Number(e.qty) || 1), 0);

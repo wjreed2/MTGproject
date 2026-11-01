@@ -222,4 +222,58 @@ test('mergeScanned folds scanner queue entries by name and keeps entries on requ
   assert.ok(!('qty' in tally.ponder.entry));
 });
 
+test('tally ops: adds from two devices stack, set overrides, zero removes', () => {
+  const st = C.applyTallyOps({}, [
+    { t: 'add', key: 'Island', name: 'Island', n: 3 },
+    { t: 'add', key: 'island', name: 'Island', n: 2 }, // second device
+    { t: 'add', key: 'Opt', name: 'Opt', n: 1 },
+    { t: 'set', key: 'opt', name: 'Opt', qty: 0 },
+    { t: 'add', key: 'Ponder', name: 'Ponder', n: -1 }, // can't go below zero
+  ]);
+  assert.deepStrictEqual(st.scanned, { island: { name: 'Island', qty: 5 } });
+  C.applyTallyOps(st, [{ t: 'set', key: 'island', name: 'Island', qty: 14 }, { t: 'extras', on: true }]);
+  assert.strictEqual(st.scanned.island.qty, 14);
+  assert.strictEqual(st.includeExtras, true);
+  C.applyTallyOps(st, [{ t: 'reset' }]);
+  assert.deepStrictEqual(st, { scanned: {}, includeExtras: false });
+});
+
+test('tally ops: entry kept from the first add that carries one', () => {
+  const st = C.applyTallyOps({}, [
+    { t: 'add', key: 'ponder', name: 'Ponder', n: 1, entry: { name: 'Ponder', scryfallId: 'a', image: 'img' } },
+    { t: 'add', key: 'ponder', name: 'Ponder', n: 1, entry: { name: 'Ponder', scryfallId: 'b' } },
+  ]);
+  assert.strictEqual(st.scanned.ponder.qty, 2);
+  assert.strictEqual(st.scanned.ponder.entry.scryfallId, 'a');
+  assert.strictEqual(st.scanned.ponder.image, 'img');
+});
+
+test('sanitizeTallyOps drops junk, clamps numbers, strips entry qty, caps entry size', () => {
+  const big = { name: 'X', blob: 'y'.repeat(20000) };
+  const ops = C.sanitizeTallyOps([
+    null, 'x', { t: 'nope' }, { t: 'add', key: '', n: 1 }, { t: 'add', key: 'Opt', n: 0 },
+    { t: 'add', key: '  Opt ', name: 'Opt', n: 5000 },
+    { t: 'set', key: 'Island', qty: -4 },
+    { t: 'add', key: 'X', name: 'X', n: 1, entry: big },
+    { t: 'add', key: 'Y', name: 'Y', n: 1, entry: { name: 'Y', qty: 3 } },
+    { t: 'extras', on: 1 }, { t: 'reset', extra: 1 },
+  ]);
+  assert.deepStrictEqual(ops, [
+    { t: 'add', key: 'opt', name: 'Opt', n: 999 },
+    { t: 'set', key: 'island', name: 'Island', qty: 0 },
+    { t: 'add', key: 'x', name: 'X', n: 1 },
+    { t: 'add', key: 'y', name: 'Y', n: 1, entry: { name: 'Y' } },
+    { t: 'extras', on: true },
+    { t: 'reset' },
+  ]);
+});
+
+test('queueToAddOps aggregates a scanner run per name and keeps entries on request', () => {
+  const ops = C.queueToAddOps([
+    card('Island', 1, { sid: 'i1' }), card('Island', 2, { sid: 'i2' }), card('Ponder', 1),
+  ], { keepEntry: k => k === 'ponder' });
+  assert.deepStrictEqual(ops.map(o => [o.key, o.n, !!o.entry]), [['island', 3, false], ['ponder', 1, true]]);
+  assert.ok(!('qty' in ops[1].entry));
+});
+
 console.log(`\n${n} deck-compare tests passed`);

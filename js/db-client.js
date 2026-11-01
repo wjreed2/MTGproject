@@ -735,6 +735,11 @@ function scheduleDeckOpsSave(deck, opts) {
 
 /** @returns true when the deck is settled (saved, no-op, or terminally handled);
  *  false only on a transient failure that left the deck dirty for retry. */
+// This page's id on deck-op writes. The server echoes it on the 'deck:updated'
+// broadcast so this page skips its own echo but the account's other devices
+// (and collaborators) apply the change live.
+const _deckClientId = 'dk-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
 async function _flushDeckOps(id) {
   // Already saving: dirty + seq are set; the active flight's finally re-flushes.
   if (_deckOpsInFlight[id]) return true;
@@ -753,7 +758,7 @@ async function _flushDeckOps(id) {
 
   let body;
   if (isCreate) {
-    body = { create: _deckCreatePayload(live) };
+    body = { create: _deckCreatePayload(live), clientId: _deckClientId };
   } else {
     const ops = DeckOps.diffDecks(_deckShadows[id], live);
     if (!ops.length) {
@@ -761,7 +766,7 @@ async function _flushDeckOps(id) {
       return true;
     }
     const baseRev = _deckRevisions[id] || 0;
-    body = { ops, baseRevision: baseRev, batchId: _deckOpsBatchId(ops, baseRev) };
+    body = { ops, baseRevision: baseRev, batchId: _deckOpsBatchId(ops, baseRev), clientId: _deckClientId };
   }
   const sentSnapshot = DeckOps.snapshotDeck(live);
   const baseRevision = _deckRevisions[id] || 0;
@@ -1096,8 +1101,15 @@ async function saveDeckPlanningNow(deck) {
 
 async function refreshDeckFromRemote(msg) {
   if (!msg?.deckId) return;
-  if (typeof currentUser !== 'undefined' && currentUser?.id != null
-      && Number(msg.actorAccountId) === Number(currentUser.id)) return;
+  const sameAccount = typeof currentUser !== 'undefined' && currentUser?.id != null
+    && Number(msg.actorAccountId) === Number(currentUser.id);
+  if (msg.clientId) {
+    // Op broadcasts name the sending page: skip only our own echo, so the same
+    // account's other devices still update live.
+    if (msg.clientId === _deckClientId) return;
+  } else if (sameAccount) {
+    return; // other write paths carry no page id — keep the old account-level skip
+  }
   const id = msg.deckId;
   const local = _liveDeckById(id);
 
@@ -1166,7 +1178,9 @@ async function refreshDeckFromRemote(msg) {
     renderDecks();
   }
 
-  if (msg.actorEmail && typeof showNotif === 'function') {
+  if (sameAccount && typeof showNotif === 'function') {
+    showNotif('Deck updated on another device');
+  } else if (msg.actorEmail && typeof showNotif === 'function') {
     const who = String(msg.actorEmail).split('@')[0] || msg.actorEmail;
     showNotif('Deck updated by ' + who);
   }
@@ -1185,6 +1199,17 @@ function ensureDeckRealtimeHandlers() {
     _deckMsgChains[id] = (_deckMsgChains[id] || Promise.resolve())
       .then(() => refreshDeckFromRemote(msg))
       .catch(() => {});
+  });
+  // Deck Compare: shared physical-deck scan tally changed on another device.
+  s.on('deck:compare', msg => {
+    if (typeof deckCompareOnRemote === 'function') deckCompareOnRemote(msg);
+  });
+  // A dropped socket (phone asleep, network blip) loses its server-side room
+  // membership — rejoin the open deck's room on every (re)connect and let
+  // Deck Compare catch up on anything it missed.
+  s.on('connect', () => {
+    if (_joinedDeckRoom) s.emit('deck:join', { deckId: _joinedDeckRoom });
+    if (typeof deckCompareOnReconnect === 'function') deckCompareOnReconnect();
   });
 }
 

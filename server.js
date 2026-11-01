@@ -2068,6 +2068,37 @@ async function ensureDeckWantedCardsTable() {
   }
 }
 
+// Deck Compare: one shared physical-deck scan tally per deck (js/deck-compare.js).
+async function ensureDeckCompareTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_sessions (
+        deck_id        VARCHAR(50)     NOT NULL,
+        include_extras TINYINT(1)      NOT NULL DEFAULT 0,
+        revision       INT UNSIGNED    NOT NULL DEFAULT 0,
+        updated_at     BIGINT          NOT NULL DEFAULT 0,
+        updated_by     BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_scans (
+        deck_id    VARCHAR(50)     NOT NULL,
+        name_key   VARCHAR(255)    NOT NULL,
+        name       VARCHAR(255)    NOT NULL,
+        qty        INT UNSIGNED    NOT NULL DEFAULT 0,
+        entry      MEDIUMTEXT      NULL,
+        updated_at BIGINT          NOT NULL DEFAULT 0,
+        updated_by BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id, name_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureTradeSuggestionDismissalsTable() {
   const conn = await db().getConnection();
   try {
@@ -2482,6 +2513,7 @@ const {
 const { decideOauthLink } = require('./lib/oauth-link-policy');
 // Granular op-based deck sync (shared with the browser bundle).
 const DeckOps = require('./js/deck-ops');
+const DeckCompareCore = require('./js/deck-compare-core'); // shared scan-tally ops (client + server)
 
 async function assertCanEditDeck(deckId, accountId) {
   const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
@@ -5820,6 +5852,9 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
       ops: result.ops,
       revision: result.revision,
       updatedAt: now,
+      // Sending device, so it can skip its own echo while the account's OTHER
+      // devices (phone + computer) still apply the change live.
+      clientId: typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null,
     }));
     res.json({ ok: true, revision: result.revision, updatedAt: now });
   } catch (e) {
@@ -5840,6 +5875,8 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can delete a deck' });
     }
     await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
+    await db().query('DELETE FROM deck_compare_scans WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_sessions WHERE deck_id=?', [deckId]).catch(() => {});
     invalidateTradelistCache(accountId);
     void reconcileAccountWishlist(accountId);
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
@@ -5850,6 +5887,133 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Deck Compare: shared physical-deck scan tally ────────────────────────────
+// Everyone who can EDIT the deck (owner + 'edit' collaborators) shares one tally.
+// Changes arrive as ops (js/deck-compare-core.js applyTallyOps, the same code the
+// client runs), are applied under a per-deck row lock, and the new state is pushed
+// to the deck's socket room as 'deck:compare'.
+
+async function deckCompareAccess(accountId, deckId) {
+  const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+  if (!rows.length) return { status: 404, error: 'Deck not found' };
+  if (Number(rows[0].account_id) === Number(accountId)) return { ok: true };
+  const [cr] = await db().query(
+    'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+    [deckId, accountId]
+  );
+  if (!cr.length) return { status: 403, error: 'Access denied' };
+  if ((cr[0].permission || 'edit') === 'view') return { status: 403, error: 'You have view-only access to this deck' };
+  return { ok: true };
+}
+
+function _deckCompareRowsToScanned(rows) {
+  const scanned = {};
+  for (const r of rows) {
+    const row = { name: r.name, qty: Number(r.qty) || 0 };
+    if (r.entry) {
+      try {
+        row.entry = JSON.parse(r.entry);
+        if (row.entry && row.entry.image) row.image = row.entry.image;
+      } catch (_) {}
+    }
+    if (row.qty > 0) scanned[r.name_key] = row;
+  }
+  return scanned;
+}
+
+async function loadDeckCompareState(q, deckId, lock) {
+  const [srows] = await q.query(
+    `SELECT include_extras, revision FROM deck_compare_sessions WHERE deck_id = ?${lock ? ' FOR UPDATE' : ''}`,
+    [deckId]
+  );
+  const [rows] = await q.query(
+    'SELECT name_key, name, qty, entry FROM deck_compare_scans WHERE deck_id = ?',
+    [deckId]
+  );
+  return {
+    deckId,
+    revision: srows.length ? Number(srows[0].revision) || 0 : 0,
+    includeExtras: srows.length ? !!srows[0].include_extras : false,
+    scanned: _deckCompareRowsToScanned(rows),
+  };
+}
+
+app.get('/api/decks/:id/compare', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  try {
+    const access = await deckCompareAccess(req.accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    res.json(await loadDeckCompareState(db(), deckId, false));
+  } catch (e) {
+    console.error('[deck-compare] load failed:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  const body = req.body || {};
+  if (!Array.isArray(body.ops) || !body.ops.length) return res.status(400).json({ error: 'No ops' });
+  if (body.ops.length > 2000) return res.status(400).json({ error: 'Too many ops' });
+  const ops = DeckCompareCore.sanitizeTallyOps(body.ops);
+  if (!ops.length) return res.status(400).json({ error: 'No valid ops' });
+  const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null;
+  try {
+    const access = await deckCompareAccess(accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const now = Date.now();
+    let state;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        'INSERT IGNORE INTO deck_compare_sessions (deck_id, include_extras, revision, updated_at) VALUES (?, 0, 0, ?)',
+        [deckId, now]
+      );
+      const before = await loadDeckCompareState(conn, deckId, true);
+      const beforeJson = {};
+      for (const [k, v] of Object.entries(before.scanned)) beforeJson[k] = JSON.stringify(v);
+      const after = DeckCompareCore.applyTallyOps(
+        { scanned: JSON.parse(JSON.stringify(before.scanned)), includeExtras: before.includeExtras },
+        ops
+      );
+      const gone = Object.keys(before.scanned).filter(k => !after.scanned[k]);
+      if (gone.length) {
+        await conn.query('DELETE FROM deck_compare_scans WHERE deck_id = ? AND name_key IN (?)', [deckId, gone]);
+      }
+      for (const [k, v] of Object.entries(after.scanned)) {
+        if (beforeJson[k] === JSON.stringify(v)) continue;
+        await conn.query(
+          `INSERT INTO deck_compare_scans (deck_id, name_key, name, qty, entry, updated_at, updated_by)
+           VALUES (?,?,?,?,?,?,?)
+           ON DUPLICATE KEY UPDATE name=VALUES(name), qty=VALUES(qty),
+             entry=COALESCE(VALUES(entry), entry), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)`,
+          [deckId, k, String(v.name || k).slice(0, 255), v.qty, v.entry ? JSON.stringify(v.entry) : null, now, accountId]
+        );
+      }
+      await conn.query(
+        'UPDATE deck_compare_sessions SET include_extras = ?, revision = revision + 1, updated_at = ?, updated_by = ? WHERE deck_id = ?',
+        [after.includeExtras ? 1 : 0, now, accountId, deckId]
+      );
+      state = await loadDeckCompareState(conn, deckId, false);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+    if (_io) {
+      _io.to(`deck:${deckId}`).emit('deck:compare', await deckBroadcastMeta(accountId, { ...state, clientId }));
+    }
+    res.json(state);
+  } catch (e) {
+    console.error('[deck-compare] ops failed:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -13348,6 +13512,7 @@ async function start() {
       await ensureFriendshipsTable();
       await ensurePlaygroupTables();
       await ensureDeckWantedCardsTable();
+      await ensureDeckCompareTables();
       await ensureTradeSuggestionDismissalsTable();
       await ensureTradeHistoryTable();
       await ensureAppChangelogTable();

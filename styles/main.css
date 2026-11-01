@@ -15736,6 +15736,7 @@ body.glass-mode #deckCompareModal .btn.btn-primary:not(.btn-icon) {
 }
 #deckCompareModal .dc-progress-line strong { color: var(--text); font-weight: 600; }
 #deckCompareModal .dc-progress-sub { font-size: 0.75rem; color: var(--text3); }
+#deckCompareModal .dc-sync:not(:empty)::before { content: '·'; margin: 0 6px; }
 #deckCompareModal .dc-progress-track {
   height: 6px;
   border-radius: 999px;

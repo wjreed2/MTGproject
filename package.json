@@ -21,6 +21,7 @@
     "test:phash": "node scripts/phash-smoke-test.js",
     "test:e2e": "node scripts/e2e-deck-op-sync.js",
     "test:e2e:collection": "node scripts/e2e-collection-op-sync.js",
+    "test:e2e:compare": "node scripts/e2e-deck-compare.js",
     "build:fingerprints": "node scripts/build-print-fingerprints.js",
     "build:watch": "npm run build && nodemon --watch js --ext js --exec 'npm run build'",
     "cap:sim": "node scripts/update-cap-ip.js --sim && npx cap sync",

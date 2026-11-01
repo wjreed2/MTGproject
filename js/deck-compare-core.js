@@ -376,8 +376,103 @@ const DeckCompareCore = (() => {
     return out;
   }
 
+  // ── Shared scan tally ops (client + server) ─────────────────────────────────
+  // The tally is shared by everyone who can edit the deck. Changes travel as ops:
+  //   {t:'add', key, name, n, entry?}   n more (or fewer) copies scanned
+  //   {t:'set', key, name, qty}         typed count
+  //   {t:'reset'}                       start over
+  //   {t:'extras', on}                  include maybeboard & sideboard
+  // 'add' stacks, so two devices counting at once never lose each other's scans.
+
+  const MAX_QTY = 999;
+  const MAX_ENTRY_BYTES = 16384;
+
+  function _clampQty(n) {
+    return Math.max(0, Math.min(MAX_QTY, Math.floor(Number(n) || 0)));
+  }
+
+  /** Validate and normalise untrusted ops. Unknown or malformed ops are dropped. */
+  function sanitizeTallyOps(ops) {
+    const out = [];
+    for (const op of Array.isArray(ops) ? ops : []) {
+      if (!op || typeof op !== 'object') continue;
+      if (op.t === 'reset') { out.push({ t: 'reset' }); continue; }
+      if (op.t === 'extras') { out.push({ t: 'extras', on: !!op.on }); continue; }
+      if (op.t !== 'add' && op.t !== 'set') continue;
+      const name = String(op.name || op.key || '').slice(0, 255);
+      const key = nameKey(op.key || name).slice(0, 255);
+      if (!key) continue;
+      if (op.t === 'set') {
+        out.push({ t: 'set', key, name: name || key, qty: _clampQty(op.qty) });
+        continue;
+      }
+      const n = Math.max(-MAX_QTY, Math.min(MAX_QTY, Math.trunc(Number(op.n) || 0)));
+      if (!n) continue;
+      const clean = { t: 'add', key, name: name || key, n };
+      if (op.entry && typeof op.entry === 'object' && !Array.isArray(op.entry)) {
+        try {
+          if (JSON.stringify(op.entry).length <= MAX_ENTRY_BYTES) {
+            const e = { ...op.entry };
+            delete e.qty;
+            clean.entry = e;
+          }
+        } catch (_) {}
+      }
+      out.push(clean);
+    }
+    return out;
+  }
+
+  /**
+   * Apply ops to a tally state { scanned, includeExtras }. Mutates and returns it.
+   * Rows that drop to zero are removed.
+   */
+  function applyTallyOps(state, ops) {
+    const st = state || {};
+    if (!st.scanned || typeof st.scanned !== 'object') st.scanned = {};
+    st.includeExtras = !!st.includeExtras;
+    for (const op of ops || []) {
+      if (!op) continue;
+      if (op.t === 'reset') { st.scanned = {}; st.includeExtras = false; continue; }
+      if (op.t === 'extras') { st.includeExtras = !!op.on; continue; }
+      const key = nameKey(op.key || op.name);
+      if (!key) continue;
+      const cur = st.scanned[key];
+      const qty = op.t === 'set'
+        ? _clampQty(op.qty)
+        : _clampQty((cur ? Number(cur.qty) || 0 : 0) + (Number(op.n) || 0));
+      if (!qty) { delete st.scanned[key]; continue; }
+      const row = cur || (st.scanned[key] = { name: op.name || key, qty: 0 });
+      row.qty = qty;
+      if (op.name && !row.name) row.name = op.name;
+      if (op.entry && !row.entry) row.entry = op.entry;
+      if (!row.image && op.entry && op.entry.image) row.image = op.entry.image;
+    }
+    return st;
+  }
+
+  /** Ops that turn one scanner run's queue into tally adds (aggregated per name). */
+  function queueToAddOps(entries, { keepEntry } = {}) {
+    const byKey = new Map();
+    for (const e of entries || []) {
+      const key = nameKey(e?.name);
+      const n = qtyOf(e);
+      if (!key || !n) continue;
+      let op = byKey.get(key);
+      if (!op) { op = { t: 'add', key, name: e.name, n: 0 }; byKey.set(key, op); }
+      op.n += n;
+      if (!op.entry && keepEntry && keepEntry(key)) {
+        const copy = { ...e };
+        delete copy.qty;
+        op.entry = copy;
+      }
+    }
+    return [...byKey.values()];
+  }
+
   return {
     nameKey, isBasicLand, invKey, buildRows, allocate, lastCopyBucket, buildReport, mergeScanned,
+    sanitizeTallyOps, applyTallyOps, queueToAddOps,
     removeUnscannedCuts, removeMissing, keepScannedCuts, promoteScannedAdds,
     promoteScannedExtras, addNotInDeck, removeUnscannedExtras,
   };
