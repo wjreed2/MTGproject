@@ -39,12 +39,16 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [21-deck-themes.md](./21-deck-themes.md) | **DECIDED v1 shape:** own Themes panel; Grimoire idea, our UI; band numbers still tunable |
 | [22-deck-architecture.md](./22-deck-architecture.md) | By Architecture deck-list view (visualization; not Hybrid scoring) |
 | [23-semantics-holes.md](./23-semantics-holes.md) | Gaps where Scryfall otags already split a role but CardIR does not |
+| [24-gameplan-model.md](./24-gameplan-model.md) | **IMPLEMENTED v1:** engine2 plan-first suggestions — engine + direction, fuel/output from the engine, anti-plan, riders, bottleneck, readout; fixtures + invariants in `engine2/fixtures/gameplan/` |
+| [25-card-quality.md](./25-card-quality.md) | **IMPLEMENTED v1:** card quality within a job (roleStrength) — effective cost, breadth, hardness, tempo; weakest-in-class cuts, upgrade-over adds; 26 orderings in `npm test` |
+| [26-deck-compare.md](./26-deck-compare.md) | **IMPLEMENTED v1:** compare the physical deck with the digital deck using the existing scanner (scanner untouched); report + clean-up actions |
 
 ## Related in-repo docs
 
 | File | Purpose |
 |------|---------|
-| [deployment-runbook.md](./deployment-runbook.md) | Railway production deploy + changelog ingest |
+| [../deploy/vm/README.md](../deploy/vm/README.md) | **Production since 2026-11-02:** the tensorcrafted.com VM — request path, auto-deploy from `main`, backups, ops dashboard, rebuild steps |
+| [deployment-runbook.md](./deployment-runbook.md) | Changelog and semantics ingest secrets; the Railway steps in it are historical |
 | [engine2-plan.md](./engine2-plan.md) | Engine2 semantics-first implementation plan |
 | [engine2-ir-spec.md](./engine2-ir-spec.md) | Engine2 IR operational semantics |
 | [../Ready Prompts/cuts-adds-ready-prompts.md](../Ready%20Prompts/cuts-adds-ready-prompts.md) | Agent implementation prompt queue |

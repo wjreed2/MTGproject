@@ -1,0 +1,297 @@
+{
+ "name": "Average Grazilaxx, Illithid Scholar deck (EDHREC)",
+ "commander": "Grazilaxx, Illithid Scholar",
+ "source": "edhrec-average (copied from pulled/rand8-grazilaxx-illithid-scholar for the eval loop)",
+ "source_url": "https://json.edhrec.com/pages/average-decks/grazilaxx-illithid-scholar.json",
+ "archetype_expected": "unknown",
+ "cards": [
+  {
+   "name": "Aether Channeler",
+   "qty": 1
+  },
+  {
+   "name": "Aetherize",
+   "qty": 1
+  },
+  {
+   "name": "An Offer You Can't Refuse",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Denial",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Archaeomancer",
+   "qty": 1
+  },
+  {
+   "name": "Barrin, Tolarian Archmage",
+   "qty": 1
+  },
+  {
+   "name": "Bident of Thassa",
+   "qty": 1
+  },
+  {
+   "name": "Chasm Skulker",
+   "qty": 1
+  },
+  {
+   "name": "Cloud of Faeries",
+   "qty": 1
+  },
+  {
+   "name": "Coastal Piracy",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Curse of the Swine",
+   "qty": 1
+  },
+  {
+   "name": "Cyclonic Rift",
+   "qty": 1
+  },
+  {
+   "name": "Decanter of Endless Water",
+   "qty": 1
+  },
+  {
+   "name": "Defiler of Dreams",
+   "qty": 1
+  },
+  {
+   "name": "Dour Port-Mage",
+   "qty": 1
+  },
+  {
+   "name": "Emrakul's Messenger",
+   "qty": 1
+  },
+  {
+   "name": "Enduring Curiosity",
+   "qty": 1
+  },
+  {
+   "name": "Faerie Mastermind",
+   "qty": 1
+  },
+  {
+   "name": "Faerie Seer",
+   "qty": 1
+  },
+  {
+   "name": "Ghostly Pilferer",
+   "qty": 1
+  },
+  {
+   "name": "Gudul Lurker",
+   "qty": 1
+  },
+  {
+   "name": "High Tide",
+   "qty": 1
+  },
+  {
+   "name": "Hullbreaker Horror",
+   "qty": 1
+  },
+  {
+   "name": "Invisible Stalker",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 28
+  },
+  {
+   "name": "Kaito, Cunning Infiltrator",
+   "qty": 1
+  },
+  {
+   "name": "Kefnet's Monument",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Military Intelligence",
+   "qty": 1
+  },
+  {
+   "name": "Mind Stone",
+   "qty": 1
+  },
+  {
+   "name": "Mischievous Mystic",
+   "qty": 1
+  },
+  {
+   "name": "Mist-Cloaked Herald",
+   "qty": 1
+  },
+  {
+   "name": "Mistblade Shinobi",
+   "qty": 1
+  },
+  {
+   "name": "Myriad Landscape",
+   "qty": 1
+  },
+  {
+   "name": "Mystic Sanctuary",
+   "qty": 1
+  },
+  {
+   "name": "Negate",
+   "qty": 1
+  },
+  {
+   "name": "Nykthos, Shrine to Nyx",
+   "qty": 1
+  },
+  {
+   "name": "Ominous Seas",
+   "qty": 1
+  },
+  {
+   "name": "Otawara, Soaring City",
+   "qty": 1
+  },
+  {
+   "name": "Ponder",
+   "qty": 1
+  },
+  {
+   "name": "Pongify",
+   "qty": 1
+  },
+  {
+   "name": "Propaganda",
+   "qty": 1
+  },
+  {
+   "name": "Psychosis Crawler",
+   "qty": 1
+  },
+  {
+   "name": "Rapid Hybridization",
+   "qty": 1
+  },
+  {
+   "name": "Ravenform",
+   "qty": 1
+  },
+  {
+   "name": "Reality Shift",
+   "qty": 1
+  },
+  {
+   "name": "Reconnaissance Mission",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Resculpt",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Passage",
+   "qty": 1
+  },
+  {
+   "name": "Sapphire Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Scourge of Fleets",
+   "qty": 1
+  },
+  {
+   "name": "Shoreline Looter",
+   "qty": 1
+  },
+  {
+   "name": "Silent Hallcreeper",
+   "qty": 1
+  },
+  {
+   "name": "Siren Stormtamer",
+   "qty": 1
+  },
+  {
+   "name": "Sky Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Slither Blade",
+   "qty": 1
+  },
+  {
+   "name": "Snap",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Solemn Simulacrum",
+   "qty": 1
+  },
+  {
+   "name": "Spectral Deluge",
+   "qty": 1
+  },
+  {
+   "name": "Spectral Sailor",
+   "qty": 1
+  },
+  {
+   "name": "Teferi's Ageless Insight",
+   "qty": 1
+  },
+  {
+   "name": "Thieving Skydiver",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 1
+  },
+  {
+   "name": "Thousand-Faced Shadow",
+   "qty": 1
+  },
+  {
+   "name": "Triskaidekaphile",
+   "qty": 1
+  },
+  {
+   "name": "Triton Shorestalker",
+   "qty": 1
+  },
+  {
+   "name": "Venser, Shaper Savant",
+   "qty": 1
+  },
+  {
+   "name": "Wizard Class",
+   "qty": 1
+  }
+ ]
+}

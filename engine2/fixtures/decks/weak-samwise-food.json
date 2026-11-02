@@ -1,0 +1,363 @@
+{
+ "commander": "Samwise Gamgee",
+ "source": "weakened from pulled/rand8-samwise-gamgee",
+ "seeded_weak": [
+  "Brigid, Hero of Kinsbaile",
+  "Sentinel of Lost Lore",
+  "Elvish Refueler",
+  "Throw from the Saddle",
+  "Viral Spawning",
+  "Twisted Spider-Clone",
+  "Path of the Ghosthunter",
+  "Hundred-Handed One",
+  "Roving Harper",
+  "Arashi, the Sky Asunder",
+  "Maze Skullbomb",
+  "Life Goes On"
+ ],
+ "removed_staples": [
+  "Sol Ring",
+  "Arcane Signet",
+  "Swords to Plowshares",
+  "Path to Exile",
+  "Cultivate",
+  "Beast Within",
+  "Heroic Intervention",
+  "Birds of Paradise",
+  "Generous Gift",
+  "The One Ring",
+  "Delighted Halfling",
+  "Austere Command"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Academy Manufactor",
+   "qty": 1
+  },
+  {
+   "name": "Apothecary White",
+   "qty": 1
+  },
+  {
+   "name": "Astrid Peth",
+   "qty": 1
+  },
+  {
+   "name": "Avacyn's Pilgrim",
+   "qty": 1
+  },
+  {
+   "name": "Bag End Banquet",
+   "qty": 1
+  },
+  {
+   "name": "Banquet Guests",
+   "qty": 1
+  },
+  {
+   "name": "Belladonna Took",
+   "qty": 1
+  },
+  {
+   "name": "Bennie Bracks, Zoologist",
+   "qty": 1
+  },
+  {
+   "name": "Bilbo, Fellow Conspirator",
+   "qty": 1
+  },
+  {
+   "name": "Bill the Pony",
+   "qty": 1
+  },
+  {
+   "name": "Boromir, Warden of the Tower",
+   "qty": 1
+  },
+  {
+   "name": "Boseiju, Who Endures",
+   "qty": 1
+  },
+  {
+   "name": "Bountiful Promenade",
+   "qty": 1
+  },
+  {
+   "name": "Brushland",
+   "qty": 1
+  },
+  {
+   "name": "Campsite Cuisine",
+   "qty": 1
+  },
+  {
+   "name": "Canopy Vista",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Elanor Gardner",
+   "qty": 1
+  },
+  {
+   "name": "Exotic Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Farmer Cotton",
+   "qty": 1
+  },
+  {
+   "name": "Feasting Hobbit",
+   "qty": 1
+  },
+  {
+   "name": "Field-Tested Frying Pan",
+   "qty": 1
+  },
+  {
+   "name": "Flowering of the White Tree",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 10
+  },
+  {
+   "name": "Fortified Village",
+   "qty": 1
+  },
+  {
+   "name": "Gandalf the White",
+   "qty": 1
+  },
+  {
+   "name": "Gilded Goose",
+   "qty": 1
+  },
+  {
+   "name": "Gingerbread Cabin",
+   "qty": 1
+  },
+  {
+   "name": "Hobbit's Sting",
+   "qty": 1
+  },
+  {
+   "name": "Horizon Canopy",
+   "qty": 1
+  },
+  {
+   "name": "Idol of Oblivion",
+   "qty": 1
+  },
+  {
+   "name": "Inspiring Statuary",
+   "qty": 1
+  },
+  {
+   "name": "Jaheira, Friend of the Forest",
+   "qty": 1
+  },
+  {
+   "name": "Loran of the Third Path",
+   "qty": 1
+  },
+  {
+   "name": "Many Partings",
+   "qty": 1
+  },
+  {
+   "name": "Meriadoc Brandybuck",
+   "qty": 1
+  },
+  {
+   "name": "Merry, Warden of Isengard",
+   "qty": 1
+  },
+  {
+   "name": "Minas Tirith",
+   "qty": 1
+  },
+  {
+   "name": "Motivated Pony",
+   "qty": 1
+  },
+  {
+   "name": "Night of the Sweets' Revenge",
+   "qty": 1
+  },
+  {
+   "name": "Ninja Pizza",
+   "qty": 1
+  },
+  {
+   "name": "Nuka-Cola Vending Machine",
+   "qty": 1
+  },
+  {
+   "name": "Of Herbs and Stewed Rabbit",
+   "qty": 1
+  },
+  {
+   "name": "Overgrown Farmland",
+   "qty": 1
+  },
+  {
+   "name": "Panharmonicon",
+   "qty": 1
+  },
+  {
+   "name": "Peregrin Took",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 9
+  },
+  {
+   "name": "Prize Pig",
+   "qty": 1
+  },
+  {
+   "name": "Prosperous Innkeeper",
+   "qty": 1
+  },
+  {
+   "name": "Reprieve",
+   "qty": 1
+  },
+  {
+   "name": "Revive the Shire",
+   "qty": 1
+  },
+  {
+   "name": "Rosie Cotton of South Lane",
+   "qty": 1
+  },
+  {
+   "name": "Sam, Loyal Attendant",
+   "qty": 1
+  },
+  {
+   "name": "Samwise the Stouthearted",
+   "qty": 1
+  },
+  {
+   "name": "Sarinth Steelseeker",
+   "qty": 1
+  },
+  {
+   "name": "Scattered Groves",
+   "qty": 1
+  },
+  {
+   "name": "Sunpetal Grove",
+   "qty": 1
+  },
+  {
+   "name": "Syr Ginger, the Meal Ender",
+   "qty": 1
+  },
+  {
+   "name": "Temple Garden",
+   "qty": 1
+  },
+  {
+   "name": "Teshar, Ancestor's Apostle",
+   "qty": 1
+  },
+  {
+   "name": "The Battle of Bywater",
+   "qty": 1
+  },
+  {
+   "name": "The Cabbage Merchant",
+   "qty": 1
+  },
+  {
+   "name": "The Gaffer",
+   "qty": 1
+  },
+  {
+   "name": "The Ring Goes South",
+   "qty": 1
+  },
+  {
+   "name": "The Shire",
+   "qty": 1
+  },
+  {
+   "name": "Tireless Provisioner",
+   "qty": 1
+  },
+  {
+   "name": "Trail of Crumbs",
+   "qty": 1
+  },
+  {
+   "name": "Treebeard, Gracious Host",
+   "qty": 1
+  },
+  {
+   "name": "War of the Last Alliance",
+   "qty": 1
+  },
+  {
+   "name": "Windswept Heath",
+   "qty": 1
+  },
+  {
+   "name": "Brigid, Hero of Kinsbaile",
+   "qty": 1
+  },
+  {
+   "name": "Sentinel of Lost Lore",
+   "qty": 1
+  },
+  {
+   "name": "Elvish Refueler",
+   "qty": 1
+  },
+  {
+   "name": "Throw from the Saddle",
+   "qty": 1
+  },
+  {
+   "name": "Viral Spawning",
+   "qty": 1
+  },
+  {
+   "name": "Twisted Spider-Clone",
+   "qty": 1
+  },
+  {
+   "name": "Path of the Ghosthunter",
+   "qty": 1
+  },
+  {
+   "name": "Hundred-Handed One",
+   "qty": 1
+  },
+  {
+   "name": "Roving Harper",
+   "qty": 1
+  },
+  {
+   "name": "Arashi, the Sky Asunder",
+   "qty": 1
+  },
+  {
+   "name": "Maze Skullbomb",
+   "qty": 1
+  },
+  {
+   "name": "Life Goes On",
+   "qty": 1
+  }
+ ]
+}

@@ -279,6 +279,12 @@ const cardIRSchema = {
               },
               required: ['types', 'lord_of'] },
     power_level_hint: { type: 'number' },
+    // 1–10 strength on its own merits at brackets 2/3/4 (engine2/power-tier.js). Optional on
+    // stored IRs — the corpus is tiered by scripts/semantics-backfill-power-tier.js —
+    // required on the wire.
+    power_tier:       { type: 'object', additionalProperties: false,
+                        properties: { b2: { type: 'number' }, b3: { type: 'number' }, b4: { type: 'number' } },
+                        required: ['b2', 'b3', 'b4'] },
     confidence:       { type: 'number' },
     // Stamped by the pipeline AFTER validation; present on stored IRs, so re-validation
     // (semantics-audit) must accept it. Never required, never model-authored.
@@ -296,7 +302,9 @@ function buildWireSchema(maxCards) {
     type: 'object',
     additionalProperties: false,
     properties: {
-      cards: { type: 'array', items: cardIRSchema, minItems: 1, maxItems: maxCards || 10 },
+      // every new extraction carries power_tier; stored IRs may predate it
+      cards: { type: 'array', items: { ...cardIRSchema, required: [...cardIRSchema.required, 'power_tier'] },
+               minItems: 1, maxItems: maxCards || 10 },
     },
     required: ['cards'],
   };

@@ -1,0 +1,319 @@
+{
+ "commander": "Treebeard, Gracious Host",
+ "source": "weakened from pulled/lifegain-treefolk",
+ "seeded_weak": [
+  "Jade-Cast Sentinel",
+  "Sphinx-Bone Wand",
+  "The Moment",
+  "Iona's Blessing",
+  "Rampaging Growth",
+  "Crested Herdcaller",
+  "Monument to Perfection",
+  "Reito Lantern",
+  "Kazandu Blademaster",
+  "Humble Naturalist",
+  "Wild Nacatl",
+  "Stone Retrieval Unit"
+ ],
+ "removed_staples": [
+  "Arcane Signet",
+  "Swords to Plowshares",
+  "Path to Exile",
+  "Fellwar Stone",
+  "Sakura-Tribe Elder",
+  "Austere Command",
+  "Tireless Provisioner",
+  "Stroke of Midnight",
+  "Rishkar's Expertise",
+  "Sylvan Library",
+  "Inspiring Call",
+  "Shamanic Revelation"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Ajani's Presence",
+   "qty": 1
+  },
+  {
+   "name": "Banquet Guests",
+   "qty": 1
+  },
+  {
+   "name": "Blossoming Sands",
+   "qty": 1
+  },
+  {
+   "name": "Brandywine Farmer",
+   "qty": 1
+  },
+  {
+   "name": "Bridgeworks Battle // Tanglespan Bridgeworks",
+   "qty": 1
+  },
+  {
+   "name": "Canopy Vista",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Crumb and Get It",
+   "qty": 1
+  },
+  {
+   "name": "Darksteel Mutation",
+   "qty": 1
+  },
+  {
+   "name": "Day of Judgment",
+   "qty": 1
+  },
+  {
+   "name": "Dispatch",
+   "qty": 1
+  },
+  {
+   "name": "Dormant Grove // Gnarled Grovestrider",
+   "qty": 1
+  },
+  {
+   "name": "Dungrove Elder",
+   "qty": 1
+  },
+  {
+   "name": "Erinis, Gloom Stalker",
+   "qty": 1
+  },
+  {
+   "name": "Exotic Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Ezzaroot Channeler",
+   "qty": 1
+  },
+  {
+   "name": "Fangorn, Tree Shepherd",
+   "qty": 1
+  },
+  {
+   "name": "Farmer Cotton",
+   "qty": 1
+  },
+  {
+   "name": "Feasting Hobbit",
+   "qty": 1
+  },
+  {
+   "name": "Field-Tested Frying Pan",
+   "qty": 1
+  },
+  {
+   "name": "Flooded Strand",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 19
+  },
+  {
+   "name": "Gilded Goose",
+   "qty": 1
+  },
+  {
+   "name": "Great Forest Druid",
+   "qty": 1
+  },
+  {
+   "name": "Harold and Bob, First Numens",
+   "qty": 1
+  },
+  {
+   "name": "Haywire Mite",
+   "qty": 1
+  },
+  {
+   "name": "Kenrith's Transformation",
+   "qty": 1
+  },
+  {
+   "name": "Kurbis, Harvest Celebrant",
+   "qty": 1
+  },
+  {
+   "name": "Lignify",
+   "qty": 1
+  },
+  {
+   "name": "Many Partings",
+   "qty": 1
+  },
+  {
+   "name": "Merry, Warden of Isengard",
+   "qty": 1
+  },
+  {
+   "name": "Moonlit Lamenter",
+   "qty": 1
+  },
+  {
+   "name": "Nature's Claim",
+   "qty": 1
+  },
+  {
+   "name": "Night of the Sweets' Revenge",
+   "qty": 1
+  },
+  {
+   "name": "Nykthos Paragon",
+   "qty": 1
+  },
+  {
+   "name": "Of Herbs and Stewed Rabbit",
+   "qty": 1
+  },
+  {
+   "name": "Orchard Strider",
+   "qty": 1
+  },
+  {
+   "name": "Pawpatch Formation",
+   "qty": 1
+  },
+  {
+   "name": "Peregrin Took",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 11
+  },
+  {
+   "name": "Prosperous Innkeeper",
+   "qty": 1
+  },
+  {
+   "name": "Revive the Shire",
+   "qty": 1
+  },
+  {
+   "name": "Rosie Cotton of South Lane",
+   "qty": 1
+  },
+  {
+   "name": "Sam, Loyal Attendant",
+   "qty": 1
+  },
+  {
+   "name": "Samwise Gamgee",
+   "qty": 1
+  },
+  {
+   "name": "Scurry Oak",
+   "qty": 1
+  },
+  {
+   "name": "Serra Ascendant",
+   "qty": 1
+  },
+  {
+   "name": "Shire Shirriff",
+   "qty": 1
+  },
+  {
+   "name": "Shriekwood Devourer",
+   "qty": 1
+  },
+  {
+   "name": "Sungrass Prairie",
+   "qty": 1
+  },
+  {
+   "name": "Sunpetal Grove",
+   "qty": 1
+  },
+  {
+   "name": "Temple Garden",
+   "qty": 1
+  },
+  {
+   "name": "Unlucky Cabbage Merchant",
+   "qty": 1
+  },
+  {
+   "name": "Wall of Reverence",
+   "qty": 1
+  },
+  {
+   "name": "Well of Lost Dreams",
+   "qty": 1
+  },
+  {
+   "name": "Willow Geist",
+   "qty": 1
+  },
+  {
+   "name": "Windswept Heath",
+   "qty": 1
+  },
+  {
+   "name": "Woodfall Primus",
+   "qty": 1
+  },
+  {
+   "name": "The Gaffer",
+   "qty": 1
+  },
+  {
+   "name": "Jade-Cast Sentinel",
+   "qty": 1
+  },
+  {
+   "name": "Sphinx-Bone Wand",
+   "qty": 1
+  },
+  {
+   "name": "The Moment",
+   "qty": 1
+  },
+  {
+   "name": "Iona's Blessing",
+   "qty": 1
+  },
+  {
+   "name": "Rampaging Growth",
+   "qty": 1
+  },
+  {
+   "name": "Crested Herdcaller",
+   "qty": 1
+  },
+  {
+   "name": "Monument to Perfection",
+   "qty": 1
+  },
+  {
+   "name": "Reito Lantern",
+   "qty": 1
+  },
+  {
+   "name": "Kazandu Blademaster",
+   "qty": 1
+  },
+  {
+   "name": "Humble Naturalist",
+   "qty": 1
+  },
+  {
+   "name": "Wild Nacatl",
+   "qty": 1
+  },
+  {
+   "name": "Stone Retrieval Unit",
+   "qty": 1
+  }
+ ]
+}

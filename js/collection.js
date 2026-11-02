@@ -1865,7 +1865,15 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   if (shown.length) {
     return shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
   }
-  return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
+  // Nothing to show here is two different things: the tags haven't loaded yet (hold the space
+  // with a placeholder), or this card genuinely has no unpromoted default tag (show nothing).
+  // Rendering the placeholder for the second case left a grey block sitting in front of the
+  // first MY TAGS chip — and which of the two async tag loads finished last decided whether
+  // it appeared, so it came and went.
+  const resolved = typeof _defaultTagsResolvedForCard === 'function'
+    ? _defaultTagsResolvedForCard(card)
+    : true;
+  return resolved ? '' : '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
 }
 
 function _getCardDetailCollectionNavState(currentUid) {
@@ -4743,9 +4751,10 @@ async function historyCollectionUndoFromRow(packed) {
   }
   if (!ev.scryfallId) { showNotif('Cannot restore this entry', true); return; }
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(ev.scryfallId)}`);
-    if (!res.ok) throw new Error('lookup failed');
-    const card = await res.json();
+    // fetchCardById goes through our priced endpoint; a raw Scryfall blob here put
+    // Scryfall's own number on the restored row instead of the price log's.
+    const card = await fetchCardById(ev.scryfallId);
+    if (!card) throw new Error('lookup failed');
     addCardToCollection(card, n, !!ev.foil);   // records its own history event
     _histUndoneRowKeys.add(packed);
     if (_historyVisible) renderCollectionHistory();

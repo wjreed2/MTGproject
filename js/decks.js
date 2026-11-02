@@ -23,14 +23,31 @@ function toggleDeckInfoTooltip() {
   badge.classList.toggle('open');
 }
 
+/** 'TCG' or 'CK' — whichever vendor Settings → Displayed price source selects. */
+function _primaryVendorLabel() {
+  const v = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  return v === 'ck' ? 'CK' : 'TCG';
+}
+
+/**
+ * Deck total in the vendor the card badges are showing. Same finish rule as a badge:
+ * the card's own finish, falling back to non-foil when the foil price is missing.
+ */
+function _deckPrimaryValue(cards) {
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  return (cards || []).reduce((sum, c) => {
+    const unit = typeof getPrimaryPriceForCard === 'function'
+      ? getPrimaryPriceForCard(c, primary)
+      : (Number(c?.priceTCG) || 0);
+    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
+  }, 0);
+}
+
 function _renderDeckInfoTooltip() {
   const tip = document.getElementById('deckInfoTooltip');
   const deck = getActiveDeck();
   if (!tip || !deck) return;
-  const totalTcg = (deck.cards || []).reduce((sum, c) => {
-    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
-    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
-  }, 0);
+  const totalValue = _deckPrimaryValue(deck.cards);
   const gcFormat = _isCommanderFormatForGameChangers(deck);
   const gcEntries = gcFormat && _gameChangerOracleIds ? _deckGameChangerEntries(deck) : null;
   const gcCount = gcEntries ? gcEntries.length : (gcFormat ? '…' : '—');
@@ -43,7 +60,7 @@ function _renderDeckInfoTooltip() {
   }).join('') : '';
   tip.innerHTML = `
     <div class="deck-info-row"><span class="deck-info-label">Format</span><span>${escapeHtml(deck.format || '—')}</span></div>
-    <div class="deck-info-row"><span class="deck-info-label">Value (TCG)</span><span>$${totalTcg.toFixed(2)}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Value (${_primaryVendorLabel()})</span><span>$${totalValue.toFixed(2)}</span></div>
     <div class="deck-info-row"><span class="deck-info-label">Game changers</span><span>${gcCount}</span></div>
     ${gcRows}`;
 }
@@ -2447,7 +2464,14 @@ function setDeckGroupBy(val) {
   if (deck) renderDeckList(deck);
 }
 
-function _deckCardSortPrice(c) {
+/**
+ * Sort by the number on the card, not always TCG — otherwise a CK-primary user sees a
+ * list ordered by prices that aren't the ones being displayed. `primary` is resolved
+ * once per sort by the caller: this runs inside a comparator, and letting
+ * getPrimaryPriceForCard resolve it re-read localStorage on every comparison.
+ */
+function _deckCardSortPrice(c, primary) {
+  if (typeof getPrimaryPriceForCard === 'function') return Number(getPrimaryPriceForCard(c, primary)) || 0;
   if (typeof getTCGPriceForCard === 'function') return Number(getTCGPriceForCard(c)) || 0;
   return Number(c?.priceTCG) || 0;
 }
@@ -2485,6 +2509,9 @@ function _deckCardBadgeSortKey(card) {
 function _deckStackSortCards(items, cardOf) {
   const dir = deckStackSortDir === 'desc' ? -1 : 1;
   const card = typeof cardOf === 'function' ? cardOf : (x => x || {});
+  const pricePrimary = deckStackSort === 'price' && typeof getPrimaryPriceVendor === 'function'
+    ? getPrimaryPriceVendor()
+    : null;
   const tieName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
   return items.slice().sort((x, y) => {
     const a = card(x);
@@ -2496,7 +2523,7 @@ function _deckStackSortCards(items, cardOf) {
       cmp = (a.cmc || 0) - (b.cmc || 0);
       if (cmp === 0) cmp = String(a.mana || '').localeCompare(String(b.mana || ''));
     } else if (deckStackSort === 'price') {
-      cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
+      cmp = _deckCardSortPrice(a, pricePrimary) - _deckCardSortPrice(b, pricePrimary);
     } else if (deckStackSort === 'badge') {
       cmp = _deckCardBadgeSortKey(a).localeCompare(_deckCardBadgeSortKey(b), undefined, { sensitivity: 'base' });
     } else if (deckStackSort === 'coloring') {
@@ -2824,23 +2851,23 @@ function _allTagsOnCard(card) {
   return [...out];
 }
 
+// Group-by dropdown tiers are STRICT: a card with nothing at the requested tier
+// lands in Untagged — seeing what still needs curation is the point of the view.
+// (A full-tag fallback briefly lived here and hid exactly that; Architecture
+// placement keeps its own fallback via deck-architecture's _roles, untouched.)
 function _tagsOnCardForGroupTier(card, tier) {
-  const all = _allTagsOnCard(card);
   if (tier === 'tag_default') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    const defaults = roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
-    // A card that has tags must not fall through to Untagged.
-    return defaults.length ? defaults : all;
+    return roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
     // Default tags with a manual or auto primary/secondary tier count here too.
     const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
-    const matched = [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
-    return matched.length ? matched : all;
+    return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
-  if (tier === 'tag_all') return all;
-  return userTags.length ? userTags : all;
+  if (tier === 'tag_all') return _allTagsOnCard(card);
+  return userTags;
 }
 
 let _deckListSearchDebounce = null;
@@ -3315,9 +3342,27 @@ function _sortUserTagsForDisplay(tags, card) {
   });
 }
 
+/**
+ * Name for the leftover bucket in tag grouping. Only "All tags" looks at every tag a card
+ * carries, so only it can honestly call a card untagged. The tier-scoped modes group by one
+ * slice of a card's tags, and a card whose tags are all in another slice used to land under
+ * "Untagged" — which reads as if the tag you just added never took.
+ */
+function _deckTagGroupLeftoverLabel(groupBy) {
+  if (groupBy === 'tag_default') return 'No default tag';
+  if (groupBy === 'tag_primary') return 'No primary tag';
+  if (groupBy === 'tag_secondary') return 'No secondary tag';
+  return 'Untagged';
+}
+
+function _isDeckTagLeftoverLabel(key) {
+  return key === 'Untagged' || key === 'No default tag'
+    || key === 'No primary tag' || key === 'No secondary tag';
+}
+
 function _compareDeckTagGroupKeys(a, b) {
-  if (a === 'Untagged') return 1;
-  if (b === 'Untagged') return -1;
+  if (_isDeckTagLeftoverLabel(a)) return 1;
+  if (_isDeckTagLeftoverLabel(b)) return -1;
   if (a === 'Commander') return -1;
   if (b === 'Commander') return 1;
   return a.localeCompare(b);
@@ -4599,7 +4644,7 @@ async function _applyActiveDeckCommander(name, colors, imgUrl, scryfallId, foil,
   deck.commander = name;
   deck.commanderColorIdentity = colors;
   deck.commanderImage = imgUrl;
-  if (scryfallId) await addCommanderCardToDeck(deck, scryfallId, { foil, addToCollection: addColl });
+  if (scryfallId) await addCommanderCardToDeck(deck, scryfallId, { foil, addToCollection: addColl, image: imgUrl });
   saveActiveDeck(deck);
   _pendingActiveDeckCommander = null;
   closeCommanderEdit();
@@ -4693,34 +4738,102 @@ function closeCommanderEdit() {
 
 // ── Commander card helper ─────────────────────────────────────────────────────
 
+/**
+ * Scryfall serves each printing's art under that printing's own id, so the id inside an
+ * image URL says which printing the picture belongs to. That is how we tell art that really
+ * is this printing's from art a card lookup answered with for a *different* one.
+ */
+function _imageIsForPrinting(url, scryfallId) {
+  const u = String(url || '').toLowerCase();
+  const sid = String(scryfallId || '').toLowerCase();
+  return !!u && !!sid && u.includes(sid);
+}
+
+/**
+ * What the user themselves put on a deck slot, as opposed to what the printing decides.
+ * Re-printing a commander through the picker rebuilds the slot, and without this the tags,
+ * tiers and per-card overrides on it were thrown away with the old printing.
+ */
+const _DECK_SLOT_USER_FIELDS = ['customTags', 'customTagTiers', 'deckTags', 'roleTags',
+  'starred', 'customCmc', 'customPips'];
+
+function _carryDeckSlotUserFields(from, to) {
+  if (!from || !to) return;
+  for (const k of _DECK_SLOT_USER_FIELDS) {
+    if (from[k] != null) to[k] = from[k];
+  }
+}
+
+/** Same card, a different printing of it — as opposed to swapping in another commander. */
+function _isSamePrintedCard(a, b) {
+  if (!a || !b) return false;
+  const oa = String(a.oracleId || a.oracle_id || '').toLowerCase();
+  const ob = String(b.oracleId || b.oracle_id || '').toLowerCase();
+  if (oa && ob) return oa === ob;
+  return String(a.name || '').trim().toLowerCase() === String(b.name || '').trim().toLowerCase();
+}
+
 async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
-  const foil = !!opts.foil;
-  // Remove any existing commander card slot first
+  // Keep the outgoing commander: when this is the same card in a new printing, its slot is
+  // being re-printed, not replaced, and the collection copy behind it should follow too.
+  const prev = (deck.cards || []).find(c => c.isCommander) || null;
   deck.cards = deck.cards.filter(c => !c.isCommander);
 
   // Prefer an owned copy of this printing (matching finish first) as a rich template,
   // otherwise fetch from Scryfall.
-  let base = _ownershipCollection().find(c => c.scryfallId === scryfallId && !!c.foil === foil)
+  let base = _ownershipCollection().find(c => c.scryfallId === scryfallId && !!c.foil === !!opts.foil)
           || _ownershipCollection().find(c => c.scryfallId === scryfallId);
   let card;
+  let sc = null;
   if (base) {
     card = { ...base };
   } else {
     try {
-      const sc = await fetchCardById(scryfallId);
+      sc = await fetchCardById(scryfallId);
       if (!sc) return;
       card = cardToEntry(sc, 1);
     } catch(e) { return; }
   }
+  // A printing is only sold in the finishes it was printed in: picking a foil-only or etched
+  // version while the finish box is clear used to mint a plain copy that was never made, and
+  // the price log has no number for it, so the commander showed no price and the deck total
+  // dropped by its value.
+  const foil = _finishOfferedByPrinting(sc || card, opts.foil);
   card.scryfallId = scryfallId;
   card.foil = foil;
   card.uid = scryfallId + (foil ? '_f' : '_n');
+  // The picker hands us the art of the printing the user actually clicked. A card lookup can
+  // answer with a *representative* printing's art instead (the oracle catalog stores one per
+  // card), which silently put the wrong picture on the commander slot — the deck tile and the
+  // inspector both read the slot, so the chosen printing never showed up.
+  if (opts.image && !_imageIsForPrinting(card.imageLarge || card.image, scryfallId)) {
+    card.image = opts.image;
+    card.imageLarge = opts.image;
+  }
 
   const newCmd = { ...card, qty: 1, isCommander: true };
+  const reprint = _isSamePrintedCard(prev, newCmd);
+  if (reprint) _carryDeckSlotUserFields(prev, newCmd);
   _applyGlobalCustomTagsToCard(newCmd);
   deck.cards.unshift(newCmd);
 
-  if (opts.addToCollection) _addCommanderCopyToCollection(newCmd, scryfallId, foil);
+  if (opts.addToCollection) {
+    _addCommanderCopyToCollection(newCmd, scryfallId, foil);
+  } else if (reprint && prev.scryfallId && prev.scryfallId !== scryfallId) {
+    // Re-printing through this picker moves the collection copy behind the commander the same
+    // way the version picker does; otherwise the deck showed one printing and the collection
+    // went on showing the other.
+    const moved = _transferCollectionCopyForDeckReprint(
+      prev.scryfallId, !!prev.foil,
+      { id: scryfallId, finishes: (sc || card).finishes },
+      prev.qty || 1,
+      { ...card, isCommander: false, qty: 1 });
+    if (moved) {
+      save('collection');
+      if (typeof renderCollection === 'function') renderCollection();
+      if (typeof updateStats === 'function') updateStats();
+    }
+  }
 }
 
 /** Add a single copy of the chosen commander printing+finish to the user's collection,
@@ -4798,7 +4911,7 @@ async function submitNewDeck() {
   decks.push(deck); activeDeckId = deck.id;
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
-  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId, { foil: commanderFoil, addToCollection: commanderAddColl });
+  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId, { foil: commanderFoil, addToCollection: commanderAddColl, image: commanderImage });
   save('decks'); renderDecks();
 }
 
@@ -5043,12 +5156,13 @@ function renderActiveDeck() {
   document.getElementById('activeDeckName').textContent = deck.name;
   document.getElementById('activeDeckFormat').textContent = deck.format;
   const total = deck.cards.reduce((s,c) => s + c.qty, 0);
-  const totalTcg = (deck.cards || []).reduce((sum, c) => {
-    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
-    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
-  }, 0);
+  const totalValue = _deckPrimaryValue(deck.cards);
   const topValueEl = document.getElementById('activeDeckValue');
-  if (topValueEl) topValueEl.textContent = `$${totalTcg.toFixed(2)}`;
+  if (topValueEl) {
+    topValueEl.textContent = `$${totalValue.toFixed(2)}`;
+    // The markup's static title said TCG; the badge follows the displayed-price setting.
+    topValueEl.title = `Total ${_primaryVendorLabel()} value of main deck cards`;
+  }
   const target = FORMAT_RULES[deck.format]?.min || 60;
   const max    = FORMAT_RULES[deck.format]?.max;
   const countOk = total >= target && (!max || total <= max);
@@ -7050,6 +7164,19 @@ function _tieredDefaultTagsForCard(card) {
   return out;
 }
 
+/**
+ * Have this card's default tags actually been looked up yet? The Scryfall tag list arrives
+ * per oracle id and is cached; until it lands, "no default tags" and "not asked yet" look
+ * identical. The inspector needs to tell them apart so it only shows a loading placeholder
+ * for the second one.
+ */
+function _defaultTagsResolvedForCard(card) {
+  if (!card) return true;
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) return !card.scryfallId; // nothing to look up by — whatever we have is final
+  return _scryTagsByOracleId.has(oid);
+}
+
 function _applyGlobalCustomTagsToCard(card) {
   const globalTags = _getGlobalCustomTagsForCard(card);
   if (!globalTags.length) return false;
@@ -7829,10 +7956,11 @@ function _buildDeckGroups(cards, groupBy) {
     return withCommander(ordered);
   }
   if (_isTagGroupByMode(groupBy)) {
-    const groups = { Untagged: [] };
+    const leftover = _deckTagGroupLeftoverLabel(groupBy);
+    const groups = { [leftover]: [] };
     rest.forEach(c => {
       const tags = _tagsOnCardForGroupTier(c, groupBy);
-      if (!tags.length) { groups.Untagged.push(c); return; }
+      if (!tags.length) { groups[leftover].push(c); return; }
       const seenTagKeys = new Set();
       tags.forEach(t => {
         const tagKey = _tagTierKey(t);
@@ -10442,6 +10570,12 @@ function _renderDeckGoalReadout(deck, e2) {
   el.style.cssText = '';
   el.style.display = '';
 
+  // Game plan readout (server engine2/gameplan.js — English lines only): the engine,
+  // what the deck spends its output on, and the weakest link in that chain.
+  const planLines = (e2.gameplan && Array.isArray(e2.gameplan.lines)) ? e2.gameplan.lines.slice(0, 4) : [];
+  const planHtml = planLines.length
+    ? `<ul class="deck-goal-plan">${planLines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+    : '';
   const comboHtml = (e2.combos || []).slice(0, 2).map(c =>
     `<div class="deck-goal-combo">Combo detected: <span>${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
   ).join('');
@@ -10468,7 +10602,7 @@ function _renderDeckGoalReadout(deck, e2) {
     + `<span class="deck-goal-name">${escapeHtml(top.label || top.goal)}</span>`
     + matchHtml('', top.confidence)
     + `${projBit}${secondBit}</div>`
-    + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + comboHtml;
+    + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + planHtml + comboHtml;
 }
 
 // ── Semantic category targets (sliders dropdown on the Suggested Adds header) ─
@@ -16235,8 +16369,10 @@ async function _resolveOracleIdForCard(card) {
   }
   try {
     let sc = null;
+    let byOwnPrinting = false;
     if (sidCandidate) {
       sc = await fetchCardById(sidCandidate);
+      byOwnPrinting = !!sc;
     }
     if (!sc && card.set && card.number) {
       sc = await fetchCard(card.set, card.number);
@@ -16248,8 +16384,16 @@ async function _resolveOracleIdForCard(card) {
     if (sidCandidate) _scryOracleByPrintId.set(sidCandidate, oid);
     if (cacheKey && cacheKey !== sidCandidate) _scryOracleByPrintId.set(cacheKey, oid);
     if (sc) {
+      // This is an ORACLE lookup — we want the text, type and cmc. When the card already knows
+      // which printing it is and we asked by that id, the answer must not be allowed to move it
+      // to another printing: a card-id lookup can come back carrying a representative printing's
+      // art and set, which would swap the art under a printing the user deliberately chose.
+      const keepPrinting = (byOwnPrinting && (card.imageLarge || card.image))
+        ? { image: card.image, imageLarge: card.imageLarge, set: card.set, setName: card.setName, number: card.number, rarity: card.rarity }
+        : null;
       if (typeof applyEntryMetadataToCard === 'function' && typeof cardToEntry === 'function') {
         applyEntryMetadataToCard(card, cardToEntry(sc, card.qty || 1));
+        if (keepPrinting) Object.assign(card, keepPrinting);
       } else if (typeof ensureCardMetadata === 'function') {
         ensureCardMetadata({ ...card, ...sc, card_faces: sc?.card_faces, cardFaces: card.cardFaces });
       }
@@ -18150,13 +18294,14 @@ async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
     const currentCard = _resolveVersionPickerCurrentCard(mode, deckId, cardUid);
 
     let prints = [];
+    // Both lookups go through our own endpoints so every printing arrives priced off the
+    // price log; picking a version writes that price onto the deck card below.
     if (currentCard?.scryfallId) {
       // Fetch the card to get oracle_id → finds ALL printings including renamed SL versions
-      const cardRes = await fetch(`https://api.scryfall.com/cards/${currentCard.scryfallId}`);
-      const cardData = await cardRes.json();
-      const oracleId = cardData.oracle_id;
+      const cardData = await fetchCardById(currentCard.scryfallId);
+      const oracleId = cardData?.oracle_id || cardData?.oracleId;
       if (oracleId) {
-        const res = await fetch(`https://api.scryfall.com/cards/search?q=oracleid%3A${oracleId}&unique=prints&order=released`);
+        const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent('oracleid:' + oracleId)}&unique=prints&order=released`);
         const data = await res.json();
         prints = data.data || [];
       }
@@ -18164,7 +18309,7 @@ async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
     // Fallback: search by front-face name only (handles DFCs like "Realm-Cloaked Giant // Cast Off")
     if (!prints.length) {
       const searchName = cardName.includes('//') ? cardName.split('//')[0].trim() : cardName;
-      const res = await fetch(`https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(searchName)}"&unique=prints&order=released`);
+      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent('!"' + searchName + '"')}&unique=prints&order=released`);
       const data = await res.json();
       prints = data.data || [];
     }
@@ -18196,12 +18341,34 @@ function _findCollectionRowForDeckCard(deckCard) {
   return collection.find(c => (c.name || '').trim().toLowerCase() === nameKey) || null;
 }
 
+/**
+ * The finish a printing can actually be had in. Printings are not interchangeable here:
+ * an alt-art or ripple-foil version is often sold foil-only, and an etched one has no plain
+ * version at all. Carrying the old slot's finish onto the new printing therefore minted a
+ * copy that does not exist — and the price log prices the finishes a printing was really
+ * sold in, so that copy had no price either, which is what made a re-printed card read as
+ * nothing in the collection and count as $0 toward the deck.
+ *
+ * Etched has no inventory key of its own (uids are `_n` / `_f`), so it rides with foil.
+ * @returns {boolean} true when the copy should be foil
+ */
+function _finishOfferedByPrinting(sc, wantFoil) {
+  const finishes = Array.isArray(sc?.finishes)
+    ? sc.finishes.map(f => String(f || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!finishes.length) return !!wantFoil; // nothing to go on — the caller's finish stands
+  if (wantFoil && finishes.includes('foil')) return true;
+  if (!wantFoil && finishes.includes('nonfoil')) return false;
+  return !finishes.includes('nonfoil');
+}
+
 function _applyScryfallPrintingFields(card, sc) {
   if (!card || !sc) return;
-  const foil = !!card.foil;
+  const foil = _finishOfferedByPrinting(sc, card.foil);
   const qty = card.qty || 1;
+  let entry = null;
   if (typeof cardToEntry === 'function' && typeof applyEntryMetadataToCard === 'function') {
-    const entry = cardToEntry(sc, qty);
+    entry = cardToEntry(sc, qty);
     applyEntryMetadataToCard(card, entry);
     card.scryfallId = sc.id;
     card.uid = sc.id + (foil ? '_f' : '_n');
@@ -18220,17 +18387,22 @@ function _applyScryfallPrintingFields(card, sc) {
     card.setName = sc.set_name || card.setName;
     card.number = sc.collector_number || card.number;
     card.rarity = sc.rarity || card.rarity;
+    card.foil = foil;
   }
-  const usd = parseFloat(sc.prices?.usd || 0);
-  const usdFoil = parseFloat(sc.prices?.usd_foil || 0);
-  if (Number.isFinite(usd)) card.priceTCG = usd;
-  if (Number.isFinite(usdFoil)) card.priceTCGFoil = usdFoil;
+  // A version change is a different printing, so its price replaces the old printing's
+  // outright — including when we don't know it yet (null), which the price-log pass then
+  // fills. This used to read sc.prices directly and set priceTCG = 0 on every printing
+  // Scryfall had no usd for, because parseFloat(undefined || 0) is a finite 0.
+  card.priceTCG = entry ? (entry.priceTCG ?? null) : null;
+  card.priceTCGFoil = entry ? (entry.priceTCGFoil ?? null) : null;
+  card.priceCK = entry ? (entry.priceCK ?? null) : null;
+  card.priceCKFoil = entry ? (entry.priceCKFoil ?? null) : null;
 }
 
 /** When a deck printing changes, update the matching collection row to the same printing. */
 function _syncCollectionPrintingFromDeckChange(collRow, sc) {
   if (!collRow || !sc || typeof cardToEntry !== 'function') return false;
-  const foil = !!collRow.foil;
+  const foil = _finishOfferedByPrinting(sc, collRow.foil);
   const qty = collRow.qty || 1;
   const fresh = cardToEntry(sc, qty);
   fresh.foil = foil;
@@ -18289,7 +18461,7 @@ function applyCollectionCardVersion(sc) {
   const foil = !!collRow.foil;
 
   _syncCollectionPrintingFromDeckChange(collRow, sc);
-  const newUid = sc.id + (foil ? '_f' : '_n');
+  const newUid = sc.id + (_finishOfferedByPrinting(sc, foil) ? '_f' : '_n');
 
   const deckChanged = _syncDeckSlotsForPrintingChange(oldUid, oldKey, oldNameKey, sc);
 
@@ -18346,7 +18518,7 @@ function _mergeDuplicateDeckSlotAfterPrintingChange(deck, card) {
  * old printing + finish (never by name), so unrelated copies are never touched. Returns true
  * if the collection changed.
  */
-function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
+function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty, template) {
   if (typeof _useOwnerCollectionForOwnership === 'function' && _useOwnerCollectionForOwnership()) return false;
   if (!oldSid || !sc || !sc.id || oldSid === sc.id) return false;
   if (!Array.isArray(collection) || !(moveQty > 0)) return false;
@@ -18369,18 +18541,24 @@ function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('remove', oldRow, move);
   }
 
-  // Add them to the new-printing row (same finish), creating it if needed.
-  const newUid = sc.id + (f ? '_f' : '_n');
+  // Add them to the new-printing row, creating it if needed. The finish follows the copies
+  // only as far as the new printing sells it — moving a plain copy onto a foil-only version
+  // has to land foil, or the row is a card that was never made and carries no price.
+  const newF = _finishOfferedByPrinting(sc, f);
+  const newUid = sc.id + (newF ? '_f' : '_n');
   const newRow = collection.find(c => c.uid === newUid)
-    || collection.find(c => c.scryfallId === sc.id && !!c.foil === f);
+    || collection.find(c => c.scryfallId === sc.id && !!c.foil === newF);
   if (newRow) {
     newRow.qty = (newRow.qty || 0) + move;
     newRow.addedAt = Date.now();
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newRow, move);
   } else {
-    const fresh = (typeof cardToEntry === 'function') ? cardToEntry(sc, move) : { ...oldRow };
+    // `template` is the already-built card for this printing, for callers that have one and
+    // only a stub `sc` (the commander picker reusing an owned copy as its template).
+    const fresh = template ? { ...template }
+      : (typeof cardToEntry === 'function') ? cardToEntry(sc, move) : { ...oldRow };
     fresh.scryfallId = sc.id;
-    fresh.foil = f;
+    fresh.foil = newF;
     fresh.uid = newUid;
     fresh.qty = move;
     fresh.addedAt = Date.now();

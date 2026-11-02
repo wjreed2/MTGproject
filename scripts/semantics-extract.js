@@ -146,52 +146,9 @@ async function selectCards(db, opts) {
   return rows.map(r => r.oracle_id);
 }
 
-// ── subscription call ────────────────────────────────────────────────────────
-function childEnv() {
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;      // would silently switch billing to the API
-  delete env.ANTHROPIC_AUTH_TOKEN;   // same
-  return env;
-}
-
-// Binary resolution: CLAUDE_BIN env → `claude` on PATH → newest VS Code extension bundle.
-function resolveClaudeBin() {
-  if (process.env.CLAUDE_BIN && fs.existsSync(process.env.CLAUDE_BIN)) return process.env.CLAUDE_BIN;
-  try {
-    require('child_process').execSync('command -v claude', { stdio: 'pipe' });
-    return 'claude';
-  } catch (_) { /* not on PATH */ }
-  const extDir = path.join(os.homedir(), '.vscode', 'extensions');
-  try {
-    const candidates = fs.readdirSync(extDir)
-      .filter(d => d.startsWith('anthropic.claude-code-'))
-      .sort()
-      .reverse()
-      .map(d => path.join(extDir, d, 'resources', 'native-binary', 'claude'))
-      .filter(p => fs.existsSync(p));
-    if (candidates.length) return candidates[0];
-  } catch (_) { /* no extensions dir */ }
-  return 'claude'; // let the spawn error explain
-}
-const CLAUDE_BIN = resolveClaudeBin();
-
-function callClaude(args, cwd, timeoutMs) {
-  // spawn (not execFile) so stdin can be closed outright: an open-but-silent stdin pipe
-  // makes the CLI wait ("no stdin data received in 3s…") and can leave calls lingering
-  // until the timeout instead of exiting when the response is done.
-  const { spawn } = require('child_process');
-  return new Promise((resolve) => {
-    const child = spawn(CLAUDE_BIN, args, {
-      cwd, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: timeoutMs, killSignal: 'SIGKILL',
-    });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', d => { stdout += d; });
-    child.stderr.on('data', d => { stderr += d; });
-    child.on('error', err => resolve({ err, stdout, stderr }));
-    child.on('close', code => resolve({ err: code === 0 ? null : new Error(`exit ${code}`), stdout, stderr }));
-  });
-}
+// ── subscription call ── (scripts/lib/semantics-runner-core.js: callClaude, binary
+// resolution, the API-key-stripped child env — shared with the targeted backfills)
+const { callClaude } = core;
 
 // Shared pause: any worker that hits a usage limit sets state.pauseUntil; every worker
 // waits it out before its next call, so concurrency never turns one limit into N retries.

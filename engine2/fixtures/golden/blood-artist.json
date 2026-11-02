@@ -71,6 +71,7 @@
     "wincon": { "kind": "drain", "detail": "scales with death count; combo-adjacent with free sac outlets" },
     "tribal": { "types": ["Vampire"], "lord_of": [] },
     "power_level_hint": 3,
+    "power_tier": { "b2": 6, "b3": 6, "b4": 4 },
     "confidence": 0.97
   }
 }

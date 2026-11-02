@@ -1,0 +1,406 @@
+{
+  "meta": {
+    "title": "MTG rules engine fixtures: interaction tests, loop detection, deck heuristics",
+    "version": "0.1.0",
+    "created": "2026-09-28",
+    "source": "Deck analysis sessions (Vraska, Jyoti, Bumbleflower, Vren, Helga, Thranduil)",
+    "schema_note": "Field names are a best guess and not yet mapped to the project's ADL schema. Adapt 'setup'/'expect' keys to match the engine's game-state model.",
+    "confidence_levels": {
+      "high": "Card text verified during analysis and the rules interaction is standard.",
+      "medium": "Reasoning is sound, but the exact ruling or card text should be checked before treating it as ground truth.",
+      "verify": "Depends on card text or rulings not verified in these sessions. Check before use."
+    },
+    "sections": ["interaction_tests", "loop_detection", "deck_heuristics"]
+  },
+
+  "interaction_tests": [
+    {
+      "id": "THR-01",
+      "title": "Borrowed ability self-references point to the new holder",
+      "cards": ["Thranduil, the Elvenking", "Greenhilt Trainee"],
+      "setup": {
+        "battlefield": [{ "card": "Thranduil, the Elvenking", "power": 5, "toughness": 6 }],
+        "graveyard": ["Greenhilt Trainee"]
+      },
+      "action": "Activate Greenhilt Trainee's ability via Thranduil.",
+      "expect": {
+        "thranduil_has_ability": "{T}: Target creature gets +4/+4 until end of turn. Activate only if this creature's power is 4 or greater.",
+        "restriction_checks_power_of": "Thranduil, the Elvenking",
+        "activation_legal": true
+      },
+      "reasoning": "Thranduil has all activated abilities of Elf cards in your graveyard. 'This creature' in a granted ability refers to the object that has it (Thranduil), not the card in the graveyard.",
+      "rules_topics": ["ability granting", "self-reference in granted abilities"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-02",
+      "title": "Thranduil + Devoted Druid + Greenhilt Trainee (graveyard) = infinite mana and power",
+      "cards": ["Thranduil, the Elvenking", "Devoted Druid", "Greenhilt Trainee"],
+      "setup": {
+        "battlefield": [{ "card": "Thranduil, the Elvenking", "power": 5, "toughness": 6, "summoning_sick": false }],
+        "graveyard": ["Devoted Druid", "Greenhilt Trainee"]
+      },
+      "sequence": [
+        "Tap: target Thranduil +4/+4 (Greenhilt ability)",
+        "Put -1/-1 counter on Thranduil: untap (Devoted Druid ability)",
+        "Tap: add {G} (Devoted Druid ability)",
+        "Put -1/-1 counter on Thranduil: untap",
+        "Repeat"
+      ],
+      "expect": {
+        "loop": "infinite",
+        "net_per_cycle": { "mana_G": 1, "toughness": 2, "power": 2 },
+        "requires_other_elves": false
+      },
+      "reasoning": "Each two-step cycle spends 2 counters (−2 toughness) and gains +4 toughness plus 1 mana. The power stays ≥ 4, so the Greenhilt restriction keeps passing.",
+      "caveat": "The +4/+4 boosts end at cleanup and the −1/−1 counters remain, so Thranduil dies at end of turn unless the counters are offset (see THR-05).",
+      "rules_topics": ["loops", "activated abilities", "tap/untap costs"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-03",
+      "title": "Thranduil + Devoted Druid + Immaculate Magistrate (graveyard) = infinite, and Thranduil survives",
+      "cards": ["Thranduil, the Elvenking", "Devoted Druid", "Immaculate Magistrate"],
+      "setup": {
+        "battlefield": [
+          { "card": "Thranduil, the Elvenking", "summoning_sick": false },
+          { "card": "any other Elf", "count": 1 }
+        ],
+        "graveyard": ["Devoted Druid", "Immaculate Magistrate"]
+      },
+      "expect": {
+        "loop": "infinite",
+        "minimum_elves_controlled": 2,
+        "counters": "Permanent +1/+1 counters outpace −1/−1 counters; opposite counters cancel in pairs (see THR-06).",
+        "thranduil_survives_cleanup": true
+      },
+      "reasoning": "Magistrate: {T}: put a +1/+1 counter on target creature for each Elf you control. With N ≥ 2 Elves, each tap-pump nets N−1 permanent toughness after its untap counter; alternating with the Druid mana tap still nets at least 0 toughness plus 1 mana per round.",
+      "rules_topics": ["loops", "+1/+1 vs −1/−1 counters"],
+      "confidence": "medium"
+    },
+    {
+      "id": "THR-04",
+      "title": "Mana-cost pumps need a mana multiplier (Iridescent Blademaster)",
+      "cards": ["Thranduil, the Elvenking", "Devoted Druid", "Iridescent Blademaster", "Elvish Archdruid"],
+      "cases": [
+        {
+          "graveyard": ["Devoted Druid", "Iridescent Blademaster"],
+          "mana_per_tap": 1,
+          "expect": { "loop": "not_infinite", "net_mana_per_pump": -2 }
+        },
+        {
+          "graveyard": ["Devoted Druid", "Iridescent Blademaster", "Elvish Archdruid"],
+          "elves_controlled": 3,
+          "mana_per_tap": 3,
+          "expect": { "loop": "infinite", "net_mana_per_pump": 2 }
+        }
+      ],
+      "reasoning": "Blademaster: {3}{G}: +2/+2 until end of turn. Each pump buys 2 untaps. Infinite when 2 × mana_per_tap > 4, i.e. mana_per_tap ≥ 3.",
+      "rules_topics": ["loops", "resource accounting"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-05",
+      "title": "Until-end-of-turn pumps expire; counters remain",
+      "setup": {
+        "battlefield": [{ "card": "Thranduil, the Elvenking", "base_toughness": 6, "minus_counters": 10, "eot_toughness_bonus": 12 }]
+      },
+      "action": "Advance to cleanup step.",
+      "expect": { "toughness_after_cleanup": -4, "state_based_action": "put into graveyard (toughness 0 or less)" },
+      "reasoning": "Continuous effects that last until end of turn end during cleanup; counters persist. Then state-based actions put the creature into the graveyard (commander may go to command zone).",
+      "rules_topics": ["cleanup step", "state-based actions", "duration effects"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-06",
+      "title": "+1/+1 and −1/−1 counters cancel in pairs",
+      "setup": { "battlefield": [{ "card": "any creature", "plus_counters": 5, "minus_counters": 3 }] },
+      "expect": { "after_sba": { "plus_counters": 2, "minus_counters": 0 } },
+      "reasoning": "State-based action removes N of each when a permanent has both kinds.",
+      "cr_refs_to_verify": ["704.5q"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-07",
+      "title": "Imperious Perfect + Intruder Alarm + any mana Elf = infinite Elves and mana",
+      "cards": ["Imperious Perfect", "Intruder Alarm", "Llanowar Elves"],
+      "sequence": [
+        "Tap Llanowar Elves for {G}",
+        "Pay {G}, tap Imperious Perfect: create 1/1 Elf Warrior",
+        "Token enters: Intruder Alarm untaps all creatures",
+        "Repeat"
+      ],
+      "expect": { "loop": "infinite", "produces": ["Elf tokens", "ETB triggers"], "net_mana_with_Elvish_Archdruid": "infinite" },
+      "variant": "Imperious Perfect in the graveyard with Thranduil on the battlefield also works; Thranduil holds the token-making ability.",
+      "rules_topics": ["loops", "triggered untaps"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-08",
+      "title": "Tapping other creatures as a cost ignores their summoning sickness",
+      "cards": ["Lathril, Blade of the Elves"],
+      "setup": {
+        "battlefield": [
+          { "card": "Lathril, Blade of the Elves", "summoning_sick": false },
+          { "card": "Elf token", "count": 10, "summoning_sick": true }
+        ]
+      },
+      "expect": { "activation_legal": true },
+      "reasoning": "Summoning sickness only restricts a creature's own {T}/{Q} abilities and attacking. 'Tap ten untapped Elves you control' can use newly created tokens. Lathril itself needs to be free of summoning sickness because its cost includes {T}.",
+      "cr_refs_to_verify": ["302.6"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-09",
+      "title": "Borrowed {T} abilities obey the holder's summoning sickness",
+      "setup": {
+        "battlefield": [{ "card": "Thranduil, the Elvenking", "summoning_sick": true }],
+        "graveyard": ["Elvish Archdruid"]
+      },
+      "expect": { "can_activate_tap_abilities": false, "with_haste_source": { "card": "Swiftfoot Boots", "can_activate_tap_abilities": true } },
+      "rules_topics": ["summoning sickness", "haste"],
+      "confidence": "high"
+    },
+    {
+      "id": "THR-10",
+      "title": "High Perfect Morcant triggers once per Elf, including simultaneous entries",
+      "cards": ["High Perfect Morcant"],
+      "setup": { "event": "Morcant and 2 other Elves enter at the same time" },
+      "expect": { "triggers": 3, "effect_per_trigger": "each opponent blights 1 (puts a −1/−1 counter on a creature they control)" },
+      "reasoning": "Official ruling: if Morcant enters with other Elves, its ability triggers for each of them and itself.",
+      "confidence": "high"
+    },
+    {
+      "id": "THR-11",
+      "title": "Type-restricted mana can pay for borrowed abilities on an Elf source",
+      "cards": ["Eclipsed Realms", "Woodland Weavemaster", "Thranduil, the Elvenking"],
+      "expect": {
+        "Eclipsed Realms (Elf chosen)": "may pay for any ability Thranduil borrows (Thranduil is an Elf source)",
+        "Woodland Weavemaster": "may pay for Elf spells and abilities of Elf sources, including Thranduil's borrowed abilities"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "THR-12",
+      "title": "Color-restricted sacrifice costs",
+      "cards": ["Ayara, First of Locthwain", "Devoted Druid", "Shadowheart, Dark Justiciar"],
+      "expect": {
+        "Ayara can sacrifice Devoted Druid": false,
+        "Ayara can sacrifice Shadowheart": true,
+        "Shadowheart can sacrifice Devoted Druid": true
+      },
+      "reasoning": "Ayara requires 'another black creature'. Mono-green combo pieces are not legal sacrifices for her.",
+      "confidence": "high"
+    },
+    {
+      "id": "THR-13",
+      "title": "Graveyard setup is not 'dying'",
+      "cards": ["Buried Alive", "Entomb", "Dina's Guidance", "Commune with Evil", "Diresight"],
+      "expect": {
+        "dies_event_generated": false,
+        "note": "Library-to-graveyard, discard, mill, and surveil moves do not fire 'dies' triggers or 'would die' replacements."
+      },
+      "confidence": "high"
+    },
+
+    {
+      "id": "VRN-01",
+      "title": "Vren's replacement only applies to opponents' creatures dying on the battlefield",
+      "cards": ["Vren, the Relentless", "Entomb", "Buried Alive"],
+      "setup": { "battlefield_opponent": ["Vren, the Relentless"], "actor": "you" },
+      "expect": {
+        "Entomb/Buried Alive/discard/mill to your graveyard": "unaffected",
+        "your creature destroyed on battlefield": "exiled instead of graveyard"
+      },
+      "reasoning": "'If a creature an opponent controls would die, exile it instead' only modifies battlefield-to-graveyard moves for creatures.",
+      "confidence": "high"
+    },
+    {
+      "id": "VRN-02",
+      "title": "Vren dying in the same board wipe still exiles opponents' creatures",
+      "setup": { "event": "Wipe destroys Vren and opponents' creatures simultaneously" },
+      "expect": { "opponents_creatures": "exiled", "count_for_end_step_rats": "yes, if Vren returns before end step" },
+      "reasoning": "The replacement effect applies because Vren is on the battlefield when the event would happen.",
+      "confidence": "medium"
+    },
+    {
+      "id": "VRN-03",
+      "title": "Given tokens die immediately under M.O.D.O.K. and become Rats",
+      "cards": ["Vren, the Relentless", "M.O.D.O.K.", "Forbidden Orchard"],
+      "expect": {
+        "opponent 1/1 token": "enters with 0 toughness (−1/−1 from M.O.D.O.K.), would die, is exiled by Vren",
+        "end_step_rats": "+1 per exiled creature"
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "VRN-04",
+      "title": "'Dies' triggers don't fire for exiled creatures",
+      "cards": ["Vren, the Relentless", "The Meathook Massacre"],
+      "expect": { "meathook_opponent_death_trigger": false },
+      "reasoning": "Opponents' creatures are exiled instead of dying, so 'whenever a creature an opponent controls dies' never triggers.",
+      "confidence": "high"
+    },
+    {
+      "id": "VRN-05",
+      "title": "Rat tokens with Vren out survive Night of Souls' Betrayal",
+      "cards": ["Vren, the Relentless", "Night of Souls' Betrayal"],
+      "expect": {
+        "Vren Rat token (1/1, +1/+1 per other Rat)": "survives (Vren herself is a Rat)",
+        "plain 1/1 Rat from other sources": "dies"
+      },
+      "confidence": "medium"
+    },
+
+    {
+      "id": "VRK-01",
+      "title": "Copies of spells are not cast",
+      "cards": ["Vraska, Soul of Stone", "Sword of Wealth and Power", "storm cards"],
+      "expect": { "vraska_cast_trigger_from_copy": false },
+      "reasoning": "Copying a spell doesn't cast it, so 'whenever you cast' abilities ignore copies (Sword of Wealth and Power copies, storm copies).",
+      "cr_refs_to_verify": ["707.10"],
+      "confidence": "high"
+    },
+    {
+      "id": "VRK-02",
+      "title": "Tapping artifacts as a cost ignores summoning sickness",
+      "cards": ["Urza, Lord High Artificer", "Sculpture Treasure tokens"],
+      "expect": {
+        "Sculpture token's own {T} mana ability the turn it's created": "not usable (it's a creature)",
+        "Urza's 'tap an untapped artifact you control' using that token": "usable"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "VRK-03",
+      "title": "Wizard's Staff doubles Vraska's cast trigger",
+      "cards": ["Vraska, Soul of Stone", "Wizard's Staff"],
+      "expect": { "sculptures_per_noncreature_spell": 2 },
+      "confidence": "verify"
+    },
+
+    {
+      "id": "HLG-01",
+      "title": "Helga's restricted mana",
+      "cards": ["Helga, Skittish Seer"],
+      "expect": {
+        "creature MV ≥ 4": "allowed",
+        "creature with {X} in cost, any MV": "allowed",
+        "noncreature spells (e.g. Dancing from Dark to Dawn)": "not allowed",
+        "creature MV ≤ 3 without {X}": "not allowed"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "HLG-02",
+      "title": "Untap effects allow a second activation at the new power",
+      "cards": ["Helga, Skittish Seer", "Biosynthic Burst"],
+      "sequence": ["Tap Helga for X mana", "Cast Biosynthic Burst on Helga (+1/+1 counter, untap)", "Tap again for X+1"],
+      "expect": { "total_mana": "2X + 1 (minus Burst's cost from other sources)" },
+      "confidence": "high"
+    },
+    {
+      "id": "HLG-03",
+      "title": "Phasing keeps counters; zone changes reset them",
+      "cards": ["Helga, Skittish Seer", "Galadriel's Dismissal", "The Eagles Are Coming!"],
+      "expect": {
+        "phased out then in": "counters kept",
+        "returned to hand and recast": "new object, counters lost"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "HLG-04",
+      "title": "Draw replacement on first non-draw-step draw",
+      "cards": ["Helga, Skittish Seer", "Reed Richards, Smartest Man"],
+      "expect": { "helga_first_trigger_draw_each_turn": 4 },
+      "note": "Interaction with Bard, King of Dale's draw replacement depends on replacement-effect ordering (affected player chooses). Model separately.",
+      "confidence": "high"
+    },
+
+    {
+      "id": "JYO-01",
+      "title": "Each Jyoti copy pumps separately",
+      "cards": ["Jyoti, Moag Ancient", "nonlegendary copy effects"],
+      "expect": { "beginning_of_combat_triggers": "one per Jyoti object; each adds +X/+X to land creatures" },
+      "confidence": "medium"
+    },
+    {
+      "id": "JYO-02",
+      "title": "Base P/T setting effects and timestamps",
+      "cards": ["Ambush Commander", "Verdant Kraken"],
+      "expect": { "Kraken 3/3 Forest land creature tokens while Ambush Commander is out": "1/1 (later timestamp sets base P/T)" },
+      "reasoning": "Both set base P/T in the same layer; later timestamp wins.",
+      "confidence": "verify"
+    },
+
+    {
+      "id": "BUM-01",
+      "title": "Cast triggers resolve before the spell",
+      "cards": ["Ms. Bumbleflower"],
+      "expect": { "counter_and_flying_applied": "before the triggering spell resolves", "second_resolution_draws": 2 },
+      "confidence": "high"
+    }
+  ],
+
+  "loop_detection": {
+    "model": "Treat each activated ability as a resource transform: inputs (mana, tap, counters/toughness) → outputs (mana, untap, toughness, tokens). A loop is infinite when the net change in every consumed resource is ≥ 0 and at least one resource grows.",
+    "resources": ["mana (by color)", "untap", "toughness", "power", "tokens", "life"],
+    "rules": [
+      {
+        "id": "LOOP-MANA-PUMP",
+        "description": "Untap costs 1 toughness (−1/−1 counter). Pump costs C mana for +T toughness. Each tap makes M mana.",
+        "infinite_when": "T * M > C",
+        "examples": [
+          { "pump": "Iridescent Blademaster", "C": 4, "T": 2, "min_M": 3 },
+          { "pump": "Guardian of the Halls", "C": 7, "T": 3, "min_M": 3 }
+        ]
+      },
+      {
+        "id": "LOOP-TAP-PUMP",
+        "description": "Pump uses a tap (not mana). Alternate pump-tap and mana-tap; each round spends 2 untaps (2 toughness).",
+        "infinite_when": "T >= 2 (any M ≥ 1 gives infinite mana)",
+        "examples": [
+          { "pump": "Greenhilt Trainee", "T": 4, "restriction": "holder power ≥ 4" },
+          { "pump": "Immaculate Magistrate", "T": "Elves controlled", "permanent": true },
+          { "pump": "Timberwatch Elf", "T": "Elves on battlefield", "permanent": false }
+        ]
+      },
+      {
+        "id": "LOOP-ETB-UNTAP",
+        "description": "Token creation triggers an untap of the token maker.",
+        "infinite_when": "Mana produced per untap cycle ≥ token ability cost",
+        "examples": [{ "pieces": ["Imperious Perfect", "Intruder Alarm", "any mana Elf"] }]
+      }
+    ],
+    "post_loop_checks": [
+      "Do until-end-of-turn effects leave the holder dead at cleanup?",
+      "Does the loop produce a win condition (drain, blight, damage) or only a resource?",
+      "Which pieces can be disrupted mid-loop (graveyard hate, instant removal)?"
+    ]
+  },
+
+  "deck_heuristics": {
+    "note": "Judgment guidelines for a deck analyzer, not rules. Treat as defaults the user can override.",
+    "user_preferences": {
+      "min_lands": 37,
+      "board_wipes_target": 3,
+      "wipe_rationale": "Wipes are the catch-up button when behind; the value is higher when the commander's engine survives (e.g. graveyard-based)."
+    },
+    "role_counts": ["ramp", "card draw", "spot removal", "board wipes", "protection", "counterspells", "tutors", "win conditions"],
+    "redundancy": {
+      "principle": "Redundancy matters in 100-card singleton. Count a card as a backup only for roles it actually performs in this deck.",
+      "example": "Ayara is a backup for 'sacrifice to draw' but not for 'put green Elves in the graveyard' (black-only sacrifice)."
+    },
+    "bracket_signals": [
+      "Game Changers present",
+      "Tutor density (e.g. Entomb, Buried Alive, Dina's Guidance, Fauna Shaman)",
+      "Earliest turn a combo can realistically assemble",
+      "Number of redundant combo pieces"
+    ],
+    "playgroup_notes": [
+      "Deliberately low removal can be a design choice to vary play experience across decks.",
+      "Disclose infinite combos to the playgroup before games."
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "meta": { "title": "Eval cycle 9 lock-ins (engine2/eval/cycles/9/triage.md)", "created": "2026-09-30" },
+  "principles": {
+    "P-COLORLESS": "A colorless commander plays colorless big mana; a Vehicle isn't a big body",
+    "P-UPKEEP-SAC": "Cards that eat a creature every upkeep need a token supply",
+    "P-NO-COUNTER": "Counterspell-shaped cards need a Counterspell slot"
+  },
+  "decks": {},
+  "assertions": [
+    { "id": "EV9-01", "deck": "kozilek-eldrazi", "kind": "direction", "expect": { "top": "big-mana" }, "confidence": "high", "principle": "P-COLORLESS" },
+    { "id": "EV9-02", "deck": "kozilek-eldrazi", "kind": "not_link", "card": "Mole Module", "expect": { "links": ["converter"] }, "confidence": "high", "principle": "P-COLORLESS" },
+    { "id": "EV9-03", "deck": "yuriko-ninjas", "kind": "adds_exclude", "expect": ["Eldrazi Monument"], "confidence": "high", "principle": "P-UPKEEP-SAC" },
+    { "id": "EV9-04", "deck": "rakdos-chaos", "kind": "adds_exclude", "expect": ["Vexing Bauble", "Nadier's Nightblade"], "confidence": "high", "principle": "P-NO-COUNTER" },
+    { "id": "EV9-05", "deck": "atraxa-counters", "kind": "adds_exclude", "expect": ["Maskwood Nexus", "Eldrazi Monument"], "confidence": "high", "principle": "P-UPKEEP-SAC" },
+    { "id": "EV9-06", "deck": "meren-reanimator", "kind": "adds_exclude", "expect": ["Ravenous Rotbelly"], "confidence": "medium", "principle": "P-UPKEEP-SAC" }
+  ]
+}

@@ -798,7 +798,10 @@ async function _enrichPass(cards, identifier, allowNameForExact) {
   for (let i = 0; i < cards.length; i += BATCH) {
     const batch = cards.slice(i, i + BATCH);
     try {
-      const res = await fetch('https://api.scryfall.com/cards/collection', {
+      // Our proxy, not api.scryfall.com: it prices the batch off the price log (TCG
+      // only where the log missed) and marks it, which is what lets cardToEntry keep
+      // the price. Same 75-per-request shape and response, so this is a URL swap.
+      const res = await fetch('/api/scryfall/collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifiers: batch.map(identifier) }),
@@ -851,7 +854,7 @@ async function enrichCardsFromScryfall(cards) {
   for (let i = 0; i < cards.length; i += BATCH) {
     const batch = cards.slice(i, i + BATCH);
     try {
-      const res = await fetch('https://api.scryfall.com/cards/collection', {
+      const res = await fetch('/api/scryfall/collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.scryfallId })) }),

@@ -1,0 +1,325 @@
+{
+ "name": "Average Rakdos, Patron of Chaos deck (EDHREC)",
+ "commander": "Rakdos, Patron of Chaos",
+ "source": "edhrec-average (copied from pulled/rand8-rakdos-patron-of-chaos for the eval loop)",
+ "source_url": "https://json.edhrec.com/pages/average-decks/rakdos-patron-of-chaos.json",
+ "archetype_expected": "unknown",
+ "cards": [
+  {
+   "name": "Abrade",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Archfiend of Depravity",
+   "qty": 1
+  },
+  {
+   "name": "Archfiend of Despair",
+   "qty": 1
+  },
+  {
+   "name": "Balor",
+   "qty": 1
+  },
+  {
+   "name": "Bedevil",
+   "qty": 1
+  },
+  {
+   "name": "Black Market Connections",
+   "qty": 1
+  },
+  {
+   "name": "Blasphemous Act",
+   "qty": 1
+  },
+  {
+   "name": "Blazemire Verge",
+   "qty": 1
+  },
+  {
+   "name": "Blood Crypt",
+   "qty": 1
+  },
+  {
+   "name": "Bloodgift Demon",
+   "qty": 1
+  },
+  {
+   "name": "Bloodletter of Aclazotz",
+   "qty": 1
+  },
+  {
+   "name": "Bloodstained Mire",
+   "qty": 1
+  },
+  {
+   "name": "Bloodthirster",
+   "qty": 1
+  },
+  {
+   "name": "Bojuka Bog",
+   "qty": 1
+  },
+  {
+   "name": "Chaos Warp",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Commander's Sphere",
+   "qty": 1
+  },
+  {
+   "name": "Dark Ritual",
+   "qty": 1
+  },
+  {
+   "name": "Deadly Rollick",
+   "qty": 1
+  },
+  {
+   "name": "Demonic Counsel",
+   "qty": 1
+  },
+  {
+   "name": "Demonic Tutor",
+   "qty": 1
+  },
+  {
+   "name": "Desecration Demon",
+   "qty": 1
+  },
+  {
+   "name": "Dragonskull Summit",
+   "qty": 1
+  },
+  {
+   "name": "Dreadbore",
+   "qty": 1
+  },
+  {
+   "name": "Faithless Looting",
+   "qty": 1
+  },
+  {
+   "name": "Feed the Swarm",
+   "qty": 1
+  },
+  {
+   "name": "Fellwar Stone",
+   "qty": 1
+  },
+  {
+   "name": "Foreboding Ruins",
+   "qty": 1
+  },
+  {
+   "name": "Harvester of Souls",
+   "qty": 1
+  },
+  {
+   "name": "Haunted Ridge",
+   "qty": 1
+  },
+  {
+   "name": "Herald of Slaanesh",
+   "qty": 1
+  },
+  {
+   "name": "Indulgent Tormentor",
+   "qty": 1
+  },
+  {
+   "name": "Infernal Grasp",
+   "qty": 1
+  },
+  {
+   "name": "Kardur, Doomscourge",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Liliana's Contract",
+   "qty": 1
+  },
+  {
+   "name": "Luxury Suite",
+   "qty": 1
+  },
+  {
+   "name": "Mahadi, Emporium Master",
+   "qty": 1
+  },
+  {
+   "name": "Master of Cruelties",
+   "qty": 1
+  },
+  {
+   "name": "Mayhem Devil",
+   "qty": 1
+  },
+  {
+   "name": "Mind Stone",
+   "qty": 1
+  },
+  {
+   "name": "Mogis, God of Slaughter",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 10
+  },
+  {
+   "name": "Ob Nixilis, the Adversary",
+   "qty": 1
+  },
+  {
+   "name": "Ob Nixilis, Unshackled",
+   "qty": 1
+  },
+  {
+   "name": "Painful Quandary",
+   "qty": 1
+  },
+  {
+   "name": "Perforating Artist",
+   "qty": 1
+  },
+  {
+   "name": "Phyrexian Arena",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos Carnarium",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos Charm",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos Joins Up",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos Signet",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos, Lord of Riots",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos, the Muscle",
+   "qty": 1
+  },
+  {
+   "name": "Rakdos, the Showstopper",
+   "qty": 1
+  },
+  {
+   "name": "Raphael, Fiendish Savior",
+   "qty": 1
+  },
+  {
+   "name": "Reanimate",
+   "qty": 1
+  },
+  {
+   "name": "Reaper from the Abyss",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Rune-Scarred Demon",
+   "qty": 1
+  },
+  {
+   "name": "Sign in Blood",
+   "qty": 1
+  },
+  {
+   "name": "Smoldering Marsh",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Solemn Simulacrum",
+   "qty": 1
+  },
+  {
+   "name": "Sower of Discord",
+   "qty": 1
+  },
+  {
+   "name": "Sulfurous Springs",
+   "qty": 1
+  },
+  {
+   "name": "Swamp",
+   "qty": 12
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Tainted Peak",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Indulgence",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Malice",
+   "qty": 1
+  },
+  {
+   "name": "Terminate",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 1
+  },
+  {
+   "name": "Toxic Deluge",
+   "qty": 1
+  },
+  {
+   "name": "Unholy Annex // Ritual Chamber",
+   "qty": 1
+  },
+  {
+   "name": "Vandalblast",
+   "qty": 1
+  },
+  {
+   "name": "Varragoth, Bloodsky Sire",
+   "qty": 1
+  },
+  {
+   "name": "Withering Torment",
+   "qty": 1
+  }
+ ]
+}

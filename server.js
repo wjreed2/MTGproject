@@ -2068,6 +2068,47 @@ async function ensureDeckWantedCardsTable() {
   }
 }
 
+// Deck Compare: one shared physical-deck scan tally per deck (js/deck-compare.js).
+async function ensureDeckCompareTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_sessions (
+        deck_id        VARCHAR(50)     NOT NULL,
+        include_extras TINYINT(1)      NOT NULL DEFAULT 0,
+        revision       INT UNSIGNED    NOT NULL DEFAULT 0,
+        updated_at     BIGINT          NOT NULL DEFAULT 0,
+        updated_by     BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_scans (
+        deck_id    VARCHAR(50)     NOT NULL,
+        name_key   VARCHAR(255)    NOT NULL,
+        name       VARCHAR(255)    NOT NULL,
+        qty        INT UNSIGNED    NOT NULL DEFAULT 0,
+        entry      MEDIUMTEXT      NULL,
+        updated_at BIGINT          NOT NULL DEFAULT 0,
+        updated_by BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id, name_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    // Applied op batches, so a retried POST (response lost) is not applied twice.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_batches (
+        deck_id    VARCHAR(50) NOT NULL,
+        batch_id   VARCHAR(64) NOT NULL,
+        applied_at BIGINT      NOT NULL,
+        PRIMARY KEY (deck_id, batch_id),
+        INDEX idx_dcb_applied (applied_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureTradeSuggestionDismissalsTable() {
   const conn = await db().getConnection();
   try {
@@ -2482,6 +2523,7 @@ const {
 const { decideOauthLink } = require('./lib/oauth-link-policy');
 // Granular op-based deck sync (shared with the browser bundle).
 const DeckOps = require('./js/deck-ops');
+const DeckCompareCore = require('./js/deck-compare-core'); // shared scan-tally ops (client + server)
 
 async function assertCanEditDeck(deckId, accountId) {
   const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
@@ -2699,6 +2741,10 @@ function _applyTcgPricesToCard(card, usd, usdFoil) {
   if (nf > 0) next.usd = String(nf);
   if (fo > 0) next.usd_foil = String(fo);
   card.prices = next;
+  // `priceSource` tells the client this number came from our price pipeline rather
+  // than from a blob it fetched off api.scryfall.com itself — cardToEntry only
+  // stamps prices onto a stored card when it is set. See attachPriceLogPrices.
+  if (nf > 0 || fo > 0) card.priceSource = 'tcgplayer';
   return card;
 }
 
@@ -2759,11 +2805,19 @@ async function attachPriceLogPrices(cards) {
       const p = byId.get(String(c.id || '').toLowerCase());
       if (!p) continue;
       const next = { ...(c.prices || {}) };
-      if (p.tcg_normal != null) next.usd = p.tcg_normal;
-      if (p.tcg_foil != null) next.usd_foil = p.tcg_foil;
-      if (p.ck_normal != null) next.usd_ck = p.ck_normal;
-      if (p.ck_foil != null) next.usd_ck_foil = p.ck_foil;
+      let applied = false;
+      if (p.tcg_normal != null) { next.usd = p.tcg_normal; applied = true; }
+      if (p.tcg_foil != null) { next.usd_foil = p.tcg_foil; applied = true; }
+      if (p.ck_normal != null) { next.usd_ck = p.ck_normal; applied = true; }
+      if (p.ck_foil != null) { next.usd_ck_foil = p.ck_foil; applied = true; }
       c.prices = next;
+      // The price log is the authority; say so on the card. The client stores prices
+      // only off a marked card, which is what keeps raw-Scryfall numbers (from its own
+      // direct api.scryfall.com calls) out of the stored blobs and out of the deltas.
+      // Only when a column actually held a value: a row can exist with every vendor
+      // NULL (a printing too new to have a market price), and marking that as priced
+      // would vouch for numbers we never supplied.
+      if (applied) c.priceSource = 'price-log';
     }
   } catch (e) {
     // Price-history tables not present in this DB — degrade gracefully (search still works).
@@ -4378,13 +4432,17 @@ app.get('/api/decks/public', async (req, res) => {
     }
 
     // The card's own finish, falling back to non-foil when a foil price is
-    // missing — the same rule the deck page's value uses.
-    const deckValue = cards => (cards || []).reduce((sum, c) => {
-      const nonFoil = parseFloat(c.priceTCG) || 0;
-      const foil = parseFloat(c.priceTCGFoil) || 0;
+    // missing — the same rule the deck page's value uses. Both vendors are summed:
+    // this listing is cached once for every user, so it cannot read one viewer's
+    // displayed-price setting; the client picks the column its setting asks for.
+    const deckValue = (cards, nfKey, foilKey) => (cards || []).reduce((sum, c) => {
+      const nonFoil = parseFloat(c[nfKey]) || 0;
+      const foil = parseFloat(c[foilKey]) || 0;
       const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
       return sum + unit * (c.qty || 1);
     }, 0);
+    const deckValueTcg = cards => deckValue(cards, 'priceTCG', 'priceTCGFoil');
+    const deckValueCk = cards => deckValue(cards, 'priceCK', 'priceCKFoil');
 
     // Read the cached readouts; never infer here. Filling even four of them made
     // a cold listing take five seconds, and the background warm-up works through
@@ -4425,7 +4483,8 @@ app.get('/api/decks/public', async (req, res) => {
         cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
         notes: String(deck.notes || '').slice(0, 400),
         goal: goalByDeck.get(r.id) || null,
-        price: Math.round(deckValue(cards) * 100) / 100,
+        price: Math.round(deckValueTcg(cards) * 100) / 100,
+        priceCK: Math.round(deckValueCk(cards) * 100) / 100,
         ownerEmail: r.email,
         // A handle or display name where there is one — the local part of an
         // email is a poor byline, and the precon library's is "Wizards of the
@@ -5803,6 +5862,9 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
       ops: result.ops,
       revision: result.revision,
       updatedAt: now,
+      // Sending device, so it can skip its own echo while the account's OTHER
+      // devices (phone + computer) still apply the change live.
+      clientId: typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null,
     }));
     res.json({ ok: true, revision: result.revision, updatedAt: now });
   } catch (e) {
@@ -5823,6 +5885,9 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can delete a deck' });
     }
     await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
+    await db().query('DELETE FROM deck_compare_scans WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_sessions WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_batches WHERE deck_id=?', [deckId]).catch(() => {});
     invalidateTradelistCache(accountId);
     void reconcileAccountWishlist(accountId);
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
@@ -5833,6 +5898,189 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Deck Compare: shared physical-deck scan tally ────────────────────────────
+// Everyone who can EDIT the deck (owner + 'edit' collaborators) shares one tally.
+// Changes arrive as ops (js/deck-compare-core.js applyTallyOps, the same code the
+// client runs), are applied under a per-deck row lock, and the new state is pushed
+// to the deck's socket room as 'deck:compare'.
+
+/**
+ * Send a tally update to the deck's compare room, re-checking each member first.
+ * Room membership is granted on deck:join; a collaborator downgraded to view-only
+ * or removed since then is dropped from the room instead of being sent the tally.
+ */
+async function emitDeckCompare(deckId, payload) {
+  const room = `deckcompare:${deckId}`;
+  try {
+    const sockets = await _io.in(room).fetchSockets();
+    const allowed = new Map(); // accountId -> still an editor?
+    for (const s of sockets) {
+      const acc = s.data?.accountId;
+      if (!allowed.has(acc)) {
+        allowed.set(acc, acc != null && !!(await deckCompareAccess(acc, deckId)).ok);
+      }
+      if (allowed.get(acc)) s.emit('deck:compare', payload);
+      else s.leave(room);
+    }
+  } catch (e) {
+    console.error('[deck-compare] broadcast', e.message);
+  }
+}
+
+async function deckCompareAccess(accountId, deckId) {
+  const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+  if (!rows.length) return { status: 404, error: 'Deck not found' };
+  if (Number(rows[0].account_id) === Number(accountId)) return { ok: true };
+  const [cr] = await db().query(
+    'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+    [deckId, accountId]
+  );
+  if (!cr.length) return { status: 403, error: 'Access denied' };
+  if ((cr[0].permission || 'edit') === 'view') return { status: 403, error: 'You have view-only access to this deck' };
+  return { ok: true };
+}
+
+function _deckCompareRowsToScanned(rows) {
+  const scanned = {};
+  for (const r of rows) {
+    if (!DeckCompareCore.isSafeKey(r.name_key)) continue;
+    const row = { name: r.name, qty: Number(r.qty) || 0 };
+    if (r.entry) {
+      try {
+        row.entry = JSON.parse(r.entry);
+        if (row.entry && row.entry.image) row.image = row.entry.image;
+      } catch (_) {}
+    }
+    if (row.qty > 0) scanned[r.name_key] = row;
+  }
+  return scanned;
+}
+
+async function loadDeckCompareState(q, deckId, lock) {
+  const [srows] = await q.query(
+    `SELECT include_extras, revision FROM deck_compare_sessions WHERE deck_id = ?${lock ? ' FOR UPDATE' : ''}`,
+    [deckId]
+  );
+  const [rows] = await q.query(
+    'SELECT name_key, name, qty, entry FROM deck_compare_scans WHERE deck_id = ?',
+    [deckId]
+  );
+  return {
+    deckId,
+    revision: srows.length ? Number(srows[0].revision) || 0 : 0,
+    includeExtras: srows.length ? !!srows[0].include_extras : false,
+    scanned: _deckCompareRowsToScanned(rows),
+  };
+}
+
+app.get('/api/decks/:id/compare', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  try {
+    const access = await deckCompareAccess(req.accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    // Both tables from one snapshot, so revision/flag and counts always belong together.
+    const conn = await db().getConnection();
+    let state;
+    try {
+      await conn.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+      state = await loadDeckCompareState(conn, deckId, false);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json(state);
+  } catch (e) {
+    console.error('[deck-compare] load failed:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  const body = req.body || {};
+  if (!Array.isArray(body.ops) || !body.ops.length) return res.status(400).json({ error: 'No ops' });
+  if (body.ops.length > 2000) return res.status(400).json({ error: 'Too many ops' });
+  const ops = DeckCompareCore.sanitizeTallyOps(body.ops);
+  if (!ops.length) return res.status(400).json({ error: 'No valid ops' });
+  const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null;
+  const batchId = typeof body.batchId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.batchId) ? body.batchId : null;
+  try {
+    const access = await deckCompareAccess(accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const now = Date.now();
+    let state;
+    let duplicate = false;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        'INSERT IGNORE INTO deck_compare_sessions (deck_id, include_extras, revision, updated_at) VALUES (?, 0, 0, ?)',
+        [deckId, now]
+      );
+      const before = await loadDeckCompareState(conn, deckId, true);
+      if (batchId) {
+        // Under the session row lock: a batch id seen before means this is a retry of a
+        // POST that already committed — answer with the current state, apply nothing.
+        const [ins] = await conn.query(
+          'INSERT IGNORE INTO deck_compare_batches (deck_id, batch_id, applied_at) VALUES (?,?,?)',
+          [deckId, batchId, now]
+        );
+        if (!ins.affectedRows) duplicate = true;
+      }
+      if (duplicate) {
+        await conn.commit();
+        state = before;
+      } else {
+        const beforeJson = {};
+        for (const [k, v] of Object.entries(before.scanned)) beforeJson[k] = JSON.stringify(v);
+        const after = DeckCompareCore.applyTallyOps(
+          { scanned: JSON.parse(JSON.stringify(before.scanned)), includeExtras: before.includeExtras },
+          ops
+        );
+        const gone = Object.keys(before.scanned).filter(k => !after.scanned[k]);
+        if (gone.length) {
+          await conn.query('DELETE FROM deck_compare_scans WHERE deck_id = ? AND name_key IN (?)', [deckId, gone]);
+        }
+        for (const [k, v] of Object.entries(after.scanned)) {
+          if (beforeJson[k] === JSON.stringify(v)) continue;
+          await conn.query(
+            `INSERT INTO deck_compare_scans (deck_id, name_key, name, qty, entry, updated_at, updated_by)
+             VALUES (?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE name=VALUES(name), qty=VALUES(qty),
+               entry=COALESCE(VALUES(entry), entry), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)`,
+            [deckId, k, String(v.name || k).slice(0, 255), v.qty, v.entry ? JSON.stringify(v.entry) : null, now, accountId]
+          );
+        }
+        await conn.query(
+          'UPDATE deck_compare_sessions SET include_extras = ?, revision = revision + 1, updated_at = ?, updated_by = ? WHERE deck_id = ?',
+          [after.includeExtras ? 1 : 0, now, accountId, deckId]
+        );
+        state = await loadDeckCompareState(conn, deckId, false);
+        await conn.commit();
+      }
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+    if (!duplicate) {
+      // Editors only — view-only collaborators share the deck room but not the tally.
+      if (_io) await emitDeckCompare(deckId, await deckBroadcastMeta(accountId, { ...state, clientId }));
+      // Batch ids only need to outlive client retries.
+      void db().query('DELETE FROM deck_compare_batches WHERE applied_at < ?', [now - 7 * 24 * 3600 * 1000]).catch(() => {});
+    }
+    res.json(state);
+  } catch (e) {
+    console.error('[deck-compare] ops failed:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -6204,20 +6452,27 @@ async function _e2ResolveCards(names) {
   for (let i = 0; i < uniq.length; i += 400) {
     const chunk = uniq.slice(i, i + 400);
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+       WHERE c.name IN (${chunk.map(() => '?').join(',')})
+       ORDER BY c.legal_commander DESC, (c.type_line LIKE 'Token%') ASC, c.edhrec_rank IS NULL, c.edhrec_rank`, chunk);
+    // 220+ names are shared by a card and a token/variant ("Llanowar Elves" the card
+    // and the token) — keep the commander-legal, most-played printing, never a token.
     for (const r of rows) if (!found.has(r.name)) found.set(r.name, r);
   }
   // front-face fallback for DFC names ("Malakir Rebirth" → "Malakir Rebirth // …")
   for (const n of uniq) {
     if (found.has(n)) continue;
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name LIKE ? LIMIT 1`, [`${n} // %`]);
+       WHERE c.name LIKE ?
+       ORDER BY c.legal_commander DESC, (c.layout IN ('art_series', 'token', 'double_faced_token', 'emblem')) ASC,
+                c.edhrec_rank IS NULL, c.edhrec_rank
+       LIMIT 1`, [`${n} // %`]);
+    // "Clearwater Pathway" must resolve to the MDFC, never its art-series card ("Card // Card")
     if (rows.length) found.set(n, rows[0]);
   }
   return found;
@@ -6250,26 +6505,50 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       });
     }
     const cr = commanderName ? resolved.get(commanderName) : null;
-    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+    let cmdrColors = null; // color identity → color-aware category targets and ramp need
+    try { cmdrColors = cr ? (typeof cr.color_identity_json === 'string' ? JSON.parse(cr.color_identity_json) : cr.color_identity_json) : null; } catch (_) { /* unknown */ }
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr), ci: cmdrColors || [] } : null;
 
     const withIR = deckCards.filter(c => c.ir).length;
     const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
 
     const goalsRes = engine2.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
     const topGoal = goalsRes.goals[0] || null;
+    // Gameplan (docs/24-gameplan-model.md): the engine, what fuels it, what the deck
+    // spends its output on — every add and cut is judged against it, and a
+    // commander-centric plan's DIRECTION (not the raw top goal) sets the category
+    // targets the user's sliders then adjust.
+    // A plan-inference failure must never take suggestions down with it: fall back
+    // to goal-driven scoring (gameplan null is the pre-gameplan path everywhere).
+    let gameplan = null;
+    try {
+      gameplan = engine2.gameplan.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
+    } catch (e) { console.error('[analyze] gameplan inference failed — plain scoring', e); }
+    const planGoal = gameplan?.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
     const thresholds = engine2.thresholds.computeThresholds({
-      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+      goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides, colors: cmdrColors,
     });
     const roleCounts = engine2.thresholds.countRoles(deckCards);
 
-    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+    const scoringGoals = engine2.gameplan.planGoals(gameplan, goalsRes.goals);
+    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: scoringGoals, thresholds, roleCounts, gameplan })
       .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c), breakdown: engine2.explain.cutBreakdown(c) }));
 
     // ── add candidates: commander-legal cards providing the deck's wanted axes ──
     const templates = engine2.goalTemplates;
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
+    const wantedMap = engine2.recommender.wantedAxes(scoringGoals[0]?.goal, goalsRes.histogram, index, templates, scoringGoals);
       const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
+    // The plan retrieves too (docs/24): its event fuel, what amplifies its output, thin
+    // must-draw pieces; land creatures by type/text for a Jyoti-class engine; and every
+    // category the user's sliders say is 3+ short — Thranduil's removal gap has to be
+    // IN the pool before it can be recommended.
+    const hints = gameplan ? engine2.gameplan.poolHints(gameplan) : { axes: [], landCreatures: false };
+    const planAxes = hints.axes.filter(a => !wanted.includes(a));
+    const gapRoles = Object.keys(engine2.thresholds.ROLE_TO_CATEGORY).filter(r => {
+      const cat = engine2.thresholds.ROLE_TO_CATEGORY[r];
+      return ((thresholds[cat] || 0) - (roleCounts[cat] || 0)) >= 3;
+    });
     // Category focus: the pool is normally gated by the deck's ~12 wanted axes, so
     // filtering it down to one category returns whatever happened to be in there —
     // usually nothing for Tutor/Counterspell/Protection. A focused run retrieves by
@@ -6280,7 +6559,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       ? Object.keys(ROLE_TO_CAT).filter(r => ROLE_TO_CAT[r] === focusCategory)
       : [];
     let adds = [];
-    if (wanted.length || focusRoles.length) {
+    if (wanted.length || focusRoles.length || planAxes.length || gapRoles.length || hints.landCreatures || hints.tribe || hints.castFuel) {
       let ciColors = [];
       if (commanderName) {
         const [[cRow]] = await db().query(
@@ -6304,7 +6583,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
       catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
       const cmdrSlug = engine2SlugifyCommander(commanderName);
-      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeParam = /^tribal:(.+)$/.exec(String(scoringGoals[0]?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       // A hard price cap filters AFTER retrieval, so the per-axis window has to be
       // wider when one is set — otherwise the cheap cards never survive the ranking.
@@ -6327,7 +6606,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
            LIMIT 400`;
         candParams = [cmdrSlug, ...focusRoles.map(r => JSON.stringify(r)), ...disallowed.map(d => JSON.stringify(d))];
       } else {
-        const candSub = wanted.map(() =>
+        const axesToPull = [...wanted, ...planAxes];
+        const candSub = axesToPull.map(() =>
           `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
                    st.inclusion_pct AS cmdr_pct
             FROM card_semantics_axes x
@@ -6339,8 +6619,54 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
               ${ciSql}
             ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
             LIMIT ${axisWindow})`).join(' UNION ALL ');
-        candSql = `SELECT DISTINCT * FROM (${candSub}) u`;
-        candParams = wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]);
+        const extraSub = [];
+        const extraParams = [];
+        const baseSel = `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                   st.inclusion_pct AS cmdr_pct
+            FROM card_semantics s
+            JOIN scryfall_oracle_cards c ON c.oracle_id = s.oracle_id
+            LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+            WHERE s.status IN ('valid','flagged','manual') AND c.legal_commander = 1 ${ciSql}`;
+        const rankOrder = `ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, (c.edhrec_rank IS NULL), c.edhrec_rank`;
+        if (gapRoles.length) {
+          extraSub.push(`(${baseSel} AND (${gapRoles.map(() => 'JSON_CONTAINS(s.roles_json, ?)').join(' OR ')}) ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...gapRoles.map(r => JSON.stringify(r)));
+        }
+        if (hints.landCreatures) {
+          extraSub.push(`(${baseSel} AND (c.type_line LIKE '%Land Creature%' OR c.oracle_text LIKE '%land creature%'
+              OR c.oracle_text LIKE '%lands you control are%' OR c.oracle_text LIKE '%Forests you control are%'
+              OR c.oracle_text LIKE '%becomes a %creature%still a land%' OR c.oracle_text LIKE '%Forest lands%'
+              OR c.oracle_text LIKE '%lands you control become%') ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        }
+        // format staples in the deck's colors — the staple gap needs them in the pool
+        extraSub.push(`(${baseSel} AND c.type_line NOT LIKE '%Land%' AND c.edhrec_rank IS NOT NULL ORDER BY c.edhrec_rank LIMIT 150)`);
+        extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        // the engine's own tribe, by type line
+        if (hints.tribe) {
+          extraSub.push(`(${baseSel} AND c.type_line LIKE ? ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), `%${hints.tribe}%`);
+        }
+        // a cast engine's spell volume, by type line / mana value
+        if (hints.castFuel) {
+          const CT = { creature: 'Creature', artifact: 'Artifact', enchantment: 'Enchantment', instant: 'Instant', sorcery: 'Sorcery', planeswalker: 'Planeswalker', battle: 'Battle' };
+          const yes = hints.castFuel.types.map(t => CT[t]).filter(Boolean);
+          const no = hints.castFuel.notTypes.map(t => CT[t]).filter(Boolean);
+          const conds = [`c.type_line NOT LIKE 'Land%'`];
+          if (yes.length) conds.push(`(${yes.map(() => 'c.type_line LIKE ?').join(' OR ')})`);
+          for (let i = 0; i < no.length; i++) conds.push(`c.type_line NOT LIKE ?`);
+          if (hints.castFuel.mvMin != null) conds.push('c.cmc >= ?');
+          extraSub.push(`(${baseSel} AND ${conds.join(' AND ')} ${rankOrder} LIMIT ${axisWindow * 2})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...yes.map(t => `%${t}%`),
+            ...no.map(t => `${t}%`), ...(hints.castFuel.mvMin != null ? [hints.castFuel.mvMin] : []));
+        }
+        // the whole removal shelf for an engine fed by removal
+        if (hints.removalWide) {
+          extraSub.push(`(${baseSel} AND (JSON_CONTAINS(s.roles_json, ?) OR JSON_CONTAINS(s.roles_json, ?)) ${rankOrder} LIMIT ${axisWindow * 3})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), JSON.stringify('spot_removal'), JSON.stringify('board_wipe'));
+        }
+        candSql = `SELECT DISTINCT * FROM (${[candSub, ...extraSub].filter(Boolean).join(' UNION ALL ')}) u`;
+        candParams = [...axesToPull.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]), ...extraParams];
       }
       const [candRows] = await db().query(candSql, candParams);
 
@@ -6377,8 +6703,10 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = engine2.recommender.scoreAdds({
-        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
-        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory,
+        candidates, deckCards, commander, goals: scoringGoals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory, gameplan,
+        // the deck's table (declared bracket when the client sends one) picks each card's power_tier column
+        bracket: Math.min(4, Math.max(2, parseInt(body.bracket, 10) || 3)),
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
@@ -6408,6 +6736,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       cuts: cuts.map(({ trace, ...c }) => c),
       adds: adds.map(({ trace, ...a }) => a),
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
+      // English-only plan readout (engine, direction, weakest link) — no axis tokens
+      gameplan: engine2.gameplan.readout(gameplan),
       coverage: { semantics: coverage },
       removalTargets,
       irProjectTags,
@@ -7420,6 +7750,7 @@ function attachRealtime(httpServer) {
     const sess = socket.request.session;
     if (!sess || !sess.accountId) return next(new Error('unauthorized'));
     socket.accountId = sess.accountId;
+    socket.data.accountId = sess.accountId; // visible to fetchSockets() (emitDeckCompare)
     next();
   });
   io.on('connection', socket => {
@@ -7444,9 +7775,15 @@ function attachRealtime(httpServer) {
         const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
         if (!access) return;
         socket.join(`deck:${deckId}`);
+        // Deck Compare tally is for editors only (owner + 'edit' collaborators).
+        if ((await deckCompareAccess(socket.accountId, deckId)).ok) socket.join(`deckcompare:${deckId}`);
       } catch (_) {}
     });
-    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
+    socket.on('deck:leave', ({ deckId } = {}) => {
+      if (!deckId) return;
+      socket.leave(`deck:${deckId}`);
+      socket.leave(`deckcompare:${deckId}`);
+    });
   });
   console.log('[realtime] socket.io attached');
 }
@@ -10475,7 +10812,9 @@ app.get('/api/scryfall/card/:set/:num', async (req, res) => {
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${String(set).toLowerCase()}/${num}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    // Same precedence as /api/scryfall/card-id/:id — price log first, TCG only on a miss.
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -10498,16 +10837,19 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
     // inspector never open for unowned cards in prod.)
     try {
       const local = await _lookupLocalCardById(cardId);
-      // A multi-faced card ("Front // Back") whose per-face data hasn't been backfilled yet
-      // (faces_json NULL — i.e. imported before that column existed) would serve only the front
-      // image, leaving the inspector unable to flip it. Skip local for these until the next cards
-      // re-import populates faces_json; rows that already have it serve straight from local.
-      const needsFacesFromScryfall = local
-        && local.row.faces_json == null
-        && / \/\/ /.test(String(local.row.name || ''));
+      // Two multi-faced ("Front // Back") cases local can't serve, both about per-face art:
+      // rows imported before faces_json existed carry none at all (the inspector couldn't flip
+      // them), and a row that HAS it holds the representative printing's faces — wrong for any
+      // other printing, and only the FRONT face's URL derives from a printing id. Go upstream
+      // for those; everything else serves straight from local.
+      const multiFaced = !!local
+        && (local.row.faces_json != null || / \/\/ /.test(String(local.row.name || '')));
+      const needsFacesFromScryfall = !!local && multiFaced
+        && (local.row.faces_json == null || !!local.printing);
       if (local && !needsFacesFromScryfall) {
         const card = _localRowToScryfallCard(local.row);
         if (local.scryfallId) card.id = local.scryfallId;
+        if (local.printing) _applyPrintingIdentity(card, local.scryfallId, local.printing);
         await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
         if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
         return res.json(card);
@@ -10528,7 +10870,10 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
         .json({ error: upstream ? 'Card not found' : 'Card lookup timed out' });
     }
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    // The log is keyed off mtgjson_printing, not scryfall_oracle_cards, so a printing
+    // missing from the local oracle DB can still have a price row. Try it before TCG.
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -10925,6 +11270,15 @@ app.post('/api/scryfall/collection', async (req, res) => {
     });
     const data = await upstream.json();
     if (!upstream.ok) return res.status(upstream.status).json(data);
+    // Same precedence as search: price log first, TCG only for printings it missed.
+    // Import and the collection-history restore both write cards from this response,
+    // so this is what makes a stored price a price-log price.
+    const cards = Array.isArray(data.data) ? data.data : [];
+    await attachPriceLogPrices(cards);
+    if (hasTcgCreds()) {
+      const misses = cards.filter(c => !_cardHasUsdPrice(c)).slice(0, 24);
+      if (misses.length) await Promise.all(misses.map(enrichCardWithTcgPrices));
+    }
     res.json(data);
   } catch (e) {
     console.error(e);
@@ -10941,7 +11295,8 @@ app.get('/api/scryfall/named', async (req, res) => {
       const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
       if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
       const card = await upstream.json();
-      await enrichCardWithTcgPrices(card);
+      await attachPriceLogPrices([card]);
+      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
       return res.json(card);
     }
 
@@ -10965,7 +11320,10 @@ app.get('/api/scryfall/named', async (req, res) => {
     })();
     if (localRow) {
       let card = _localRowToScryfallCard(localRow);
-      await enrichCardWithTcgPrices(card);
+      // Price log first — this used to lead with TCGplayer, so a card the log had a
+      // row for still got its number from a live vendor call, and the two disagreed.
+      await attachPriceLogPrices([card]);
+      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
       if (!_cardHasUsdPrice(card) && localRow.scryfall_id) {
         const upstreamCard = await _fetchScryfallCardById(localRow.scryfall_id);
         if (upstreamCard) card = upstreamCard;
@@ -10979,12 +11337,17 @@ app.get('/api/scryfall/named', async (req, res) => {
           await enrichCardWithTcgPrices(card);
         }
       }
+      // Both fallbacks above swap the whole card, which throws away the price-log pass
+      // done on the first one — including its CK columns, which no other source fills.
+      // Re-run it on the card we settled on; it only ever writes values the log holds.
+      await attachPriceLogPrices([card]);
       return res.json(card);
     }
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
-    await enrichCardWithTcgPrices(card);
+    await attachPriceLogPrices([card]);
+    if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card);
     res.json(card);
   } catch (e) {
     console.error(e);
@@ -11638,15 +12001,43 @@ async function _lookupLocalCardById(cardId) {
     return { row: direct, scryfallId: direct.scryfall_id === cardId ? cardId : (direct.scryfall_id || null) };
   }
   const [[pr]] = await db().query(
-    'SELECT name FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
+    'SELECT name, set_code, number, rarity, finishes FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
   );
   if (pr?.name) {
     const [[byName]] = await db().query(
       `SELECT ${cols} FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`, [pr.name]
     );
-    if (byName) return { row: byName, scryfallId: cardId };
+    // `printing` set = the oracle row we found describes a DIFFERENT printing than the one
+    // asked for, so its art/set/number belong to that other printing, not to this id.
+    if (byName) return { row: byName, scryfallId: cardId, printing: pr };
   }
   return null;
+}
+
+/**
+ * The oracle table keeps ONE representative printing per card, so a lookup for any other
+ * printing answers with that one's art, set and collector number under the requested id.
+ * Clients that build a card from the answer (the deck/commander pickers, metadata hydrates)
+ * then quietly replace the printing the user chose. Overlay the printing's own identity —
+ * `mtgjson_printing` has set/number/rarity, and Scryfall's image CDN is addressed by printing
+ * id, so the art URL derives from the id itself (same construction as the printings search).
+ */
+function _applyPrintingIdentity(card, scryfallId, printing) {
+  if (!card || !scryfallId || !printing) return;
+  const setCode = String(printing.set_code || '').toLowerCase();
+  if (setCode) { card.set = setCode; card.set_name = setCode; }
+  card.collector_number = printing.number || null;
+  if (printing.rarity) card.rarity = printing.rarity;
+  // Which finishes this printing was actually sold in. Clients carry a card's finish across
+  // a printing change, and an alt-art or foil-only version has no plain copy to carry it to.
+  const finishes = String(printing.finishes || '').split(',').map(f => f.trim()).filter(Boolean);
+  if (finishes.length) card.finishes = finishes;
+  const [a, b] = [scryfallId[0], scryfallId[1]];
+  card.image_uris = {
+    small: `https://cards.scryfall.io/small/front/${a}/${b}/${scryfallId}.jpg`,
+    normal: `https://cards.scryfall.io/normal/front/${a}/${b}/${scryfallId}.jpg`,
+    large: `https://cards.scryfall.io/large/front/${a}/${b}/${scryfallId}.jpg`,
+  };
 }
 
 // ── Local-first Scryfall-syntax search (deck "replacements" panel) ───────────
@@ -11880,7 +12271,9 @@ app.get('/api/scryfall/search', async (req, res) => {
 
     // Fast path: exact name search `!"CardName"` → serve from local oracle DB, no Scryfall round-trip.
     // The deck builder always appends `-is:extra`; strip that and any other simple suffix filters.
-    const exactNameMatch = q.match(/^!"([^"]+)"/);
+    // scryfall_oracle_cards holds one row per card, not per printing, so the fast path
+    // cannot answer unique=prints (the version picker's fallback) — that goes upstream.
+    const exactNameMatch = unique === 'prints' ? null : q.match(/^!"([^"]+)"/);
     if (exactNameMatch) {
       const exactName = exactNameMatch[1];
       const [rows] = await db().query(
@@ -11891,7 +12284,11 @@ app.get('/api/scryfall/search', async (req, res) => {
         [exactName]
       );
       if (rows.length) {
-        return res.json({ object: 'list', total_cards: rows.length, has_more: false, data: rows.map(_localRowToScryfallCard) });
+        // _localRowToScryfallCard emits prices:{usd:null}, so without this the exact-name
+        // path (every deck-builder name lookup) served a card with no price at all.
+        const cards = rows.map(_localRowToScryfallCard);
+        await attachPriceLogPrices(cards);
+        return res.json({ object: 'list', total_cards: cards.length, has_more: false, data: cards });
       }
       // Not in local DB — fall through to Scryfall
     }
@@ -11907,10 +12304,16 @@ app.get('/api/scryfall/search', async (req, res) => {
     }
     const data = await upstream.json();
     const cards = data.data || [];
-    // TCG enrichment is slow (catalog + pricing per card). Scryfall JSON already includes prices;
-    // use skipTcg=1 for high-frequency UI (deck suggestions, replacement finder).
+    // One price authority: the MTGJSON price log, which overwrites whatever prices the
+    // Scryfall blob shipped with. TCGplayer is the miss-only fallback for printings the
+    // log has no row for yet (a set released since the last snapshot) — it is slow
+    // (catalog + pricing lookup per card), so it stays capped and skipTcg=1 opts
+    // high-frequency UI (deck suggestions, replacement finder) out entirely. A card the
+    // log and TCG both miss keeps Scryfall's own number: display-only, never stored.
+    await attachPriceLogPrices(cards);
     if (!skipTcg && hasTcgCreds()) {
-      await Promise.all(cards.slice(0, 24).map(enrichCardWithTcgPrices)); // cap for responsiveness
+      const misses = cards.filter(c => !_cardHasUsdPrice(c)).slice(0, 24); // cap for responsiveness
+      if (misses.length) await Promise.all(misses.map(enrichCardWithTcgPrices));
     }
     data.data = cards;
     res.json(data);
@@ -13189,6 +13592,7 @@ async function start() {
       await ensureFriendshipsTable();
       await ensurePlaygroupTables();
       await ensureDeckWantedCardsTable();
+      await ensureDeckCompareTables();
       await ensureTradeSuggestionDismissalsTable();
       await ensureTradeHistoryTable();
       await ensureAppChangelogTable();

@@ -67,6 +67,7 @@
     "wincon": { "kind": "combat", "detail": "exponential goblin swarm" },
     "tribal": { "types": ["Goblin", "Warrior"], "lord_of": [] },
     "power_level_hint": 4,
+    "power_tier": { "b2": 6, "b3": 6, "b4": 5 },
     "confidence": 0.98
   }
 }

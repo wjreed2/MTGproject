@@ -24,7 +24,12 @@ function catOf(axis) {
   if (p === 'cast' || base === 'copy.spell' || base === 'storm.count' ||
       base === 'trigger.cast_payoff' || base === 'flash.enabler') return 7;
   if (p === 'body' || p === 'combat' || p === 'voltron' || base === 'evasion.grant' ||
-      base === 'anthem.global' || base === 'haste.enabler' || base === 'monarch.initiative') return 8;
+      base === 'anthem.global' || base === 'haste.enabler' || base === 'monarch.initiative' ||
+      p === 'heroic' || p === 'toughness' || p === 'damage' || p === 'keyword') return 8;
+  if (p === 'cycling' || p === 'exile') return 6;
+  if (p === 'burn') return 7;
+  if (p === 'party') return 11;
+  if (p === 'snow') return 0;
   if (p === 'removal' || p === 'control' || p === 'protection' || p === 'discard' ||
       p === 'hate' || base === 'theft.control' || base === 'politics.deterrent') return 9;
   if (p === 'lifegain' || p === 'drain' || base === 'lifeloss.payoff' ||
@@ -33,7 +38,7 @@ function catOf(axis) {
   if (p === 'artifacts' || p === 'enchantments') return 12;
   if (base === 'etb_value' || base === 'blink.engine' || base === 'trigger.etb_payoff' ||
       p === 'wincon' || base === 'self_exile_library' || p === 'untap' ||
-      p === 'infinite' || base === 'extra_turns') return 13;
+      p === 'infinite' || base === 'extra_turns' || base === 'trigger.copy' || p === 'facedown') return 13;
   return -1;                                    // uncategorised (rare) → ignored
 }
 

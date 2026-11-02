@@ -1,0 +1,369 @@
+{
+ "name": "Average Kozilek, the Great Distortion deck (EDHREC)",
+ "commander": "Kozilek, the Great Distortion",
+ "source": "edhrec-average (copied from pulled/rand8-kozilek-the-great-distortion for the eval loop)",
+ "source_url": "https://json.edhrec.com/pages/average-decks/kozilek-the-great-distortion.json",
+ "archetype_expected": "unknown",
+ "cards": [
+  {
+   "name": "All Is Dust",
+   "qty": 1
+  },
+  {
+   "name": "Ancient Tomb",
+   "qty": 1
+  },
+  {
+   "name": "Artisan of Kozilek",
+   "qty": 1
+  },
+  {
+   "name": "Bane of Bala Ged",
+   "qty": 1
+  },
+  {
+   "name": "Basalt Monolith",
+   "qty": 1
+  },
+  {
+   "name": "Blast Zone",
+   "qty": 1
+  },
+  {
+   "name": "Bonders' Enclave",
+   "qty": 1
+  },
+  {
+   "name": "Buried Ruin",
+   "qty": 1
+  },
+  {
+   "name": "Conduit of Ruin",
+   "qty": 1
+  },
+  {
+   "name": "Darksteel Citadel",
+   "qty": 1
+  },
+  {
+   "name": "Darksteel Monolith",
+   "qty": 1
+  },
+  {
+   "name": "Dreamstone Hedron",
+   "qty": 1
+  },
+  {
+   "name": "Echoes of Eternity",
+   "qty": 1
+  },
+  {
+   "name": "Eldrazi Temple",
+   "qty": 1
+  },
+  {
+   "name": "Emrakul, the Promised End",
+   "qty": 1
+  },
+  {
+   "name": "Endbringer",
+   "qty": 1
+  },
+  {
+   "name": "Everflowing Chalice",
+   "qty": 1
+  },
+  {
+   "name": "Expedition Map",
+   "qty": 1
+  },
+  {
+   "name": "Eye of Ugin",
+   "qty": 1
+  },
+  {
+   "name": "Flayer of Loyalties",
+   "qty": 1
+  },
+  {
+   "name": "Forsaken Monument",
+   "qty": 1
+  },
+  {
+   "name": "Geode Golem",
+   "qty": 1
+  },
+  {
+   "name": "Gilded Lotus",
+   "qty": 1
+  },
+  {
+   "name": "Glaring Fleshraker",
+   "qty": 1
+  },
+  {
+   "name": "Hedron Archive",
+   "qty": 1
+  },
+  {
+   "name": "Inventors' Fair",
+   "qty": 1
+  },
+  {
+   "name": "It That Betrays",
+   "qty": 1
+  },
+  {
+   "name": "It That Heralds the End",
+   "qty": 1
+  },
+  {
+   "name": "Kozilek, Butcher of Truth",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Liquimetal Torque",
+   "qty": 1
+  },
+  {
+   "name": "Mage-Ring Network",
+   "qty": 1
+  },
+  {
+   "name": "Mana Vault",
+   "qty": 1
+  },
+  {
+   "name": "Manifold Key",
+   "qty": 1
+  },
+  {
+   "name": "Mind Stone",
+   "qty": 1
+  },
+  {
+   "name": "Mirage Mirror",
+   "qty": 1
+  },
+  {
+   "name": "Moonsilver Key",
+   "qty": 1
+  },
+  {
+   "name": "Mystic Forge",
+   "qty": 1
+  },
+  {
+   "name": "Not of This World",
+   "qty": 1
+  },
+  {
+   "name": "Null Elemental Blast",
+   "qty": 1
+  },
+  {
+   "name": "Oblivion Sower",
+   "qty": 1
+  },
+  {
+   "name": "Palladium Myr",
+   "qty": 1
+  },
+  {
+   "name": "Pathrazer of Ulamog",
+   "qty": 1
+  },
+  {
+   "name": "Planar Bridge",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Rise of the Eldrazi",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Passage",
+   "qty": 1
+  },
+  {
+   "name": "Sanctum of Ugin",
+   "qty": 1
+  },
+  {
+   "name": "Scavenger Grounds",
+   "qty": 1
+  },
+  {
+   "name": "Sea Gate Wreckage",
+   "qty": 1
+  },
+  {
+   "name": "Sensei's Divining Top",
+   "qty": 1
+  },
+  {
+   "name": "Shrine of the Forsaken Gods",
+   "qty": 1
+  },
+  {
+   "name": "Skittering Cicada",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Solemn Simulacrum",
+   "qty": 1
+  },
+  {
+   "name": "Stonespeaker Crystal",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Temple of the False God",
+   "qty": 1
+  },
+  {
+   "name": "The Eternity Elevator",
+   "qty": 1
+  },
+  {
+   "name": "The One Ring",
+   "qty": 1
+  },
+  {
+   "name": "Thespian's Stage",
+   "qty": 1
+  },
+  {
+   "name": "Thought Vessel",
+   "qty": 1
+  },
+  {
+   "name": "Thran Dynamo",
+   "qty": 1
+  },
+  {
+   "name": "Titan's Presence",
+   "qty": 1
+  },
+  {
+   "name": "Tomb of the Spirit Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Ugin, Eye of the Storms",
+   "qty": 1
+  },
+  {
+   "name": "Ugin, the Ineffable",
+   "qty": 1
+  },
+  {
+   "name": "Ugin, the Spirit Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Ugin's Labyrinth",
+   "qty": 1
+  },
+  {
+   "name": "Ulamog, the Ceaseless Hunger",
+   "qty": 1
+  },
+  {
+   "name": "Ulamog, the Defiler",
+   "qty": 1
+  },
+  {
+   "name": "Ulamog, the Infinite Gyre",
+   "qty": 1
+  },
+  {
+   "name": "Ultima, Origin of Oblivion",
+   "qty": 1
+  },
+  {
+   "name": "Unwinding Clock",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Cave",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Incubator",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Mine",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Power Plant",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Saga",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Tower",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Workshop",
+   "qty": 1
+  },
+  {
+   "name": "Void Winnower",
+   "qty": 1
+  },
+  {
+   "name": "Voltaic Key",
+   "qty": 1
+  },
+  {
+   "name": "Wandering Archaic",
+   "qty": 1
+  },
+  {
+   "name": "War Room",
+   "qty": 1
+  },
+  {
+   "name": "Warping Wail",
+   "qty": 1
+  },
+  {
+   "name": "Wastes",
+   "qty": 10
+  },
+  {
+   "name": "Worn Powerstone",
+   "qty": 1
+  },
+  {
+   "name": "Zhalfirin Void",
+   "qty": 1
+  },
+  {
+   "name": "Zhulodok, Void Gorger",
+   "qty": 1
+  }
+ ]
+}

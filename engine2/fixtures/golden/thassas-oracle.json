@@ -75,6 +75,7 @@
     "wincon": { "kind": "alt_win", "detail": "wins on resolution when library is empty (or devotion covers it)" },
     "tribal": { "types": ["Merfolk", "Wizard"], "lord_of": [] },
     "power_level_hint": 5,
+    "power_tier": { "b2": 6, "b3": 7, "b4": 10 },
     "confidence": 0.96
   }
 }

@@ -824,8 +824,16 @@
     wheels: ['Wheel', 'Discard', 'Card Draw'],
     graveyard: ['Recursion', 'Reanimate', 'Self-Mill', 'Graveyard Cast', 'Mill'],
     'group-slug': ['Group Slug', 'Burn', 'Burn.Player', 'Burn.Opponents', 'Ping'],
+    // engine2 'group-hug' (docs/24): gifts to the table — draw, land/mana hugs, and the
+    // pillow-fort protection that keeps the gifter alive.
+    'group-hug': ['Card Draw', 'Ramp', 'Protection'],
     combo: ['Tutor', 'Copy', 'Recursion'],
     combat: ['Attack Trigger', 'Saboteur', 'Extra Combat', 'Combat Trick', 'Evasion', 'Anthem', 'Pump', 'Haste Enabler'],
+    // engine2 plan directions set from the engine itself (docs/24): infect/proliferate,
+    // a planeswalker pile, and extra-upkeep engines (Obeka).
+    poison: ['Evasion', 'Pump', 'Protection'],
+    superfriends: ['Protection', 'Board Wipe', 'Control', 'Card Draw'],
+    upkeep: ['Card Draw', 'Protection', 'Evasion'],
     // Forward-compatible: engine2 has no template with these keys today. They cost
     // nothing and are correct the day it gains one.
     equipment: ['Protection', 'Evasion', 'Pump'],
@@ -1030,6 +1038,7 @@
     'group-slug': 'strategy.group_slug',
     equipment: 'strategy.equipment',
     vehicles: 'strategy.vehicles',
+    'group-hug': 'strategy.other', // no group-hug strategy id; archetype-role-bridge maps 'Group Hug' the same way
     food: 'strategy.food',
     lifegain: 'strategy.lifegain',
     combo: 'strategy.combo',
@@ -1038,6 +1047,9 @@
     // this never fires, _buildStrategySubs' COMBAT SUBTHEME WORKAROUND block carries Combat's
     // subthemes client-side in the meantime — see that comment for the deletion contract.
     combat: 'strategy.combat',
+    poison: 'strategy.poison',
+    superfriends: 'strategy.superfriends',
+    upkeep: 'strategy.other', // no upkeep strategy id; same fallback as group-hug
   });
 
   function _canonicalStrategyId(id) {

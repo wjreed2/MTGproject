@@ -1,0 +1,19 @@
+{
+  "meta": { "title": "Eval cycle 6 lock-ins (engine2/eval/cycles/6/triage.md)", "created": "2026-09-29" },
+  "principles": {
+    "P-SUBSTRATE": "An add needs something to work with in this deck: ramp gaps for rocks, counters for mana sinks, tokens for token payoffs, artifacts for artifact tutors, death payoffs for sac outlets, mana for 7-drops",
+    "P-DROP-ANTI": "A card with a structural anti-plan reason is never suggested",
+    "P-ENGINE": "Engine-specific dead cards: dies-triggers under an exile engine, damage in a poison plan, grants the commander already has"
+  },
+  "decks": {},
+  "assertions": [
+    { "id": "EV6-01", "deck": "vraska-v2", "kind": "adds_exclude", "expect": ["Thought Vessel", "Akroma's Memorial"], "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV6-02", "deck": "edgar-vampires", "kind": "adds_exclude", "expect": ["Thought Vessel", "Gisa, the Hellraiser"], "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV6-03", "deck": "weak-titania-lands", "kind": "adds_exclude", "expect": ["Walking Ballista"], "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV6-04", "deck": "atraxa-counters", "kind": "adds_exclude", "expect": ["Coat of Arms", "Overwhelming Stampede", "Akroma's Memorial"], "confidence": "high", "principle": "P-DROP-ANTI" },
+    { "id": "EV6-06", "deck": "vren", "kind": "anti_plan", "card": "Meathook Massacre II", "expect": { "reasons": ["exiled_not_dies"] }, "confidence": "high", "principle": "P-ENGINE" },
+    { "id": "EV6-07", "deck": "weak-treebeard-lifegain", "kind": "anti_plan", "card": "Charge Through", "expect": { "reasons": ["redundant_grant"] }, "confidence": "high", "principle": "P-ENGINE" },
+    { "id": "EV6-08", "deck": "weak-karlach-combat", "kind": "adds_exclude", "expect": ["Chronicle of Victory"], "confidence": "high", "principle": "P-SUBSTRATE" },
+    { "id": "EV6-09", "deck": "yuriko-ninjas", "kind": "adds_exclude", "expect": ["Thran Dynamo", "Lifecraft Engine"], "confidence": "high", "principle": "P-SUBSTRATE" }
+  ]
+}
