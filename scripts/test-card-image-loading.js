@@ -10,9 +10,20 @@ const path = require('path');
 const assert = require('assert');
 const vm = require('vm');
 
-const uiSrc = fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8');
-const decksSrc = fs.readFileSync(path.join(__dirname, '../js/decks.js'), 'utf8');
-const setsSrc = fs.readFileSync(path.join(__dirname, '../js/sets.js'), 'utf8');
+/**
+ * Read with LF line endings no matter how git checked the file out.
+ *
+ * The slice needles below are written with '\n'. On Windows core.autocrlf=true
+ * checks these sources out with CRLF, so no needle spanning a line break could
+ * ever match and the suite failed locally while passing in CI.
+ */
+function readSrc(rel) {
+  return fs.readFileSync(path.join(__dirname, rel), 'utf8').replace(/\r\n/g, '\n');
+}
+
+const uiSrc = readSrc('../js/ui.js');
+const decksSrc = readSrc('../js/decks.js');
+const setsSrc = readSrc('../js/sets.js');
 
 function sliceFn(src, startNeedle, endNeedle) {
   const start = src.indexOf(startNeedle);

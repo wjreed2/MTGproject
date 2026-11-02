@@ -39,32 +39,108 @@
   const PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER = 5;
 
   const PLAN_STRATEGIES = Object.freeze([
-    { id: 'strategy.tokens', label: 'Tokens / Go-wide' },
+    // Tokens is an umbrella (see THEME_CATALOG in js/deck-themes.js). Pick it when
+    // the deck makes tokens but no one kind carries the plan; otherwise pick the
+    // child that names the actual plan.
+    { id: 'strategy.tokens', label: 'Tokens' },
+    { id: 'strategy.tokens.go_wide', label: 'Go Wide', parent: 'strategy.tokens' },
     { id: 'strategy.sacrifice', label: 'Sacrifice / Aristocrats' },
     { id: 'strategy.spellslinger', label: 'Spellslinger' },
+    { id: 'strategy.impulse', label: 'Impulse / Exile value' },
     { id: 'strategy.reanimator', label: 'Reanimator / Graveyard' },
-    { id: 'strategy.voltron', label: 'Voltron / Commander damage' },
+    { id: 'strategy.voltron', label: 'Voltron' },
+    // Combat is an umbrella (see THEME_CATALOG in js/deck-themes.js).
+    { id: 'strategy.combat', label: 'Combat' },
+    { id: 'strategy.combat.attacks', label: 'Attack triggers', parent: 'strategy.combat' },
+    { id: 'strategy.combat.saboteur', label: 'Saboteur', parent: 'strategy.combat' },
+    { id: 'strategy.combat.extra_combats', label: 'Extra combats', parent: 'strategy.combat' },
+    { id: 'strategy.stompy', label: 'Big creatures' },
     { id: 'strategy.counters', label: '+1/+1 Counters' },
+    { id: 'strategy.poison', label: 'Poison / Infect' },
     { id: 'strategy.landfall', label: 'Landfall' },
-    { id: 'strategy.tribal', label: 'Tribal' },
-    { id: 'strategy.artifacts', label: 'Artifacts' },
-    { id: 'strategy.enchantress', label: 'Enchantress' },
+    { id: 'strategy.big_mana', label: 'Big mana / X spells' },
+    { id: 'strategy.tribal', label: 'Typal' },
+    { id: 'strategy.artifacts', label: 'Artifacts typal' },
+    { id: 'strategy.equipment', label: 'Equipment typal' },
+    { id: 'strategy.auras', label: 'Auras typal' },
+    { id: 'strategy.vehicles', label: 'Vehicles typal' },
+    { id: 'strategy.food', label: 'Food', parent: 'strategy.tokens' },
+    { id: 'strategy.treasure', label: 'Treasure', parent: 'strategy.tokens' },
+    { id: 'strategy.clues', label: 'Clues', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.blood', label: 'Blood', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.powerstone', label: 'Powerstone', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.incubate', label: 'Incubate', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.map', label: 'Map', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.junk', label: 'Junk', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.role', label: 'Role', parent: 'strategy.tokens' },
+    { id: 'strategy.tokens.gold', label: 'Gold', parent: 'strategy.tokens' },
+    { id: 'strategy.typal.elf', label: 'Elf typal' },
+    { id: 'strategy.typal.goblin', label: 'Goblin typal' },
+    { id: 'strategy.typal.zombie', label: 'Zombie typal' },
+    { id: 'strategy.typal.dragon', label: 'Dragon typal' },
+    { id: 'strategy.lifegain', label: 'Lifegain' },
+    { id: 'strategy.combo', label: 'Combo / Infinite' },
     { id: 'strategy.control', label: 'Control / Value grind' },
     { id: 'strategy.blink', label: 'Blink / ETB value' },
     { id: 'strategy.superfriends', label: 'Superfriends' },
     { id: 'strategy.theft', label: 'Theft / Steal' },
+    { id: 'strategy.group_slug', label: 'Group slug' },
     { id: 'strategy.stax', label: 'Stax / Resource denial' },
+    { id: 'strategy.wheels', label: 'Wheels' },
     { id: 'strategy.mill', label: 'Mill' },
     { id: 'strategy.goodstuff', label: 'Goodstuff / High power' },
     { id: 'strategy.other', label: 'Other / Hybrid' },
   ]);
 
+  /** Preferred pool before full-catalog search (~24 from strategy-catalog research §6a). */
+  const PLAN_STRATEGY_SHORTLIST_IDS = Object.freeze([
+    'strategy.tokens', 'strategy.tokens.go_wide',
+    'strategy.sacrifice', 'strategy.spellslinger', 'strategy.reanimator',
+    'strategy.combat', 'strategy.combat.attacks', 'strategy.combat.saboteur',
+    'strategy.combat.extra_combats',
+    'strategy.voltron', 'strategy.stompy', 'strategy.counters', 'strategy.poison',
+    'strategy.landfall',
+    'strategy.big_mana', 'strategy.tribal',
+    'strategy.artifacts', 'strategy.equipment', 'strategy.auras', 'strategy.vehicles',
+    'strategy.food', 'strategy.typal.elf', 'strategy.typal.goblin', 'strategy.typal.zombie',
+    'strategy.typal.dragon', 'strategy.control', 'strategy.blink', 'strategy.superfriends',
+    'strategy.stax', 'strategy.mill', 'strategy.lifegain', 'strategy.combo', 'strategy.other',
+  ]);
+  const PLAN_STRATEGY_SHORTLIST_SET = new Set(PLAN_STRATEGY_SHORTLIST_IDS);
+  const PLAN_STRATEGY_SHORTLIST = Object.freeze(
+    PLAN_STRATEGY_SHORTLIST_IDS
+      .map(id => PLAN_STRATEGIES.find(s => s.id === id))
+      .filter(Boolean)
+  );
+
+  /** Legacy / alias strategy ids → canonical Batch-1 ids. */
+  const PLAN_STRATEGY_ID_ALIASES = Object.freeze({
+    'strategy.enchantress': 'strategy.auras',
+    'strategy.typal': 'strategy.tribal',
+    'theme.lifegain': 'strategy.lifegain',
+    // Pre-split spellings. `strategy.tokens` itself is unchanged — it is now the
+    // umbrella, which is the honest reading of a plan saved before the split.
+    'strategy.go_wide': 'strategy.tokens.go_wide',
+    'strategy.tokens.creature': 'strategy.tokens.go_wide',
+    'strategy.blood_matters': 'strategy.tokens.blood',
+  });
+
+  function canonicalizeStrategyId(id) {
+    if (!id) return id;
+    const raw = String(id);
+    return PLAN_STRATEGY_ID_ALIASES[raw] || raw;
+  }
   const PLAN_WINCONS = Object.freeze([
     { id: 'wincon.combat', label: 'Combat damage' },
     { id: 'wincon.commander_damage', label: 'Commander damage' },
     { id: 'wincon.combo', label: 'Infinite / instant-win combo' },
     { id: 'wincon.mill', label: 'Mill' },
     { id: 'wincon.life_drain', label: 'Life drain / life loss' },
+    // engine2's WINCON_KINDS has carried 'poison' and 'alt_win' since v1 with no plan
+    // row to land on, so a poison deck had to declare itself as combat damage and an
+    // Approach / Thassa's Oracle deck as "combo" (strategy-gap-audit.md §2.6).
+    { id: 'wincon.poison', label: 'Poison / Infect' },
+    { id: 'wincon.alt_win', label: 'Alternate win condition' },
     { id: 'wincon.lock', label: 'Lock / Stax' },
     { id: 'wincon.value', label: 'Overwhelming value / grind' },
     { id: 'wincon.other', label: 'Other' },
@@ -72,7 +148,7 @@
 
   const PLAN_STRATEGY_FALLBACK_IDS = Object.freeze([
     'strategy.tokens', 'strategy.sacrifice', 'strategy.spellslinger',
-    'strategy.tribal', 'strategy.control', 'strategy.other',
+    'strategy.tribal', 'strategy.equipment', 'strategy.other',
   ]);
   const PLAN_WINCON_FALLBACK_IDS = Object.freeze([
     'wincon.combat', 'wincon.commander_damage', 'wincon.combo',
@@ -103,31 +179,107 @@
   const PLAN_WINCON_PROJECT_TAGS = bridge.PLAN_WINCON_PROJECT_TAGS;
 
   const PLAN_STRATEGY_ORACLE_RULES = Object.freeze([
-    { id: 'strategy.sacrifice', patterns: [/\bsacrific(?:e|es|ing)\b/i, /\bdies\b/i] },
+    // Patterns audited 2026-09-20 against all 31,830 commander-legal cards
+    // (strategy-gap-audit.md §4.5). Removed here: every pattern that matched ZERO
+    // cards because it is player vocabulary or pre-2013/pre-2024 Oracle wording
+    // ("reanimate", "flicker", "unblockable", "commander damage", "tribal", "tax",
+    // "steal", "skip … phase", "enters the battlefield", "tutor", "removal"), plus
+    // the bare-word patterns that matched a fifth of the format ("cast", "dies",
+    // "graveyard", "draw N cards").
+    { id: 'strategy.sacrifice', patterns: [/\bsacrific(?:e|es|ing)\b/i, /\bwhen(ever)? .{0,40}\bdies\b/i] },
     { id: 'strategy.tokens', patterns: [/\btokens?\b/i] },
-    { id: 'strategy.spellslinger', patterns: [/\bcast\b/i, /\binstant\b/i, /\bsorcery\b/i, /\bmagecraft\b/i, /\bstorm\b/i] },
-    { id: 'strategy.reanimator', patterns: [/\bgraveyard\b/i, /\breanimate\b/i, /\breturn .{0,40}graveyard\b/i] },
-    { id: 'strategy.voltron', patterns: [/\bcommander damage\b/i, /\bequipped\b/i, /\baura\b/i] },
-    { id: 'strategy.counters', patterns: [/\+\+1\/\+1 counter/i, /\bproliferate\b/i] },
+    { id: 'strategy.tokens.go_wide', patterns: [/\bcreature tokens?\b/i, /\bpopulate\b/i, /\bamass\b/i, /\bcreatures you control get \+/i] },
+    { id: 'strategy.spellslinger', patterns: [/\binstant\b/i, /\bsorcery\b/i, /\bmagecraft\b/i, /\bprowess\b/i, /\bstorm\b/i, /\bcopy (target |that )?(spell|instant|sorcery)/i] },
+    { id: 'strategy.impulse', patterns: [/\bexile the top\b.{0,90}\b(you may play|until the end of your next turn)\b/i, /\bforetell\b/i, /\bplot\b/i] },
+    { id: 'strategy.reanimator', patterns: [/\bfrom (your |a )?graveyard\b/i, /\breturn .{0,40}graveyard\b/i] },
+    { id: 'strategy.voltron', patterns: [/\bhexproof\b/i, /\bindestructible\b/i, /\btarget creature (you control )?gains? (hexproof|indestructible|protection|shroud|double strike)\b/i] },
+    { id: 'strategy.stompy', patterns: [/\bpower \d+ or greater\b/i, /\bfight(s)? target creature\b/i] },
+    { id: 'strategy.combat', patterns: [/\bwhenever you attack\b/i, /\bdeals combat damage to a player\b/i, /\badditional combat phase\b/i] },
+    { id: 'strategy.combat.attacks', patterns: [/\bwhenever you attack\b/i, /\bwhenever (this creature|[a-z0-9'’,\- ]{0,40}) attacks\b/i] },
+    { id: 'strategy.combat.saboteur', patterns: [/\bdeals combat damage to a player\b/i] },
+    { id: 'strategy.combat.extra_combats', patterns: [/\badditional combat phase\b/i] },
+    { id: 'strategy.equipment', patterns: [/\bequip\b/i, /\bequipped creature\b/i, /\bequipment\b/i] },
+    { id: 'strategy.auras', patterns: [/\benchantment\b/i, /\bconstellation\b/i, /\baura\b/i] },
+    { id: 'strategy.vehicles', patterns: [/\bcrew\b/i, /\bvehicle\b/i] },
+    // Was /\+\+1\/\+1 counter/ — two plus signs, so it required the literal text
+    // "++1/+1 counter" and matched nothing. Counters ranked on "proliferate" alone.
+    { id: 'strategy.counters', patterns: [/\+1\/\+1 counter/i, /\bproliferate\b/i] },
     { id: 'strategy.landfall', patterns: [/\blandfall\b/i, /\bland enters\b/i] },
-    { id: 'strategy.tribal', patterns: [/\btribal\b/i, /\bcreature type\b/i] },
-    { id: 'strategy.artifacts', patterns: [/\bartifact\b/i] },
-    { id: 'strategy.enchantress', patterns: [/\benchantment\b/i] },
-    { id: 'strategy.control', patterns: [/\bcounter target\b/i, /\bdraw (a|two|three) cards?\b/i] },
-    { id: 'strategy.blink', patterns: [/\bflicker\b/i, /\bexile .{0,30}return\b/i, /\benters the battlefield\b/i] },
-    { id: 'strategy.superfriends', patterns: [/\bplaneswalker\b/i, /\bloyalty\b/i] },
-    { id: 'strategy.theft', patterns: [/\bgain control\b/i, /\bsteal\b/i] },
-    { id: 'strategy.stax', patterns: [/\btax\b/i, /\bcan'?t\b/i, /\bprevent\b/i, /\bskip .{0,20}phase\b/i] },
-    { id: 'strategy.mill', patterns: [/\bmill\b/i] },
-    { id: 'strategy.goodstuff', patterns: [/\btutor\b/i, /\bremoval\b/i] },
+    { id: 'strategy.big_mana', patterns: [/\bwhere x is\b/i, /\bspells? you cast costs? \{\d+\} less\b/i] },
+    { id: 'strategy.tribal', patterns: [/\bcreature type\b/i, /\bkindred\b/i, /\bchangeling\b/i] },
+    { id: 'strategy.typal.elf', patterns: [/\belves you control\b/i, /\belf\b/i] },
+    { id: 'strategy.typal.goblin', patterns: [/\bgoblins you control\b/i, /\bgoblin\b/i] },
+    { id: 'strategy.typal.zombie', patterns: [/\bzombies you control\b/i, /\bzombie\b/i] },
+    { id: 'strategy.typal.dragon', patterns: [/\bdragons you control\b/i, /\bdragon\b/i] },
+    { id: 'strategy.artifacts', patterns: [/\bartifact\b/i, /\baffinity for artifacts\b/i, /\bmetalcraft\b/i] },
+    { id: 'strategy.food', patterns: [/\bfood\b/i, /\bsacrifice a food\b/i] },
+    { id: 'strategy.treasure', patterns: [/\btreasure\b/i, /\bsacrifice a treasure\b/i] },
+    { id: 'strategy.clues', patterns: [/\bclue\b/i, /\bsacrifice a clue\b/i, /\binvestigate\b/i] },
+    { id: 'strategy.tokens.blood', patterns: [/\bblood token\b/i, /\bsacrifice a blood\b/i] },
+    { id: 'strategy.tokens.powerstone', patterns: [/\bpowerstone\b/i] },
+    { id: 'strategy.tokens.incubate', patterns: [/\bincubate\b/i, /\bincubator\b/i] },
+    { id: 'strategy.tokens.map', patterns: [/\bmap token\b/i] },
+    { id: 'strategy.tokens.junk', patterns: [/\bjunk token\b/i, /\bsacrifice a junk\b/i] },
+    { id: 'strategy.tokens.role', patterns: [/\brole token\b/i, /\b(cursed|monster|royal|sorcerer|wicked|young hero) role\b/i] },
+    { id: 'strategy.tokens.gold', patterns: [/\bgold token\b/i] },
+    { id: 'strategy.lifegain', patterns: [/\bgain(s)? (life|\d+ life)\b/i, /\blifelink\b/i, /\bwhenever you gain life\b/i] },
+    { id: 'strategy.combo', patterns: [/\binfinite\b/i, /\bwin the game\b/i, /\byou win\b/i, /\ba copy of (it|that spell|this spell)\b/i, /\buntap (all|each|target).{0,40}\b(permanent|creature|land)/i] },
+    { id: 'strategy.control', patterns: [/\bcounter target\b/i, /\bdestroy all (creatures|permanents)\b/i] },
+    { id: 'strategy.blink', patterns: [/\bexile .{0,60}return .{0,40}battlefield\b/i, /\breturn (it|them|that card|those cards) to the battlefield\b/i] },
+    { id: 'strategy.superfriends', patterns: [/\bplaneswalker\b/i, /\bloyalty counters?\b/i] },
+    { id: 'strategy.theft', patterns: [/\bgain control\b/i, /\bexchange control\b/i] },
+    { id: 'strategy.poison', patterns: [/\bpoison counters?\b/i, /\binfect\b/i, /\btoxic \d+\b/i, /\bcorrupted\b/i] },
+    { id: 'strategy.group_slug', patterns: [/\beach opponent loses \d+ life\b/i, /\bdeals \d+ damage to each opponent\b/i] },
+    { id: 'strategy.stax', patterns: [/\bplayers? can'?t\b/i, /\bcosts \{[0-9wubrg]+\} more\b/i, /\bskip (your |their )?(untap|draw|combat)/i, /\bgoad(s|ed)?\b/i] },
+    { id: 'strategy.wheels', patterns: [/\bdiscards? (their|his or her) hand\b/i, /\beach player draws (a card|\w+ cards)\b/i] },
+    // Opponent-directed only: self-mill is Reanimator's fuel (strategy-gap-audit.md §4.4).
+    { id: 'strategy.mill', patterns: [/\b(target (opponent|player)|each opponent|each other player|opponents?) mills?\b/i, /\bplayers? mills?\b/i] },
+    // Goodstuff is a bucket, not a detectable payoff chain — its old patterns
+    // ("tutor", "removal") were English words no card prints. Ranking for this row
+    // comes from role tags and the plan, never from card text.
+    { id: 'strategy.goodstuff', patterns: [] },
   ]);
 
+  /**
+   * engine2 `WINCON_KINDS` -> plan wincon id.
+   *
+   * Before this map the two vocabularies never met: engine2 has emitted
+   * `wincon.kind` since v1 and the ONLY client that read it was
+   * deck-architecture.js, for `combo_piece` alone. A card whose IR said
+   * `poison` or `alt_win` contributed nothing to the plan's wincon suggestion
+   * (strategy-gap-audit.md 2.6).
+   *
+   * `burn` folds into wincon.combat rather than getting a row: 834 burn-to-face
+   * cards is a damage plan, not a separate route, and the audit left that as an
+   * open question rather than a recommendation.
+   */
+  const IR_WINCON_KIND_TO_PLAN = Object.freeze({
+    combat: 'wincon.combat',
+    burn: 'wincon.combat',
+    drain: 'wincon.life_drain',
+    mill_out: 'wincon.mill',
+    combo_piece: 'wincon.combo',
+    poison: 'wincon.poison',
+    alt_win: 'wincon.alt_win',
+  });
+
+  /** The wincon kind a card's CardIR declares, mapped to a plan wincon id. */
+  function _irWinconPlanId(card) {
+    const ir = card && (card.ir || card.cardIR);
+    const kind = ir && ir.wincon && ir.wincon.kind;
+    return kind ? (IR_WINCON_KIND_TO_PLAN[kind] || null) : null;
+  }
+
   const PLAN_WINCON_ORACLE_RULES = Object.freeze([
-    { id: 'wincon.mill', patterns: [/\bmill\b/i] },
-    { id: 'wincon.life_drain', patterns: [/\blose life\b/i, /\bdrain\b/i, /\blifelink\b/i] },
-    { id: 'wincon.combo', patterns: [/\binfinite\b/i, /\bwin the game\b/i, /\byou win\b/i] },
-    { id: 'wincon.lock', patterns: [/\bcan't\b/i, /\bprevent\b/i, /\bskip .{0,20}phase\b/i] },
-    { id: 'wincon.commander_damage', patterns: [/\bcommander damage\b/i] },
+    { id: 'wincon.mill', patterns: [/\b(target (opponent|player)|each opponent|players?) mills?\b/i] },
+    { id: 'wincon.life_drain', patterns: [/\blose(s)? \d+ life\b/i, /\bdrain\b/i, /\blifelink\b/i] },
+    { id: 'wincon.poison', patterns: [/\bpoison counters?\b/i, /\binfect\b/i, /\btoxic \d+\b/i] },
+    { id: 'wincon.alt_win', patterns: [/\byou win the game\b/i, /\bloses the game\b/i] },
+    { id: 'wincon.combo', patterns: [/\bwin the game\b/i, /\byou win\b/i, /\buntap (all|each|target).{0,40}\b(permanent|creature|land)/i] },
+    { id: 'wincon.lock', patterns: [/\bplayers? can'?t\b/i, /\bskip (your |their )?(untap|draw|combat)/i] },
+    // "commander damage" is a format rule, never printed on a card — the old pattern
+    // matched nothing. This route is declared by the user, not detected from text.
+    { id: 'wincon.commander_damage', patterns: [] },
     { id: 'wincon.combat', patterns: [/\bcombat damage\b/i] },
   ]);
 
@@ -183,6 +335,19 @@
         ? v.map(t => String(t || '').toLowerCase()).filter(Boolean)
         : [];
     }
+    // Migrate legacy strategy ids (enchantress→auras, typal→tribal, theme.lifegain→strategy.lifegain)
+    out.primaryStrategyId = canonicalizeStrategyId(out.primaryStrategyId) || null;
+    out.secondaryStrategyId = canonicalizeStrategyId(out.secondaryStrategyId) || null;
+    out.tertiaryStrategyId = canonicalizeStrategyId(out.tertiaryStrategyId) || null;
+    if (out.planTypePicks['strategy.enchantress'] && !(out.planTypePicks['strategy.auras'] || []).length) {
+      out.planTypePicks['strategy.auras'] = out.planTypePicks['strategy.enchantress'];
+    }
+    if (out.planTypePicks['strategy.enchantress']) delete out.planTypePicks['strategy.enchantress'];
+    if (out.planTypePickSources && out.planTypePickSources['strategy.enchantress']
+        && !out.planTypePickSources['strategy.auras']) {
+      out.planTypePickSources['strategy.auras'] = out.planTypePickSources['strategy.enchantress'];
+      delete out.planTypePickSources['strategy.enchantress'];
+    }
     const legacyTribal = Array.isArray(raw.typePicks)
       ? raw.typePicks.map(t => String(t || '').toLowerCase()).filter(Boolean)
       : [];
@@ -200,19 +365,115 @@
     return out;
   }
 
+  /** localStorage key — `'0'` hides Plan identity; default on (absent → enabled). */
+  const PLAN_FEATURE_KEY = 'mtg_deck_plan';
+  /** In-memory override for Node tests / callers without localStorage. null = read storage. */
+  let _planFeatureOverride = null;
+
+  /**
+   * Plan strategy/wincon identity is on unless the user turns it off.
+   * Off hides the wizard and strips identity on read; stored deck.plan stays.
+   */
+  function isPlanFeatureEnabled() {
+    if (_planFeatureOverride != null) return !!_planFeatureOverride;
+    try {
+      if (typeof localStorage === 'undefined') return true;
+      return localStorage.getItem(PLAN_FEATURE_KEY) !== '0';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function setPlanFeatureEnabled(on) {
+    _planFeatureOverride = !!on;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(PLAN_FEATURE_KEY, on ? '1' : '0');
+      }
+    } catch (_) { /* quota */ }
+    return isPlanFeatureEnabled();
+  }
+
+  /**
+   * Clear strategy/wincon/sub-tag identity while keeping commander Gameplan
+   * fields (cast turn, land/ramp ideals, key cards, …) and budget prefs.
+   */
+  function stripPlanIdentity(plan) {
+    const p = normalizeDeckPlan(plan);
+    p.winConditionId = null;
+    p.primaryStrategyId = null;
+    p.secondaryStrategyId = null;
+    p.tertiaryStrategyId = null;
+    p.planConfirmed = false;
+    p.planSubTags = {};
+    p.planTypePicks = {};
+    p.planTypePickSources = {};
+    p.typePicks = [];
+    if (p.fieldSources && typeof p.fieldSources === 'object') {
+      p.fieldSources.winConditionId = null;
+      p.fieldSources.primaryStrategyId = null;
+      p.fieldSources.secondaryStrategyId = null;
+    }
+    return p;
+  }
+
   function getDeckPlan(deck) {
-    return normalizeDeckPlan(deck && deck.plan);
+    const normalized = normalizeDeckPlan(deck && deck.plan);
+    if (!isPlanFeatureEnabled()) return stripPlanIdentity(normalized);
+    return normalized;
   }
 
   function isPlanDeclared(plan) {
+    if (!isPlanFeatureEnabled()) return false;
     const p = normalizeDeckPlan(plan);
     return !!(p.winConditionId && p.primaryStrategyId);
   }
 
   /** Targets from confirmed plan only (D21). Declared-but-unconfirmed does not apply sub-tag targets. */
   function isPlanConfirmed(plan) {
+    if (!isPlanFeatureEnabled()) return false;
     const p = normalizeDeckPlan(plan);
     return isPlanDeclared(p) && !!p.planConfirmed;
+  }
+
+  function syncDeckPlanWizardBtn() {
+    const wizardBtn = (typeof document !== 'undefined') ? document.getElementById('deckPlanWizardBtn') : null;
+    if (!wizardBtn) return;
+    const on = isPlanFeatureEnabled();
+    wizardBtn.hidden = !on;
+    wizardBtn.style.display = on ? '' : 'none';
+  }
+
+  function renderDeckPlanSettingBtn() {
+    const btn = (typeof document !== 'undefined') ? document.getElementById('settingsDeckPlanBtn') : null;
+    const on = isPlanFeatureEnabled();
+    if (btn) {
+      btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 3.5h10v9H3z"/><path d="M5.5 6.5h5M5.5 9h3.5"/></svg>${on ? ' Deck Plan: on' : ' Deck Plan: off'}`;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+      btn.classList.toggle('active', !!on);
+    }
+    syncDeckPlanWizardBtn();
+  }
+
+  function toggleDeckPlanSetting() {
+    const next = !isPlanFeatureEnabled();
+    setPlanFeatureEnabled(next);
+    renderDeckPlanSettingBtn();
+    if (root && typeof root.showNotif === 'function') {
+      root.showNotif(next
+        ? 'Deck Plan enabled — strategy & win condition restore'
+        : 'Deck Plan off — Architecture uses goals; stored Plan kept');
+    }
+    if (root && typeof root.getActiveDeck === 'function' && typeof root.renderDeckList === 'function') {
+      const deck = root.getActiveDeck();
+      if (deck) root.renderDeckList(deck);
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState !== 'loading') renderDeckPlanSettingBtn();
+    else document.addEventListener('DOMContentLoaded', renderDeckPlanSettingBtn);
   }
 
   /**
@@ -225,6 +486,13 @@
       { id: 'tokens.anthem', label: 'Anthem', target: 4, projectTags: ['Anthem'] },
       { id: 'tokens.payoffs', label: 'Type payoffs', target: 6, projectTags: ['Token Maker', 'Anthem'] },
     ]),
+    // Go Wide wants more bodies than the umbrella and a way to turn width into
+    // damage — a swarm with no anthem or overrun just sits there.
+    'strategy.tokens.go_wide': Object.freeze([
+      { id: 'wide.makers', label: 'Creature-token makers', target: 12, projectTags: ['Token Maker'] },
+      { id: 'wide.anthem', label: 'Anthems / mass pump', target: 5, projectTags: ['Anthem', 'Pump'] },
+      { id: 'wide.finishers', label: 'Overrun / wide finishers', target: 3, projectTags: ['Anthem', 'Evasion'] },
+    ]),
     'strategy.sacrifice': Object.freeze([
       { id: 'sac.outlets', label: 'Outlets', target: 10, projectTags: ['Sac Outlet'] },
       { id: 'sac.triggers', label: 'Triggers', target: 8, projectTags: ['Death Trigger', 'Sac Synergy'] },
@@ -235,26 +503,138 @@
       { id: 'counters.payoffs', label: 'Payoffs', target: 8, projectTags: ['Pump', 'Anthem'] },
       { id: 'counters.proliferate', label: 'Proliferate', target: 3, projectTags: ['Pump'] },
     ]),
+    'strategy.poison': Object.freeze([
+      { id: 'poison.sources', label: 'Infect & toxic bodies', target: 10, projectTags: [] },
+      { id: 'poison.push', label: 'Push damage through', target: 6, projectTags: ['Evasion', 'Pump'] },
+      { id: 'poison.protect', label: 'Protection', target: 4, projectTags: ['Protection'] },
+    ]),
     'strategy.tribal': Object.freeze([
       { id: 'tribal.payoffs', label: 'Typal payoffs', target: 8, projectTags: ['Anthem', 'Token Maker'] },
       { id: 'tribal.lords', label: 'Lords/anthems', target: 5, projectTags: ['Anthem'] },
       { id: 'tribal.finishers', label: 'Type finishers', target: 3, projectTags: ['Evasion'] },
     ]),
-    'strategy.enchantress': Object.freeze([
+    'strategy.auras': Object.freeze([
       { id: 'ench.type', label: 'Type enchantments/auras', target: 14, projectTags: [] },
       { id: 'ench.draw', label: 'Enchantress draw', target: 4, projectTags: ['Card Draw'] },
       { id: 'ench.prot', label: 'Protection', target: 3, projectTags: ['Protection'] },
     ]),
+    'strategy.equipment': Object.freeze([
+      { id: 'equip.type', label: 'Equipment', target: 12, projectTags: [] },
+      { id: 'equip.payoffs', label: 'Equipment payoffs', target: 6, projectTags: ['Pump', 'Protection'] },
+      { id: 'equip.tutors', label: 'Equipment tutors', target: 3, projectTags: ['Tutor'] },
+    ]),
+    'strategy.vehicles': Object.freeze([
+      { id: 'veh.type', label: 'Vehicles', target: 10, projectTags: [] },
+      { id: 'veh.crew', label: 'Crew support', target: 6, projectTags: ['Token Maker'] },
+      { id: 'veh.payoffs', label: 'Vehicle payoffs', target: 4, projectTags: ['Pump', 'Evasion'] },
+    ]),
+    'strategy.food': Object.freeze([
+      { id: 'food.makers', label: 'Food makers', target: 10, projectTags: ['Token Maker'] },
+      { id: 'food.payoffs', label: 'Food payoffs', target: 6, projectTags: ['Lifegain', 'Sac Outlet'] },
+      { id: 'food.finishers', label: 'Food finishers', target: 3, projectTags: ['Drain'] },
+    ]),
+    'strategy.treasure': Object.freeze([
+      { id: 'treas.makers', label: 'Treasure makers', target: 10, projectTags: ['Treasure', 'Token Maker'] },
+      { id: 'treas.payoffs', label: 'Treasure payoffs', target: 6, projectTags: ['Treasure', 'Ramp'] },
+    ]),
+    'strategy.clues': Object.freeze([
+      { id: 'clue.makers', label: 'Clue makers', target: 10, projectTags: ['Token Maker'] },
+      { id: 'clue.payoffs', label: 'Clue payoffs', target: 6, projectTags: ['Card Draw'] },
+    ]),
+    'strategy.tokens.blood': Object.freeze([
+      { id: 'blood.makers', label: 'Blood makers', target: 8, projectTags: ['Token Maker'] },
+      { id: 'blood.payoffs', label: 'Blood payoffs', target: 6, projectTags: ['Discard', 'Card Draw'] },
+    ]),
+    'strategy.tokens.powerstone': Object.freeze([
+      { id: 'pstone.makers', label: 'Powerstone makers', target: 8, projectTags: ['Token Maker', 'Ramp'] },
+      { id: 'pstone.payoffs', label: 'Powerstone sinks', target: 6, projectTags: ['Ramp'] },
+    ]),
+    'strategy.tokens.incubate': Object.freeze([
+      { id: 'incub.makers', label: 'Incubate sources', target: 8, projectTags: ['Token Maker'] },
+      { id: 'incub.payoffs', label: 'Transform payoffs', target: 5, projectTags: ['Anthem', 'Pump'] },
+    ]),
+    'strategy.tokens.map': Object.freeze([
+      { id: 'maptok.makers', label: 'Map makers', target: 8, projectTags: ['Token Maker'] },
+      { id: 'maptok.payoffs', label: 'Explore payoffs', target: 5, projectTags: ['Pump', 'Card Draw'] },
+    ]),
+    'strategy.tokens.junk': Object.freeze([
+      { id: 'junk.makers', label: 'Junk makers', target: 8, projectTags: ['Token Maker'] },
+      { id: 'junk.payoffs', label: 'Junk payoffs', target: 5, projectTags: ['Card Draw', 'Sac Outlet'] },
+    ]),
+    'strategy.tokens.role': Object.freeze([
+      { id: 'role.makers', label: 'Role makers', target: 8, projectTags: ['Token Maker'] },
+      { id: 'role.payoffs', label: 'Enchanted payoffs', target: 5, projectTags: ['Pump', 'Anthem'] },
+    ]),
+    'strategy.tokens.gold': Object.freeze([
+      { id: 'gold.makers', label: 'Gold makers', target: 8, projectTags: ['Token Maker'] },
+      { id: 'gold.payoffs', label: 'Gold sinks', target: 5, projectTags: ['Ramp'] },
+    ]),
+    'strategy.lifegain': Object.freeze([
+      { id: 'life.gain', label: 'Lifegain', target: 12, projectTags: ['Lifegain'] },
+      { id: 'life.payoffs', label: 'Life-total payoffs', target: 6, projectTags: ['Lifegain', 'Drain'] },
+      { id: 'life.drain', label: 'Drain', target: 4, projectTags: ['Drain'] },
+    ]),
+    'strategy.combo': Object.freeze([
+      { id: 'combo.pieces', label: 'Combo pieces', target: 8, projectTags: ['Tutor', 'Copy'] },
+      { id: 'combo.tutors', label: 'Tutors', target: 6, projectTags: ['Tutor'] },
+      { id: 'combo.protect', label: 'Protection', target: 4, projectTags: ['Protection', 'Counterspell'] },
+    ]),
+    // Rows added 2026-09-20 to give engine2's stompy / big-mana / impulse / wheels /
+    // group-slug goals somewhere to land (strategy-gap-audit.md §2.4, §5.1).
+    'strategy.stompy': Object.freeze([
+      { id: 'stompy.bodies', label: 'Big bodies', target: 12, projectTags: [] },
+      { id: 'stompy.ramp', label: 'Ramp into them', target: 8, projectTags: ['Ramp'] },
+      { id: 'stompy.protect', label: 'Protection', target: 4, projectTags: ['Protection'] },
+      { id: 'stompy.push', label: 'Push damage through', target: 4, projectTags: ['Evasion', 'Pump'] },
+    ]),
+    'strategy.big_mana': Object.freeze([
+      { id: 'bigmana.sources', label: 'Mana sources', target: 14, projectTags: ['Ramp', 'Treasure'] },
+      { id: 'bigmana.payoffs', label: 'Mana sinks & X spells', target: 8, projectTags: [] },
+      { id: 'bigmana.draw', label: 'Card draw', target: 5, projectTags: ['Card Draw'] },
+    ]),
+    'strategy.impulse': Object.freeze([
+      { id: 'impulse.exile', label: 'Impulse draw', target: 10, projectTags: [] },
+      { id: 'impulse.payoffs', label: 'Cast-from-exile payoffs', target: 5, projectTags: ['Graveyard Cast'] },
+      { id: 'impulse.mana', label: 'Burst mana', target: 5, projectTags: ['Treasure', 'Ramp'] },
+    ]),
+    'strategy.wheels': Object.freeze([
+      { id: 'wheel.wheels', label: 'Wheels', target: 8, projectTags: ['Wheel'] },
+      { id: 'wheel.payoffs', label: 'Wheel payoffs', target: 6, projectTags: ['Discard', 'Drain'] },
+      { id: 'wheel.draw', label: 'Extra draw', target: 4, projectTags: ['Card Draw'] },
+    ]),
+    'strategy.group_slug': Object.freeze([
+      { id: 'slug.damage', label: 'Table damage', target: 10, projectTags: ['Group Slug', 'Ping'] },
+      { id: 'slug.burn', label: 'Burn', target: 6, projectTags: ['Burn', 'Burn.Player', 'Burn.Opponents'] },
+      { id: 'slug.drain', label: 'Drain', target: 4, projectTags: ['Drain'] },
+    ]),
     'strategy.spellslinger': Object.freeze([
       { id: 'ss.payoffs', label: 'Spell payoffs', target: 8, projectTags: [] },
       { id: 'ss.copy', label: 'Copy', target: 3, projectTags: ['Copy'] },
-      { id: 'ss.finish', label: 'Burn/finish', target: 4, projectTags: ['Burn'] },
+      { id: 'ss.finish', label: 'Burn/finish', target: 4, projectTags: ['Burn', 'Burn.Any', 'Burn.Creature', 'Burn.Player', 'Burn.Opponents'] },
     ]),
     'strategy.voltron': Object.freeze([
       { id: 'vol.equip', label: 'Type equip/auras', target: 8, projectTags: [] },
       { id: 'vol.pump', label: 'Pump', target: 4, projectTags: ['Pump'] },
       { id: 'vol.evasion', label: 'Evasion', target: 3, projectTags: ['Evasion'] },
       { id: 'vol.prot', label: 'Protection', target: 3, projectTags: ['Protection'] },
+    ]),
+    'strategy.combat.attacks': Object.freeze([
+      { id: 'catk.triggers', label: 'Attack triggers', target: 12, projectTags: ['Attack Trigger'] },
+      { id: 'catk.enablers', label: 'Evasion & haste', target: 6, projectTags: ['Evasion'] },
+    ]),
+    'strategy.combat.saboteur': Object.freeze([
+      { id: 'csab.triggers', label: 'Saboteur triggers', target: 10, projectTags: ['Saboteur'] },
+      { id: 'csab.evasion', label: 'Evasion', target: 8, projectTags: ['Evasion'] },
+    ]),
+    'strategy.combat.extra_combats': Object.freeze([
+      { id: 'cxcom.extra', label: 'Extra combats', target: 6, projectTags: ['Extra Combat'] },
+      { id: 'cxcom.attackers', label: 'Attackers', target: 10, projectTags: ['Attack Trigger', 'Evasion'] },
+    ]),
+    'strategy.combat': Object.freeze([
+      { id: 'combat.attacks_matter', label: 'Attacks matter', target: 10, projectTags: ['Attack Trigger'] },
+      { id: 'combat.saboteur', label: 'Saboteur', target: 8, projectTags: ['Saboteur'] },
+      { id: 'combat.enablers', label: 'Evasion & haste', target: 6, projectTags: ['Evasion', 'Haste Enabler'] },
+      { id: 'combat.finishers', label: 'Extra combats & alpha strike', target: 3, projectTags: ['Extra Combat', 'Anthem'] },
     ]),
     'strategy.reanimator': Object.freeze([
       { id: 'rean.reanimate', label: 'Reanimate', target: 6, projectTags: ['Reanimate'] },
@@ -289,7 +669,7 @@
     ]),
     'strategy.blink': Object.freeze([
       { id: 'blink.flicker', label: 'Blink/flicker', target: 10, projectTags: ['Blink'] },
-      { id: 'blink.etb', label: 'ETB payoffs', target: 8, projectTags: ['Copy'] },
+      { id: 'blink.etb', label: 'ETB payoffs', target: 8, projectTags: ['Blink'] },
       { id: 'blink.utility', label: 'Utility', target: 4, projectTags: ['Blink'] },
     ]),
     'strategy.theft': Object.freeze([
@@ -319,6 +699,8 @@
    * `options`: { id, label }[]; free-text strategies also allow custom ids.
    */
   const PLAN_TYPE_DIMENSIONS = Object.freeze({
+    // Umbrella picker. Each option names a child strategy — picking one here is
+    // the short way to say what the Tokens deck is actually about.
     'strategy.tokens': Object.freeze({
       title: 'Which token types matter?',
       inputPlaceholder: 'e.g. Treasure',
@@ -327,10 +709,17 @@
       useSuggestApi: false,
       defaultPhrase: 'Token',
       options: Object.freeze([
-        { id: 'creature', label: 'Creature' },
+        { id: 'creature', label: 'Creature (go wide)' },
         { id: 'treasure', label: 'Treasure' },
         { id: 'food', label: 'Food' },
         { id: 'clue', label: 'Clue' },
+        { id: 'blood', label: 'Blood' },
+        { id: 'powerstone', label: 'Powerstone' },
+        { id: 'incubator', label: 'Incubator' },
+        { id: 'map', label: 'Map' },
+        { id: 'junk', label: 'Junk' },
+        { id: 'role', label: 'Role' },
+        { id: 'gold', label: 'Gold' },
       ]),
     }),
     'strategy.tribal': Object.freeze({
@@ -342,7 +731,7 @@
       defaultPhrase: 'Typal',
       options: Object.freeze([]),
     }),
-    'strategy.enchantress': Object.freeze({
+    'strategy.auras': Object.freeze({
       title: 'Aura enchantments, non-aura, or both?',
       allowCustom: false,
       multi: false,
@@ -454,22 +843,47 @@
 
   /** Stable order when multiple type-pick steps appear in one wizard pass. */
   const PLAN_TYPE_PICK_STRATEGY_ORDER = Object.freeze([
-    'strategy.tokens', 'strategy.tribal', 'strategy.enchantress', 'strategy.counters',
+    'strategy.tokens', 'strategy.tribal', 'strategy.auras', 'strategy.counters',
     'strategy.spellslinger', 'strategy.voltron', 'strategy.sacrifice',
     'strategy.reanimator', 'strategy.superfriends', 'strategy.stax', 'strategy.mill',
   ]);
 
   const SUBTAG_ID_STRATEGY_PREFIX = Object.freeze({
     tokens: 'strategy.tokens',
+    wide: 'strategy.tokens.go_wide',
+    blood: 'strategy.tokens.blood',
+    pstone: 'strategy.tokens.powerstone',
+    incub: 'strategy.tokens.incubate',
+    maptok: 'strategy.tokens.map',
+    junk: 'strategy.tokens.junk',
+    role: 'strategy.tokens.role',
+    gold: 'strategy.tokens.gold',
     tribal: 'strategy.tribal',
-    ench: 'strategy.enchantress',
+    ench: 'strategy.auras',
+    equip: 'strategy.equipment',
+    veh: 'strategy.vehicles',
+    food: 'strategy.food',
+    treas: 'strategy.treasure',
+    clue: 'strategy.clues',
+    life: 'strategy.lifegain',
+    combo: 'strategy.combo',
     vol: 'strategy.voltron',
+    combat: 'strategy.combat',
+    catk: 'strategy.combat.attacks',
+    csab: 'strategy.combat.saboteur',
+    cxcom: 'strategy.combat.extra_combats',
     counters: 'strategy.counters',
+    poison: 'strategy.poison',
     ss: 'strategy.spellslinger',
     sac: 'strategy.sacrifice',
     rean: 'strategy.reanimator',
     sf: 'strategy.superfriends',
     stax: 'strategy.stax',
+    stompy: 'strategy.stompy',
+    bigmana: 'strategy.big_mana',
+    impulse: 'strategy.impulse',
+    wheel: 'strategy.wheels',
+    slug: 'strategy.group_slug',
     mill: 'strategy.mill',
     art: 'strategy.artifacts',
     land: 'strategy.landfall',
@@ -536,8 +950,8 @@
     if (!dim.multi && picks.length === 1) {
       const one = _optionLabelForPick(strategyId, picks[0]);
       if (strategyId === 'strategy.voltron' && picks[0] === 'both') return 'Equipment & auras';
-      if (strategyId === 'strategy.enchantress' && picks[0] === 'both') return 'Enchantment';
-      if (strategyId === 'strategy.enchantress' && picks[0] === 'enchantment') return 'Non-aura enchantment';
+      if (strategyId === 'strategy.auras' && picks[0] === 'both') return 'Enchantment';
+      if (strategyId === 'strategy.auras' && picks[0] === 'enchantment') return 'Non-aura enchantment';
       return one;
     }
     const labels = picks.map(id => _optionLabelForPick(strategyId, id));
@@ -565,7 +979,7 @@
       if (picks[0] === 'aura') return 'Auras';
       return planTypePhraseForStrategy(plan, sid);
     }
-    if (subtagId === 'ench.type' && sid === 'strategy.enchantress') {
+    if (subtagId === 'ench.type' && sid === 'strategy.auras') {
       const picks = planTypePicksForStrategy(plan, sid);
       if (!picks.length) return 'Enchantments & auras';
       if (picks.includes('both')) return 'Enchantments & auras';
@@ -601,19 +1015,33 @@
     return cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander)) || null;
   }
 
-  /** Rank token types from oracle text (treasure, food, clue, creature token). */
+  /** One regex per token subtype the catalog names, in picker order. */
+  const TOKEN_TYPE_PATTERNS = Object.freeze([
+    ['creature', /\bcreature token/],
+    ['treasure', /\btreasure token/],
+    ['food', /\bfood token/],
+    ['clue', /\bclue token|\binvestigate/],
+    ['blood', /\bblood token/],
+    ['powerstone', /\bpowerstone/],
+    ['incubator', /\bincubate|\bincubator token/],
+    ['map', /\bmap token/],
+    ['junk', /\bjunk token/],
+    ['role', /\brole token|\b(cursed|monster|royal|sorcerer|wicked|young hero) role\b/],
+    ['gold', /\bgold token/],
+  ]);
+
+  /** Rank token subtypes from oracle text. */
   function inferTokenTypePicksFromDeck(deck) {
-    const counts = { creature: 0, treasure: 0, food: 0, clue: 0 };
+    const counts = Object.fromEntries(TOKEN_TYPE_PATTERNS.map(([k]) => [k, 0]));
     const cards = _deckCardsForInference(deck);
     const cmd = _commanderForInference(deck);
     const all = cmd ? [...cards, cmd] : cards;
     for (const card of all) {
       const blob = _oracleBlob(card);
       const qty = card.qty || card.count || 1;
-      if (/\bcreature token/.test(blob)) counts.creature += qty;
-      if (/\btreasure token/.test(blob)) counts.treasure += qty;
-      if (/\bfood token/.test(blob)) counts.food += qty;
-      if (/\bclue token/.test(blob)) counts.clue += qty;
+      for (const [key, re] of TOKEN_TYPE_PATTERNS) {
+        if (re.test(blob)) counts[key] += qty;
+      }
     }
     const ranked = Object.entries(counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     if (!ranked.length) return { picks: [], source: 'degraded' };
@@ -699,7 +1127,7 @@
       case 'strategy.mill': return inferMillTargetFromDeck(deck);
       case 'strategy.stax': return inferStaxAxisFromDeck(deck);
       case 'strategy.voltron': return { picks: ['both'], source: 'inferred-deck' };
-      case 'strategy.enchantress': return { picks: ['both'], source: 'inferred-deck' };
+      case 'strategy.auras': return { picks: ['both'], source: 'inferred-deck' };
       default: return { picks: [], source: 'degraded' };
     }
   }
@@ -720,7 +1148,10 @@
 
   /** Default sub-tag rows for a strategy (half weight when secondary). */
   function planThemeSubtagDefaults(strategyId, { secondary } = {}) {
-    const rows = PLAN_THEME_SUBTAG_DEFAULTS[strategyId] || [];
+    const canon = canonicalizeStrategyId(strategyId);
+    let key = canon;
+    if (canon && String(canon).startsWith('strategy.typal.')) key = 'strategy.tribal';
+    const rows = PLAN_THEME_SUBTAG_DEFAULTS[key] || [];
     const scale = secondary ? 0.5 : 1;
     return rows.map(r => ({
       id: r.id,
@@ -789,7 +1220,8 @@
   }
 
   function strategyLabel(id) {
-    return (PLAN_STRATEGIES.find(s => s.id === id) || {}).label || id || '';
+    const canon = canonicalizeStrategyId(id);
+    return (PLAN_STRATEGIES.find(s => s.id === canon) || {}).label || canon || id || '';
   }
   function winconLabel(id) {
     return (PLAN_WINCONS.find(w => w.id === id) || {}).label || id || '';
@@ -864,19 +1296,24 @@
   function rankStrategiesForCommander(commander) {
     const text = _oracleBlob(commander) + ' ' + String(commander?.name || '');
     const scores = _rankFromRules(text, PLAN_STRATEGY_ORACLE_RULES, 3);
-    // Max oracle hits × weight ≈ 1.5; half-strength around one solid keyword hit
-    return _topRanked(scores, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 1.0 });
+    // Rank within shortlist so chips stay focused; full catalog via "Show more".
+    return _topRanked(scores, PLAN_STRATEGY_SHORTLIST, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 1.0 });
   }
 
   function rankWinConditionsForCommander(commander) {
     const text = _oracleBlob(commander) + ' ' + String(commander?.name || '');
     const scores = _rankFromRules(text, PLAN_WINCON_ORACLE_RULES, 3);
+    // A declared IR wincon outranks a text guess: it is the extractor's own
+    // reading of what the card does, not a regex over its rules text.
+    const irId = _irWinconPlanId(commander);
+    if (irId) scores[irId] = (scores[irId] || 0) + 2 * PLAN_ORACLE_SIGNAL_WEIGHT;
     return _topRanked(scores, PLAN_WINCONS, PLAN_WINCON_FALLBACK_IDS, Math.min(5, PLAN_PRIMARY_OPTIONS_COUNT), { refHalf: 1.0 });
   }
 
   function _deckTypeRatios(deck) {
     const cards = deck?.cards || [];
-    let creatures = 0, instSor = 0, artifacts = 0, enchantments = 0, lands = 0, walkers = 0, total = 0;
+    let creatures = 0, instSor = 0, artifacts = 0, enchantments = 0, lands = 0, walkers = 0;
+    let equipment = 0, vehicles = 0, total = 0;
     for (const c of cards) {
       const q = c.qty || 1;
       total += q;
@@ -887,15 +1324,20 @@
       if (tl.includes('artifact')) artifacts += q;
       if (tl.includes('enchantment')) enchantments += q;
       if (tl.includes('planeswalker')) walkers += q;
+      if (tl.includes('equipment')) equipment += q;
+      if (tl.includes('vehicle')) vehicles += q;
     }
     const nonLand = Math.max(1, total - lands);
     return {
       total, nonLand, creatures, instSor, artifacts, enchantments, walkers, lands,
+      equipment, vehicles,
       creatureShare: creatures / nonLand,
       instSorShare: instSor / nonLand,
       artifactShare: artifacts / nonLand,
       enchantShare: enchantments / nonLand,
       walkerShare: walkers / nonLand,
+      equipmentShare: equipment / nonLand,
+      vehicleShare: vehicles / nonLand,
     };
   }
 
@@ -918,25 +1360,65 @@
     return s;
   }
 
+  /**
+   * TEMPORARY - delete with the combat pillar block in js/deck-themes.js when engine2
+   * ships a 'combat' goal template. Falls back to "do not gate" if the themes module
+   * is unavailable, so a load-order problem can never silently hide the strategy.
+   */
+  /** The combat umbrella or any of its children. */
+  function _isCombatStrategy(id) {
+    return id === 'strategy.combat' || String(id || '').startsWith('strategy.combat.');
+  }
+
+  function _combatTwoPillarOk(deck) {
+    let fn = root && typeof root.combatPillars === 'function' ? root.combatPillars : null;
+    if (!fn && typeof require === 'function') {
+      try { fn = require('./deck-themes.js').combatPillars; } catch (_) { /* bundled */ }
+    }
+    if (typeof fn !== 'function') return true;
+    try { return !!fn(deck).twoPillar; } catch (_) { return true; }
+  }
+
   function rankStrategiesForDeck(deck) {
     const counts = _deckTagCounts(deck);
     const ratios = _deckTypeRatios(deck);
     const scores = Object.create(null);
     const W = PLAN_TAG_SIGNAL_WEIGHT;
-    for (const s of PLAN_STRATEGIES) {
+    for (const s of PLAN_STRATEGY_SHORTLIST) {
       let raw = _tagSignal(counts, PLAN_STRATEGY_PROJECT_TAGS[s.id] || [], W);
       // Light type-ratio nudges — keep well below dedicated tag stacks so "has instants"
       // does not read as a confident spellslinger call.
       if (s.id === 'strategy.spellslinger') raw += ratios.instSorShare * 2.5 * W;
-      if (s.id === 'strategy.artifacts') raw += ratios.artifactShare * 2.5 * W;
-      if (s.id === 'strategy.enchantress') raw += ratios.enchantShare * 2.5 * W;
+      if (s.id === 'strategy.artifacts') raw += Math.max(0, ratios.artifactShare - ratios.equipmentShare - ratios.vehicleShare) * 2.5 * W;
+      if (s.id === 'strategy.equipment') raw += ratios.equipmentShare * 6 * W;
+      if (s.id === 'strategy.vehicles') raw += ratios.vehicleShare * 8 * W;
+      if (s.id === 'strategy.auras') raw += ratios.enchantShare * 2.5 * W;
       if (s.id === 'strategy.superfriends') raw += ratios.walkerShare * 8 * W;
       if (s.id === 'strategy.tribal' && ratios.creatureShare > 0.4) raw += 2 * W;
+      // A creature-heavy board is a PRECONDITION for combat, never evidence on its own -
+      // weighted well below the dedicated equipment (x6) / vehicles (x8) type nudges.
+      if (_isCombatStrategy(s.id) && ratios.creatureShare > 0.35) raw += ratios.creatureShare * 3 * W;
+      // ── COMBAT TWO-PILLAR GATE ── TEMPORARY (see js/deck-themes.js pillar block).
+      // Combat is the one strategy whose identity needs BOTH an attack/damage-trigger
+      // core AND a support package; without this a value deck that merely attacks
+      // (Korvold, Muldrotha) gets SUGGESTED Combat. Theme evidence bands are NOT gated
+      // (owner lock #6) - this only suppresses the suggestion; the row stays pickable.
+      if (_isCombatStrategy(s.id) && !_combatTwoPillarOk(deck)) raw = 0;
       if (s.id === 'strategy.control') raw += ((counts['Counterspell'] || 0) + (counts['Removal'] || 0) + (counts['Card Draw'] || 0)) * 0.15 * W;
+      if (s.id === 'strategy.lifegain') raw += (counts['Lifegain'] || 0) * W;
+      // Do not infer Combo from Tutor density alone — tutors are enablers.
       scores[s.id] = raw;
     }
-    // refHalf ≈ a handful of on-theme tagged cards; huge stacks still soft-cap confidence
-    return _topRanked(scores, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 4 });
+    // Also score search-only catalog rows so inference can surface them when loud.
+    for (const s of PLAN_STRATEGIES) {
+      if (PLAN_STRATEGY_SHORTLIST_SET.has(s.id) || scores[s.id] != null) continue;
+      scores[s.id] = _tagSignal(counts, PLAN_STRATEGY_PROJECT_TAGS[s.id] || [], W);
+    }
+    // Prefer shortlist for chip ranking; loud search-only ids still compete if scored high.
+    const rankCatalog = PLAN_STRATEGIES.filter(s =>
+      PLAN_STRATEGY_SHORTLIST_SET.has(s.id) || (scores[s.id] || 0) > 0
+    );
+    return _topRanked(scores, rankCatalog.length ? rankCatalog : PLAN_STRATEGY_SHORTLIST, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 4 });
   }
 
   function rankWinConditionsForDeck(deck) {
@@ -960,24 +1442,33 @@
 
   function strategyMatch(card, strategyId, deck) {
     if (!strategyId) return 0;
+    const sid = canonicalizeStrategyId(strategyId);
     const tags = new Set(_cardRoles(card, deck));
-    const want = PLAN_STRATEGY_PROJECT_TAGS[strategyId] || [];
+    const want = PLAN_STRATEGY_PROJECT_TAGS[sid] || [];
     if (want.some(t => tags.has(t))) return 1;
-    const rule = PLAN_STRATEGY_ORACLE_RULES.find(r => r.id === strategyId);
+    const rule = PLAN_STRATEGY_ORACLE_RULES.find(r => r.id === sid);
     if (rule) {
       const blob = _oracleBlob(card);
       if (rule.patterns.some(re => re.test(blob))) return 1;
     }
     const tl = _typeLine(card);
-    if (strategyId === 'strategy.artifacts' && tl.includes('artifact')) return 1;
-    if (strategyId === 'strategy.enchantress' && tl.includes('enchantment')) return 1;
-    if (strategyId === 'strategy.superfriends' && tl.includes('planeswalker')) return 1;
-    if (strategyId === 'strategy.spellslinger' && (tl.includes('instant') || tl.includes('sorcery'))) return 1;
+    if (sid === 'strategy.artifacts' && tl.includes('artifact')
+        && !tl.includes('equipment') && !tl.includes('vehicle')) return 1;
+    if (sid === 'strategy.equipment' && tl.includes('equipment')) return 1;
+    if (sid === 'strategy.vehicles' && tl.includes('vehicle')) return 1;
+    if (sid === 'strategy.auras' && tl.includes('enchantment')) return 1;
+    if (sid === 'strategy.superfriends' && tl.includes('planeswalker')) return 1;
+    if (sid === 'strategy.spellslinger' && (tl.includes('instant') || tl.includes('sorcery'))) return 1;
+    if (sid && sid.startsWith('strategy.typal.')) {
+      const type = sid.slice('strategy.typal.'.length);
+      if (type && new RegExp('\\b' + type + '\\b', 'i').test(tl)) return 1;
+    }
     return 0;
   }
 
   function winconMatch(card, winconId, deck) {
     if (!winconId) return 0;
+    if (_irWinconPlanId(card) === winconId) return 1;
     const tags = new Set(_cardRoles(card, deck));
     const want = PLAN_WINCON_PROJECT_TAGS[winconId] || [];
     if (want.some(t => tags.has(t))) return 1;
@@ -1133,6 +1624,10 @@
     PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE,
     PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER,
     PLAN_STRATEGIES,
+    PLAN_STRATEGY_SHORTLIST_IDS,
+    PLAN_STRATEGY_SHORTLIST,
+    PLAN_STRATEGY_ID_ALIASES,
+    canonicalizeStrategyId,
     PLAN_WINCONS,
     PLAN_STRATEGY_FALLBACK_IDS,
     PLAN_WINCON_FALLBACK_IDS,
@@ -1142,9 +1637,15 @@
     PLAN_WINCON_PROJECT_TAGS,
     emptyPlan,
     normalizeDeckPlan,
+    PLAN_FEATURE_KEY,
+    isPlanFeatureEnabled,
+    setPlanFeatureEnabled,
+    stripPlanIdentity,
     getDeckPlan,
     isPlanDeclared,
     isPlanConfirmed,
+    renderDeckPlanSettingBtn,
+    toggleDeckPlanSetting,
     PLAN_THEME_SUBTAG_DEFAULTS,
     PLAN_TYPE_DIMENSIONS,
     PLAN_TYPE_PICK_STRATEGY_ORDER,
@@ -1159,6 +1660,7 @@
     inferTokenTypePicksFromDeck,
     inferSacrificeFodderFromDeck,
     resolvePlanSubtagLabel,
+    subtagStrategyId,
     setPlanTypePicks,
     planThemeSubtagDefaults,
     mergedPlanSubtagDefaults,

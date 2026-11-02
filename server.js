@@ -2068,6 +2068,47 @@ async function ensureDeckWantedCardsTable() {
   }
 }
 
+// Deck Compare: one shared physical-deck scan tally per deck (js/deck-compare.js).
+async function ensureDeckCompareTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_sessions (
+        deck_id        VARCHAR(50)     NOT NULL,
+        include_extras TINYINT(1)      NOT NULL DEFAULT 0,
+        revision       INT UNSIGNED    NOT NULL DEFAULT 0,
+        updated_at     BIGINT          NOT NULL DEFAULT 0,
+        updated_by     BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_scans (
+        deck_id    VARCHAR(50)     NOT NULL,
+        name_key   VARCHAR(255)    NOT NULL,
+        name       VARCHAR(255)    NOT NULL,
+        qty        INT UNSIGNED    NOT NULL DEFAULT 0,
+        entry      MEDIUMTEXT      NULL,
+        updated_at BIGINT          NOT NULL DEFAULT 0,
+        updated_by BIGINT UNSIGNED NULL,
+        PRIMARY KEY (deck_id, name_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    // Applied op batches, so a retried POST (response lost) is not applied twice.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_compare_batches (
+        deck_id    VARCHAR(50) NOT NULL,
+        batch_id   VARCHAR(64) NOT NULL,
+        applied_at BIGINT      NOT NULL,
+        PRIMARY KEY (deck_id, batch_id),
+        INDEX idx_dcb_applied (applied_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureTradeSuggestionDismissalsTable() {
   const conn = await db().getConnection();
   try {
@@ -2466,6 +2507,8 @@ const {
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
 const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
+const removalRoles = require('./js/removal-roles.js'); // CardIR removal-target classifier (client + server)
+const scryTagSchema = require('./js/scry-tag-schema.js');
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -2480,6 +2523,7 @@ const {
 const { decideOauthLink } = require('./lib/oauth-link-policy');
 // Granular op-based deck sync (shared with the browser bundle).
 const DeckOps = require('./js/deck-ops');
+const DeckCompareCore = require('./js/deck-compare-core'); // shared scan-tally ops (client + server)
 
 async function assertCanEditDeck(deckId, accountId) {
   const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
@@ -3889,12 +3933,7 @@ app.put('/api/collection', requireAuth, async (req, res) => {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await conn.query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(conn, oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -3971,10 +4010,7 @@ async function _collectionTagContext(conn, accountId, cards) {
     const [tr] = await conn.query(
       `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oidList);
     typeRows = tr || [];
-    const [tg] = await conn.query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-        WHERE oracle_id IN (${ph}) AND schema_version = ?`, [...oidList, SCRY_TAG_SCHEMA_VERSION]);
-    tagRows = tg || [];
+    tagRows = await loadOracleTagRows(conn, oidList);
   }
   const typeByOid = new Map((typeRows || [])
     .map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')]));
@@ -5826,6 +5862,9 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
       ops: result.ops,
       revision: result.revision,
       updatedAt: now,
+      // Sending device, so it can skip its own echo while the account's OTHER
+      // devices (phone + computer) still apply the change live.
+      clientId: typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null,
     }));
     res.json({ ok: true, revision: result.revision, updatedAt: now });
   } catch (e) {
@@ -5846,6 +5885,9 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can delete a deck' });
     }
     await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
+    await db().query('DELETE FROM deck_compare_scans WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_sessions WHERE deck_id=?', [deckId]).catch(() => {});
+    await db().query('DELETE FROM deck_compare_batches WHERE deck_id=?', [deckId]).catch(() => {});
     invalidateTradelistCache(accountId);
     void reconcileAccountWishlist(accountId);
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
@@ -5856,6 +5898,189 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Deck Compare: shared physical-deck scan tally ────────────────────────────
+// Everyone who can EDIT the deck (owner + 'edit' collaborators) shares one tally.
+// Changes arrive as ops (js/deck-compare-core.js applyTallyOps, the same code the
+// client runs), are applied under a per-deck row lock, and the new state is pushed
+// to the deck's socket room as 'deck:compare'.
+
+/**
+ * Send a tally update to the deck's compare room, re-checking each member first.
+ * Room membership is granted on deck:join; a collaborator downgraded to view-only
+ * or removed since then is dropped from the room instead of being sent the tally.
+ */
+async function emitDeckCompare(deckId, payload) {
+  const room = `deckcompare:${deckId}`;
+  try {
+    const sockets = await _io.in(room).fetchSockets();
+    const allowed = new Map(); // accountId -> still an editor?
+    for (const s of sockets) {
+      const acc = s.data?.accountId;
+      if (!allowed.has(acc)) {
+        allowed.set(acc, acc != null && !!(await deckCompareAccess(acc, deckId)).ok);
+      }
+      if (allowed.get(acc)) s.emit('deck:compare', payload);
+      else s.leave(room);
+    }
+  } catch (e) {
+    console.error('[deck-compare] broadcast', e.message);
+  }
+}
+
+async function deckCompareAccess(accountId, deckId) {
+  const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+  if (!rows.length) return { status: 404, error: 'Deck not found' };
+  if (Number(rows[0].account_id) === Number(accountId)) return { ok: true };
+  const [cr] = await db().query(
+    'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+    [deckId, accountId]
+  );
+  if (!cr.length) return { status: 403, error: 'Access denied' };
+  if ((cr[0].permission || 'edit') === 'view') return { status: 403, error: 'You have view-only access to this deck' };
+  return { ok: true };
+}
+
+function _deckCompareRowsToScanned(rows) {
+  const scanned = {};
+  for (const r of rows) {
+    if (!DeckCompareCore.isSafeKey(r.name_key)) continue;
+    const row = { name: r.name, qty: Number(r.qty) || 0 };
+    if (r.entry) {
+      try {
+        row.entry = JSON.parse(r.entry);
+        if (row.entry && row.entry.image) row.image = row.entry.image;
+      } catch (_) {}
+    }
+    if (row.qty > 0) scanned[r.name_key] = row;
+  }
+  return scanned;
+}
+
+async function loadDeckCompareState(q, deckId, lock) {
+  const [srows] = await q.query(
+    `SELECT include_extras, revision FROM deck_compare_sessions WHERE deck_id = ?${lock ? ' FOR UPDATE' : ''}`,
+    [deckId]
+  );
+  const [rows] = await q.query(
+    'SELECT name_key, name, qty, entry FROM deck_compare_scans WHERE deck_id = ?',
+    [deckId]
+  );
+  return {
+    deckId,
+    revision: srows.length ? Number(srows[0].revision) || 0 : 0,
+    includeExtras: srows.length ? !!srows[0].include_extras : false,
+    scanned: _deckCompareRowsToScanned(rows),
+  };
+}
+
+app.get('/api/decks/:id/compare', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  try {
+    const access = await deckCompareAccess(req.accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    // Both tables from one snapshot, so revision/flag and counts always belong together.
+    const conn = await db().getConnection();
+    let state;
+    try {
+      await conn.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+      state = await loadDeckCompareState(conn, deckId, false);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json(state);
+  } catch (e) {
+    console.error('[deck-compare] load failed:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  const body = req.body || {};
+  if (!Array.isArray(body.ops) || !body.ops.length) return res.status(400).json({ error: 'No ops' });
+  if (body.ops.length > 2000) return res.status(400).json({ error: 'Too many ops' });
+  const ops = DeckCompareCore.sanitizeTallyOps(body.ops);
+  if (!ops.length) return res.status(400).json({ error: 'No valid ops' });
+  const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 64) : null;
+  const batchId = typeof body.batchId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.batchId) ? body.batchId : null;
+  try {
+    const access = await deckCompareAccess(accountId, deckId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const now = Date.now();
+    let state;
+    let duplicate = false;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        'INSERT IGNORE INTO deck_compare_sessions (deck_id, include_extras, revision, updated_at) VALUES (?, 0, 0, ?)',
+        [deckId, now]
+      );
+      const before = await loadDeckCompareState(conn, deckId, true);
+      if (batchId) {
+        // Under the session row lock: a batch id seen before means this is a retry of a
+        // POST that already committed — answer with the current state, apply nothing.
+        const [ins] = await conn.query(
+          'INSERT IGNORE INTO deck_compare_batches (deck_id, batch_id, applied_at) VALUES (?,?,?)',
+          [deckId, batchId, now]
+        );
+        if (!ins.affectedRows) duplicate = true;
+      }
+      if (duplicate) {
+        await conn.commit();
+        state = before;
+      } else {
+        const beforeJson = {};
+        for (const [k, v] of Object.entries(before.scanned)) beforeJson[k] = JSON.stringify(v);
+        const after = DeckCompareCore.applyTallyOps(
+          { scanned: JSON.parse(JSON.stringify(before.scanned)), includeExtras: before.includeExtras },
+          ops
+        );
+        const gone = Object.keys(before.scanned).filter(k => !after.scanned[k]);
+        if (gone.length) {
+          await conn.query('DELETE FROM deck_compare_scans WHERE deck_id = ? AND name_key IN (?)', [deckId, gone]);
+        }
+        for (const [k, v] of Object.entries(after.scanned)) {
+          if (beforeJson[k] === JSON.stringify(v)) continue;
+          await conn.query(
+            `INSERT INTO deck_compare_scans (deck_id, name_key, name, qty, entry, updated_at, updated_by)
+             VALUES (?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE name=VALUES(name), qty=VALUES(qty),
+               entry=COALESCE(VALUES(entry), entry), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)`,
+            [deckId, k, String(v.name || k).slice(0, 255), v.qty, v.entry ? JSON.stringify(v.entry) : null, now, accountId]
+          );
+        }
+        await conn.query(
+          'UPDATE deck_compare_sessions SET include_extras = ?, revision = revision + 1, updated_at = ?, updated_by = ? WHERE deck_id = ?',
+          [after.includeExtras ? 1 : 0, now, accountId, deckId]
+        );
+        state = await loadDeckCompareState(conn, deckId, false);
+        await conn.commit();
+      }
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+    if (!duplicate) {
+      // Editors only — view-only collaborators share the deck room but not the tally.
+      if (_io) await emitDeckCompare(deckId, await deckBroadcastMeta(accountId, { ...state, clientId }));
+      // Batch ids only need to outlive client retries.
+      void db().query('DELETE FROM deck_compare_batches WHERE applied_at < ?', [now - 7 * 24 * 3600 * 1000]).catch(() => {});
+    }
+    res.json(state);
+  } catch (e) {
+    console.error('[deck-compare] ops failed:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -6485,6 +6710,21 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
+    // Architecture view's Interaction/Removal subsections (creature/artifact/
+    // enchantment/… removal) — derived target-type labels only, same rule as
+    // the strip below: never ship the raw effect AST or axis tokens.
+    const removalTargets = {};
+    const irProjectTags = {};
+    const irWincon = {};
+    const irSources = commander ? deckCards.concat([commander]) : deckCards;
+    for (const c of irSources) {
+      const cats = removalRoles.classifyRemovalTargets(c.ir);
+      if (cats.length && c.name) removalTargets[c.name] = cats;
+      const tags = scryTagSchema.irProjectTagsForCard(c.ir);
+      if (tags.length && c.name) irProjectTags[c.name] = tags;
+      if (c.name && scryTagSchema.irCardClosesGame(c.ir)) irWincon[c.name] = true;
+    }
+
     // Strip internal reasoning tokens before they leave the server. The client
     // renders only `reasons`/`breakdown` (English) + goal label/summary — it never
     // reads raw `trace` (axis/param/weight tokens) or goal `evidence` (axes/clusters).
@@ -6499,6 +6739,9 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       // English-only plan readout (engine, direction, weakest link) — no axis tokens
       gameplan: engine2.gameplan.readout(gameplan),
       coverage: { semantics: coverage },
+      removalTargets,
+      irProjectTags,
+      irWincon,
     });
   } catch (e) {
     console.error('[analyze]', e);
@@ -7507,6 +7750,7 @@ function attachRealtime(httpServer) {
     const sess = socket.request.session;
     if (!sess || !sess.accountId) return next(new Error('unauthorized'));
     socket.accountId = sess.accountId;
+    socket.data.accountId = sess.accountId; // visible to fetchSockets() (emitDeckCompare)
     next();
   });
   io.on('connection', socket => {
@@ -7531,9 +7775,15 @@ function attachRealtime(httpServer) {
         const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
         if (!access) return;
         socket.join(`deck:${deckId}`);
+        // Deck Compare tally is for editors only (owner + 'edit' collaborators).
+        if ((await deckCompareAccess(socket.accountId, deckId)).ok) socket.join(`deckcompare:${deckId}`);
       } catch (_) {}
     });
-    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
+    socket.on('deck:leave', ({ deckId } = {}) => {
+      if (!deckId) return;
+      socket.leave(`deck:${deckId}`);
+      socket.leave(`deckcompare:${deckId}`);
+    });
   });
   console.log('[realtime] socket.io attached');
 }
@@ -8846,6 +9096,7 @@ let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to pre
 const {
   PROJECT_ROLE_TAGS: SCRYFALL_AUTO_TAGS,
   OTAG_TO_PROJECT_LABEL: _OTAG_TO_LABEL,
+  demoteRampTutorLabels,
 } = require('./js/project-role-tags.js');
 // Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
 // engine resolve `otag:removal` against the local tag table (which stores "Removal").
@@ -9106,7 +9357,7 @@ async function ensureCardSemanticsTables() {
  * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
-async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '5' } = {}) {
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -9156,6 +9407,13 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
         if (!pctByOracle.has(item.oracle_id)) pctByOracle.set(item.oracle_id, {});
         pctByOracle.get(item.oracle_id)[role] = Math.round(p * 1e5) / 1e5;
       });
+    }
+
+    // No tag rows for this schema: leave existing percentiles alone. Wiping first
+    // and finding nothing re-triggers the boot backfill forever.
+    if (!rows.length) {
+      console.log(`[edhrec-pct] skip — no tag rows for schema ${schemaVersion}`);
+      return { roles: 0, updated: 0, withRank: Number(rankRow?.n || 0), skipped: true };
     }
 
     // Clear then write (cards with no qualifying roles get NULL).
@@ -9210,7 +9468,7 @@ async function backfillEdhrecPercentilesIfNeeded() {
     return;
   }
   console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
-  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: SCRY_TAG_SCHEMA_VERSION });
   console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
 }
 
@@ -9796,21 +10054,42 @@ async function _fingerprintCardsFor(metas) {
   return cards;
 }
 
-async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
-  const [rows] = await db().query(
-    `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
-    [String(oracleId || '').toLowerCase(), schemaVersion]
-  );
+async function fetchScryfallTagsForOracle(oracleId, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
+  const rows = await loadOracleTagRows(db(), [String(oracleId || '').toLowerCase()], schemaVersion);
   if (!rows.length) return null;
   try {
-    if (Array.isArray(rows[0].tags_json)) return rows[0].tags_json;
-    return JSON.parse(rows[0].tags_json || '[]');
+    let tags;
+    if (Array.isArray(rows[0].tags_json)) tags = rows[0].tags_json;
+    else tags = JSON.parse(rows[0].tags_json || '[]');
+    return typeof demoteRampTutorLabels === 'function' ? demoteRampTutorLabels(tags) : tags;
   } catch (_) {
     return [];
   }
 }
 
-const SCRY_TAG_SCHEMA_VERSION = '4';
+// v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
+const SCRY_TAG_SCHEMA_VERSION = '5';
+
+// scryfall_oracle_tags is keyed on oracle_id ALONE (one row per card; the import
+// upserts schema_version in place), so "current schema, else newest stored" in SQL
+// reduces to "the row that exists" — the catalog queries below join plainly on
+// oracle_id, and preferOracleTagRows keeps the version preference for the general
+// case in loadOracleTagRows. If the PK ever grows a schema_version column, the
+// plain joins would duplicate cards and need the preference pushed back into SQL.
+
+async function loadOracleTagRows(queryable, oracleIds, schemaVersion = SCRY_TAG_SCHEMA_VERSION) {
+  const ids = [...new Set((oracleIds || [])
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(v => ORACLE_UUID_RE.test(v)))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await queryable.query(
+    `SELECT oracle_id, tags_json, schema_version FROM scryfall_oracle_tags
+     WHERE oracle_id IN (${ph})`,
+    ids
+  );
+  return scryTagSchema.preferOracleTagRows(rows, schemaVersion);
+}
 let _scryfallImportProgress = {
   running: false,
   phase: 'idle',
@@ -9858,7 +10137,7 @@ function tagsFromBatchLogic(oracleIds, typeRows, tagRows) {
     }
     const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
     if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
-    fromDb.set(oid, arr.filter(Boolean));
+    fromDb.set(oid, demoteRampTutorLabels(arr.filter(Boolean)));
   }
   const out = new Map();
   for (const oid of oracleIds) {
@@ -9897,7 +10176,7 @@ function computeCollectionStoredRoleTags(card, oid, typeByOid, tagsByOidMap, ovB
   if (tlMerged.includes('land') || landPayload) tags.push('Land');
   if (card?.isCommander) tags.push('Commander');
   if (oid && tagsByOidMap.has(oid)) tags.push(...(tagsByOidMap.get(oid) || []));
-  const uniq = [...new Set(tags)];
+  const uniq = demoteRampTutorLabels([...new Set(tags)]);
   const ov = oid ? ovByOid.get(oid) : null;
   return applyAccountTagOverridesToTags(uniq, ov || { add: [], remove: [] });
 }
@@ -9955,10 +10234,7 @@ async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
       'SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id = ?',
       [oid]
     );
-    const [tagRows] = await conn.query(
-      'SELECT oracle_id, tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ?',
-      [oid, SCRY_TAG_SCHEMA_VERSION]
-    );
+    const tagRows = await loadOracleTagRows(conn, [oid]);
     const typeByOid = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
@@ -10106,12 +10382,7 @@ async function infillCollectionRoleTagsMissing() {
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await db().query(
-          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-          [...oidList, SCRY_TAG_SCHEMA_VERSION]
-        );
-        tagRows = tg || [];
+        tagRows = await loadOracleTagRows(db(), oidList);
       }
       const typeByOid = new Map(
         (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
@@ -10245,7 +10516,7 @@ async function saveTagQueryCache(schemaVersion, cacheMap) {
   }
 }
 
-async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, refreshCache = false, onProgress = null } = {}) {
+async function buildTagMapFromQueries({ schemaVersion = '5', useCache = true, refreshCache = false, onProgress = null } = {}) {
   const specs = SCRYFALL_AUTO_TAGS.map(spec => ({
     label: spec.label,
     query: spec.query || `otag:${spec.otag}`,
@@ -10308,11 +10579,18 @@ async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, re
   });
   await Promise.all(workers);
   if (cacheWriteMap.size) await saveTagQueryCache(schemaVersion, cacheWriteMap);
+  // Ramp land-searches must not also carry Tutor (see demoteRampTutorLabels).
+  if (typeof demoteRampTutorLabels === 'function') {
+    for (const [oid, labelSet] of tagMap) {
+      const cleaned = demoteRampTutorLabels([...labelSet]);
+      tagMap.set(oid, new Set(cleaned));
+    }
+  }
   return { tagMap, totalQueries, completedQueries };
 }
 
 async function importScryfallOracleBulkToDb({
-  schemaVersion = '4',
+  schemaVersion = '5',
   importCards = true,
   rebuildTags = true,
   useTagQueryCache = true,
@@ -11407,7 +11685,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -11491,7 +11769,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
@@ -12046,7 +12324,7 @@ app.get('/api/scryfall/search', async (req, res) => {
 });
 
 async function runScryfallImportEndpoint(req, res, mode) {
-  const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+  const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
   if (_scryfallImportProgress.running) {
     return res.status(409).json({ error: 'Scryfall import already running', progress: _scryfallImportProgress });
   }
@@ -12314,7 +12592,7 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
 /** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
 app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
   try {
-    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const schemaVersion = String(req.body?.schemaVersion || SCRY_TAG_SCHEMA_VERSION).slice(0, 16);
     const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
     res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {
@@ -12343,11 +12621,7 @@ app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
     const typeByOracle = new Map(
       (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
     );
-    const [rows] = await db().query(
-      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
-       WHERE oracle_id IN (${ph}) AND schema_version = ?`,
-      [...oracleIds, schemaVersion]
-    );
+    const rows = await loadOracleTagRows(db(), oracleIds, schemaVersion);
     const tagsByOracleId = {};
     const oracleIdsWithTagRow = new Set();
     rows.forEach(r => {
@@ -13318,6 +13592,7 @@ async function start() {
       await ensureFriendshipsTable();
       await ensurePlaygroupTables();
       await ensureDeckWantedCardsTable();
+      await ensureDeckCompareTables();
       await ensureTradeSuggestionDismissalsTable();
       await ensureTradeHistoryTable();
       await ensureAppChangelogTable();

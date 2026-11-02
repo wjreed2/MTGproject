@@ -23,12 +23,23 @@
     { label: 'Removal', otag: 'removal' },
     // Scryfall canonical slug is `sweeper`; `board-wipe` / `boardwipe` are search aliases.
     { label: 'Board Wipe', otag: 'board-wipe' },
-    { label: 'Tutor', otag: 'tutor' },
+    // Land-search ramp (Farseek, Three Visits, …) is often also otag:tutor / tutor-land.
+    // Product rule: ramp land searches are Ramp, not Tutor — exclude otag:ramp from the query
+    // and demoteRampTutorLabels() strips Tutor when both labels appear on a card.
+    { label: 'Tutor', query: '(otag:tutor -otag:ramp)' },
     { label: 'Counterspell', otag: 'counterspell' },
     { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
     { label: 'Bounce', otag: 'bounce' },
     { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
+    // Burn umbrella (otag) does not imply interaction — see Burn.* subtypes + js/burn-roles.js.
+    // Scryfall tagger already has burn.any / burn.creature / burn.player (hyphen aliases work).
+    // There is no Scryfall burn.opponents otag; opponent-only face burn is usually burn.player.
     { label: 'Burn', otag: 'burn' },
+    { label: 'Burn.Any', otag: 'burn.any' },
+    { label: 'Burn.Creature', otag: 'burn.creature' },
+    { label: 'Burn.Player', otag: 'burn.player' },
+    // Project-only: Scryfall has no burn.opponents; keep an oracle slice for each/all opponents.
+    { label: 'Burn.Opponents', query: 'otag:burn (o:"each opponent" OR o:"all opponents" OR o:"to each opponent" OR o:"each other player")' },
     // CP-Q32: 1 damage to a creature or player (aliases: poke, Tim, zap, pinger).
     { label: 'Ping', query: '(o:"deals 1 damage" or o:"deal 1 damage")' },
     { label: 'Group Slug', otag: 'group-slug' },
@@ -43,6 +54,24 @@
     { label: 'Bite', otag: 'bite' },
     // Scryfall canonical slug is `extra-combat-phase`; `extra-combat` is a search alias.
     { label: 'Extra Combat', otag: 'extra-combat' },
+    // Combat identity tags (Ready Prompts/strategy-combat-research.md §4.1). Both slugs were
+    // checked against the Scryfall API before landing: otag:attack-trigger returns 2,025
+    // commander-legal cards, otag:saboteur 928. The display names Scryfall shows
+    // ("attack trigger") are spaced; the search slugs are hyphenated.
+    { label: 'Attack Trigger', otag: 'attack-trigger' },
+    // Every card matching o:"deals combat damage to a player" already carries this otag (the
+    // difference query returns 0), and the otag adds 227 more the phrase misses — older
+    // "deals damage to a player" templating and plural "creatures ... deal" wordings.
+    { label: 'Saboteur', otag: 'saboteur' },
+    // Haste-granting only, not "already has haste" — mirrors the combat-pillar support
+    // pattern in js/deck-themes.js (COMBAT_PILLAR_SUPPORT), validated at 534 commander-legal
+    // cards / 1.68% pool (Ready Prompts/strategy-combat-research.md §4.2). Bare "haste" was
+    // tested and rejected there: it matches every creature that simply prints the keyword.
+    {
+      label: 'Haste Enabler',
+      query: '(o:"creatures you control have haste" or o:"creatures you control gain haste" '
+        + 'or o:"gains haste" or o:"gain haste")',
+    },
     { label: 'Token Maker', query: '(o:create o:token)' },
     // Scryfall canonical slug is `flicker`; `blink` is a search alias.
     { label: 'Blink', otag: 'blink' },
@@ -88,6 +117,16 @@
     return null;
   }
 
+  /**
+   * Ramp land-searches must not also count as Tutor (combo signal, tutor preference, etc.).
+   * When both labels are present, keep Ramp and drop Tutor.
+   */
+  function demoteRampTutorLabels(labels) {
+    const arr = Array.isArray(labels) ? labels.map(t => String(t || '').trim()).filter(Boolean) : [];
+    if (!arr.includes('Ramp') || !arr.includes('Tutor')) return arr;
+    return arr.filter(t => t !== 'Tutor');
+  }
+
   return {
     PROJECT_ROLE_TAGS,
     PROJECT_ROLE_LABEL_SET,
@@ -95,6 +134,7 @@
     projectRoleLabelForOtag,
     isProjectRoleLabel,
     scryfallQueryForLabel,
+    demoteRampTutorLabels,
     // Back-compat alias used by server/client historically
     SCRYFALL_AUTO_TAGS: PROJECT_ROLE_TAGS,
   };
