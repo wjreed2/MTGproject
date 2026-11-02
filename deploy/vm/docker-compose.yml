@@ -134,6 +134,17 @@ services:
     networks:
       - opsnet
 
+  # Off-site copies to Cloudflare R2 (ops/offsite.sh). A one-off tool, not a
+  # running service: `docker compose run --rm rclone ...`. Credentials in r2.env (600).
+  rclone:
+    image: rclone/rclone:1.68.2
+    profiles: ["tools"]
+    user: "1001:1001"
+    env_file: r2.env
+    volumes:
+      - ./backups:/backups:ro
+    logging: *logging
+
 networks:
   web01:
     external: true
