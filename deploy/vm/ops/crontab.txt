@@ -1,5 +1,5 @@
-# mtgarchive nightly DB dump (08:30 UTC = 3:30am ET), see /opt/docker/mtgarchive/ops/backup.sh
-30 8 * * * flock -n /tmp/mtgarchive-backup.lock sh /opt/docker/mtgarchive/ops/backup.sh >> /opt/docker/mtgarchive/ops/backup.log 2>&1
 # mtgarchive auto-deploy from origin/main when CI is green, see /opt/docker/mtgarchive/ops/deploy.sh
 */5 * * * * flock -n /tmp/mtgarchive-deploy.lock sh /opt/docker/mtgarchive/ops/deploy.sh >> /opt/docker/mtgarchive/ops/deploy.log 2>&1
 */10 * * * * python3 /opt/docker/mtgarchive/ops/collect.py >> /opt/docker/mtgarchive/ops/collect.log 2>&1
+# mtgarchive nightly DB dump, then copy off-site to Cloudflare R2 (08:30 UTC = 3:30am ET); see ops/backup.sh, ops/offsite.sh
+30 8 * * * flock -n /tmp/mtgarchive-backup.lock sh -c "sh /opt/docker/mtgarchive/ops/backup.sh >> /opt/docker/mtgarchive/ops/backup.log 2>&1; sh /opt/docker/mtgarchive/ops/offsite.sh >> /opt/docker/mtgarchive/ops/offsite.log 2>&1"

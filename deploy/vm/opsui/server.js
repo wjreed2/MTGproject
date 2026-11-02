@@ -284,7 +284,11 @@ async function backups() {
   } catch { /* none yet */ }
   const log = (await readText(OPS_DIR + '/backup.log')).trim().split('\n').filter(Boolean);
   const failures = log.filter(l => /FAILED/.test(l)).slice(-3);
-  return { files, last: log.slice(-1)[0] || null, failures, next: nextAt(8, 30), keepDays: 14, offsite: null };
+  let offsite = null;
+  try { offsite = JSON.parse(await readText(OPS_DIR + '/status/offsite.json')); } catch { /* not run yet */ }
+  const offLog = (await readText(OPS_DIR + '/offsite.log')).trim().split('\n').filter(Boolean);
+  if (offsite) offsite.last = offLog.slice(-1)[0] || null;
+  return { files, last: log.slice(-1)[0] || null, failures, next: nextAt(8, 30), keepDays: 14, offsite };
 }
 
 async function storage() {
