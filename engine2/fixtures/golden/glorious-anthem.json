@@ -58,6 +58,7 @@
     "wincon": null,
     "tribal": { "types": [], "lord_of": [] },
     "power_level_hint": 2,
+    "power_tier": { "b2": 5, "b3": 4, "b4": 2 },
     "confidence": 0.99
   }
 }

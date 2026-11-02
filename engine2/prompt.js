@@ -8,8 +8,9 @@ const fs = require('fs');
 const path = require('path');
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
+const powerTier = require('./power-tier');
 
-const PROMPT_VERSION = 'p11'; // p11: payoff-vs-enabler direction, self-only effects, tap≠removal, earned wincons, missing antis, vocab v6 axes (2026-09-30 corpus audit). p10: vehicle.body / vehicles.matter / crew.source (needs-only). p9: synthesized axes are NEEDS-only; tribal.synergy provides "chosen type" vs null-changer split (p8: draw-vs-loot + conditional riders)
+const PROMPT_VERSION = 'p12'; // p12: power_tier 1–10 (engine2/power-tier.js). p11: payoff-vs-enabler direction, self-only effects, tap≠removal, earned wincons, missing antis, vocab v6 axes (2026-09-30 corpus audit). p10: vehicle.body / vehicles.matter / crew.source (needs-only). p9: synthesized axes are NEEDS-only; tribal.synergy provides "chosen type" vs null-changer split (p8: draw-vs-loot + conditional riders)
 
 // Few-shot examples come straight from the golden fixtures so prompt and validator can
 // never disagree about what "good" looks like.
@@ -45,7 +46,7 @@ function buildSystemPrompt() {
 # Output shape
 Respond with a JSON object: {"cards": [CardIR, ...]} — one CardIR per input card, in input order. The JSON schema is enforced; these rules cover what the schema cannot express.
 
-CardIR: { ir_version: ${irSchema.IR_VERSION}, vocab_version: ${vocab.VOCAB_VERSION}, oracle_id, name, layout, faces: [FaceIR...], provides, needs, roles, anti, wincon, tribal, power_level_hint, confidence }
+CardIR: { ir_version: ${irSchema.IR_VERSION}, vocab_version: ${vocab.VOCAB_VERSION}, oracle_id, name, layout, faces: [FaceIR...], provides, needs, roles, anti, wincon, tribal, power_level_hint, power_tier, confidence }
 
 FaceIR: { face_name, types: {super, card, sub}, mana_cost, mana_value, colors, pt, loyalty, defense, costs: {additional, alternative}, keywords, abilities, restrictions, cdf }
 
@@ -111,7 +112,9 @@ Effect: { op, n?, target?, zone_from?, zone_to?, duration?, counter_kind?, keywo
 - wincon ONLY for cards that close a 40-life game on their own or as the named combo half: power 6+ threats, team-scale finishers (Craterhoof, Overrun, extra combats), alt-wins, drain/burn engines, combo pieces. A cheap evasive beater, a mid-size value creature, a single pump spell or a planeswalker ultimate is wincon null (Monastery Swiftspear, Delver of Secrets, Najal, Lu Xun). The recommender shields wincons from cuts, so a false one protects a weak card.
 - roles: coarse deckbuilding buckets from the list. \`mill\` means milling OPPONENTS; \`ramp\` needs net-positive mana (paying {1} for one Treasure is not ramp).
 - Weights: effects that only happen at a planeswalker ultimate or under a narrow condition are weight 1–2 (Sorin's −6); a conditional sweeper (Wave of Reckoning) is not weight 5.
-- power_level_hint 1–5: rough staple-ness in Commander (5 = Sol Ring tier). confidence 0–1: YOUR certainty the encoding is complete and correct — use < 0.8 when text is genuinely ambiguous so the card gets escalated.
+- power_level_hint 1–5: rough staple-ness in Commander (5 = Sol Ring tier).
+- ${powerTier.RUBRIC}
+- confidence 0–1: YOUR certainty the encoding is complete and correct — use < 0.8 when text is genuinely ambiguous so the card gets escalated.
 
 # Vocabulary (closed lists — no other tokens exist)
 Effect ops: ${fmtList(vocab.EFFECT_OPS)}

@@ -262,7 +262,7 @@ function addBreakdown(add) {
           no_aristocrats: 'A sacrifice piece without a sacrifice package', stax_piece: 'A lock piece in a deck that doesn\'t lock',
           no_lifegain: 'A lifegain payoff in a deck that gains little life', no_fodder: 'Needs small creatures to die — the deck\'s are big',
           ritual: 'A one-shot ritual outside a spells deck', few_tapped: 'Untaps tapped permanents — few enter tapped here',
-          upkeep_cost: 'Extra upkeeps multiply its upkeep cost', no_fit: 'A strong card, but not one this deck\'s plan uses' })[t.why] || 'Little to work with here', val });
+          upkeep_cost: 'Extra upkeeps multiply its upkeep cost', gy_land_mana: 'Its mana needs lands in graveyards — few go there in this deck', no_fit: 'A strong card, but not one this deck\'s plan uses' })[t.why] || 'Little to work with here', val });
         break;
       case 'role_full':
         out.push({ text: t.gear === 'returns_to_hand' ? 'Equipment falls off a commander that returns to hand'

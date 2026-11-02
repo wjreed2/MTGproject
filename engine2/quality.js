@@ -19,6 +19,7 @@
 // A reliable rider (ctx.riderReliable) waives the conditionality penalty — Dazzling
 // Denial with a Bird commander is a {4} tax, near-hard.
 
+const { tierFor } = require('./power-tier');
 const R = require('./rules');
 const th = require('./thresholds');
 
@@ -235,7 +236,7 @@ function cardQuality(card, cls, ctx = {}) {
   const c = cls || classesOf(card)[0] || 'Threat';
   const parts = {
     strength: strengthOf(card, c),
-    staple: clamp((Number(card.ir.power_level_hint) || 2.5) / 5),
+    staple: tierFor(card.ir, ctx.bracket) ? clamp(tierFor(card.ir, ctx.bracket) / 10) : clamp((Number(card.ir.power_level_hint) || 2.5) / 5),
     efficiency: efficiency(card, c),
     effect: effectShape(card, c, ctx),
     popularity: popularity(card.edhrecRank ?? card.edhrec_rank),
@@ -289,10 +290,12 @@ const noun = (cls, n) => (CLASS_NOUN[cls] || [cls.toLowerCase(), cls.toLowerCase
 //   • body        — a creature's stats for its cost (non-creatures neutral)
 // → 0..1. The recommender uses it to separate a great card from on-plan filler.
 const RATE_FACTOR = { once: 0.55, repeatable: 1, static: 1, per_turn: 1.15 };
-function cardPower(card) {
+function cardPower(card, bracket) {
   const prov = (card.ir?.provides || []).map(p => (p.weight || 1) * (RATE_FACTOR[p.rate] ?? 0.8)).sort((a, b) => b - a);
   const output = prov.slice(0, 3).reduce((s, x, i) => s + x * [1, 0.6, 0.35][i], 0); // diminishing: breadth helps, not piles
-  const hint = clamp(((Number(card.ir?.power_level_hint) || 2) - 1) / 4);
+  // power_tier at this bracket (engine2/power-tier.js) when the card has one; the coarse 1–5 hint otherwise
+  const tier = Number(tierFor(card.ir, bracket));
+  const hint = tier >= 1 ? clamp((tier - 1) / 9) : clamp(((Number(card.ir?.power_level_hint) || 2) - 1) / 4);
   const mv = Math.max(1, effectiveMV(card));
   const efficiency = clamp(output / (mv * 1.6));
   const pt = faces(card)[0]?.pt;

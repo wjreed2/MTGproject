@@ -46,7 +46,7 @@ const CHEAP_KEEP_CATS = new Set(['Removal', 'Ramp', 'Card Draw', 'Counterspell',
 // Format staples: the most-played cards doing a core job (EDHREC rank), for the staple gap.
 const STAPLE_RANK = 150;
 // Jobs whose surplus makes another piece "not needed" on the add side.
-const FULL_CATS = new Set(['Ramp', 'Card Draw', 'Protection']);
+const FULL_CATS = new Set(['Ramp', 'Card Draw', 'Protection', 'Tutor']);
 const STAPLE_JOBS = new Set(['Removal', 'Ramp', 'Card Draw', 'Counterspell', 'Protection', 'Board Wipe']);
 // Categories whose cuts are capped at the role's overage (interaction plus draw — the
 // other package guides tell precon owners to grow, not shrink).
@@ -859,7 +859,8 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts, gamepl
 // ── adds ─────────────────────────────────────────────────────────────────────
 // candidates: [{name, ir, cmc, typeLine, price, edhrecRank, owned}] — already
 // color-legal, commander-legal, and not in the deck (SQL enforces; re-checked here).
-function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates, focusCategory, gameplan, raw }) {
+// bracket (2–4, default 3): the table the deck plays at — picks the card's power_tier column
+function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates, focusCategory, gameplan, raw, bracket = 3 }) {
   const topGoal = goals?.[0] || null;
   // Focus mode: the user asked for ONE category, so every other candidate is
   // dropped and the survivors get a flat standing appetite. Without that credit
@@ -1034,7 +1035,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const cls = Q.classesOf(cand)[0];
       if (cls) {
         const ev = gameplan ? GP.evaluateCard(gameplan, cand) : null;
-        const qc = Q.cardQuality(cand, cls, { riderReliable: (ev?.riders || []).some(r => r.reliability >= 0.5) }).q;
+        const qc = Q.cardQuality(cand, cls, { riderReliable: (ev?.riders || []).some(r => r.reliability >= 0.5), bracket }).q;
         jobQ = qc;
         const list = qTable.get(cls) || [];
         const weakest = list[list.length - 1];
@@ -1055,8 +1056,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // Card power (engine-native, no EDHREC): what the card does for its mana — the
     // difference between a great card and on-plan filler (eval rounds 12–13: the ≥70
     // cards were not separated from 50–69 by any plan signal).
-    if (cand.ir.power_level_hint != null) { // no extracted power data → neutral, not weak
-      const pw = Q.cardPower(cand);
+    if (cand.ir.power_level_hint != null || cand.ir.power_tier != null) { // no extracted power data → neutral, not weak
+      const pw = Q.cardPower(cand, bracket);
       const pts = Math.round(Math.max(-3, Math.min(POWER_MAX, (pw - 0.55) * (pw >= 0.55 ? POWER_SLOPE : 8))) * 100) / 100;
       if (Math.abs(pts) >= 0.1) { score += pts; trace.push({ kind: 'quality_power', power: pw, pts }); }
     }
@@ -1084,7 +1085,9 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         const prov = cand.ir.provides || [];
         const creatureTutor = prov.some(p => p.axis === 'tutor.creature' && !p.param) && deckCreatures >= 22;
         const anyTutor = prov.some(p => p.axis === 'tutor.any') && ((gameplan.comboPieces?.size || 0) > 0 || Object.keys(gameplan.critical || {}).length > 0 || gameplan.commanderCentric);
-        if ((creatureTutor || anyTutor) && gameplan.engine && Q.classesOf(cand)[0] === 'Tutor') { score += 3; trace.push({ kind: 'plan_tutor', engine: gameplan.engine.card, pts: 3 }); }
+        // only while the deck is under its tutor target — past it, the slider says enough (Will, Thranduil: 4 of 2)
+        const tutorRoom = (thresholds?.Tutor || 0) - (roleCounts.Tutor || 0) > 0;
+        if ((creatureTutor || anyTutor) && tutorRoom && gameplan.engine && Q.classesOf(cand)[0] === 'Tutor') { score += 3; trace.push({ kind: 'plan_tutor', engine: gameplan.engine.card, pts: 3 }); }
       }
     }
 
@@ -1178,6 +1181,20 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         && deckCards.filter(c => R.abilitiesOf(c.ir).some(a => /enters (?:the battlefield )?tapped/i.test(a.text || ''))).length < 8) pen('few_tapped', -5);
       // extra upkeeps multiply upkeep COSTS too (Mystic Remora, Pact of Negation in Obeka)
       if (planOut('upkeeps') && /cumulative upkeep|at the beginning of your next upkeep,? pay/i.test(txt)) pen('upkeep_cost', -7);
+      // mana that exiles a land card from a graveyard needs lands GOING there — fetches,
+      // land sacrifice, self-mill (Will, Thranduil: Deathrite Shaman read as an upgrade over
+      // Argothian Elder in a list with no fetches; its IR records a plain repeatable dork)
+      if (/exile target land card from a graveyard/i.test(txt) && prov.some(p => /^mana\./.test(p.axis))) {
+        // fetches and land sacrifice put a land there every time; self-mill only sometimes
+        // (Entomb, Buried Alive fill the yard with creatures, not lands)
+        const landsToYard = deckCards.reduce((n, c) => {
+          const t = R.abilitiesOf(c.ir).map(x => x.text || '').join(' ');
+          if (/sacrifice [^:.]*: search your library for [^.]*land|sacrifice a land|lands? (?:card )?from your graveyard/i.test(t)) return n + 1;
+          if (/\bmills?\b|\bsurveil\b/i.test(t) && (c.ir?.provides || []).some(p => p.axis === 'gy.self_fill')) return n + 0.5;
+          return n;
+        }, 0);
+        if (landsToYard < 6) pen('gy_land_mana', -6);
+      }
       // lock pieces (Chalice of the Void) belong in lock decks
       if ((cand.ir.roles || []).includes('stax') && !/\byour opponents\b|\bopponents can't\b|\beach opponent\b|\ban opponent\b/i.test(txt) && deckCards.filter(c => (c.ir?.roles || []).includes('stax')).length < 4) pen('stax_piece', -5);
       // {C} pips need colorless sources (Kozilek's Command in a deck of Mountains)
@@ -1396,12 +1413,19 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // its target is a 13th ramp piece — the judge's "not needed".
     {
       const job = /\bPlaneswalker\b/.test(String(cand.typeLine || '')) ? null : Q.classesOf(cand)[0];
-      if (job && FULL_CATS.has(job)) {
+      // Every slider category, not a hand-picked few (Will, Thranduil: 6 tutors suggested at 4
+      // of a target of 2; Chulane: Galadriel as the 26th ramp piece of 10). The penalty grows
+      // with the surplus so plan and power credit can't simply outvote the slider.
+      if (job && job !== 'Plan' && thresholds?.[job] != null) {
         const over = (roleCounts[job] || 0) - addNeedOf(job);
-        // (cycle-15: Smothering Tithe, Brainstorm, Consecrated Sphinx — the judges' missing cards)
-        const upgrade = trace.some(t => t.kind === 'quality_upgrade' && t.cls === job && t.pts >= 1);
-        if (over >= 0 && !upgrade) {
-          const pts = -Math.round((1.5 + 0.5 * Math.min(4, over)) * 100) / 100;
+        // A better card at a foundation job is a swap only AT the target — past it the deck
+        // needs fewer of these, not a nicer one (cycle-15: Smothering Tithe, Consecrated Sphinx).
+        const upgrade = over === 0 && UPGRADE_JOBS.has(job) && trace.some(t => t.kind === 'quality_upgrade' && t.cls === job && t.pts >= 1);
+        // A card wired into the engine fills the Plan slot, not this category's.
+        const engineLink = trace.some(t => (t.pts || 0) > 0 && /^plan_(amplifier|converter|side_engine|fuel_enabler|recursion_target|critical|critical_add|combo)$/.test(t.kind));
+        // an explicit "show me more of this" (focus) overrides a met target
+        if (over >= 0 && !upgrade && !engineLink && focusCat !== job) {
+          const pts = -Math.round(Math.min(10, 2 + 1.5 * over) * 100) / 100;
           score += pts; trace.push({ kind: 'role_full', cat: job, have: roleCounts[job] || 0, need: addNeedOf(job), pts });
         }
       }

@@ -6705,6 +6705,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       adds = engine2.recommender.scoreAdds({
         candidates, deckCards, commander, goals: scoringGoals, thresholds, roleCounts,
         hist: goalsRes.histogram, budget: body.budget, templates, focusCategory, gameplan,
+        // the deck's table (declared bracket when the client sends one) picks each card's power_tier column
+        bracket: Math.min(4, Math.max(2, parseInt(body.bracket, 10) || 3)),
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
@@ -11999,7 +12001,7 @@ async function _lookupLocalCardById(cardId) {
     return { row: direct, scryfallId: direct.scryfall_id === cardId ? cardId : (direct.scryfall_id || null) };
   }
   const [[pr]] = await db().query(
-    'SELECT name, set_code, number, rarity FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
+    'SELECT name, set_code, number, rarity, finishes FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
   );
   if (pr?.name) {
     const [[byName]] = await db().query(
@@ -12026,6 +12028,10 @@ function _applyPrintingIdentity(card, scryfallId, printing) {
   if (setCode) { card.set = setCode; card.set_name = setCode; }
   card.collector_number = printing.number || null;
   if (printing.rarity) card.rarity = printing.rarity;
+  // Which finishes this printing was actually sold in. Clients carry a card's finish across
+  // a printing change, and an alt-art or foil-only version has no plain copy to carry it to.
+  const finishes = String(printing.finishes || '').split(',').map(f => f.trim()).filter(Boolean);
+  if (finishes.length) card.finishes = finishes;
   const [a, b] = [scryfallId[0], scryfallId[1]];
   card.image_uris = {
     small: `https://cards.scryfall.io/small/front/${a}/${b}/${scryfallId}.jpg`,

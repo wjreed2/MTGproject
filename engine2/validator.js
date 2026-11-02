@@ -168,6 +168,14 @@ function validateCardIR(ir, cardRow) {
   if (schemaErrors.length) {
     for (const e of schemaErrors.slice(0, 8)) ctx.hard('schema', e);
   }
+  // power_tier's b2/b3/b4 are whole numbers 1–10 when present (the mini schema checker has
+  // no integer type or bounds); a bad tier is soft — the rest of the encoding still stands.
+  if (ir.power_tier && typeof ir.power_tier === 'object') {
+    for (const k of ['b2', 'b3', 'b4']) {
+      const t = ir.power_tier[k];
+      if (t != null && !(Number.isInteger(t) && t >= 1 && t <= 10)) ctx.soft('power_tier', `power_tier.${k} ${JSON.stringify(t)} is not a whole number 1–10`);
+    }
+  }
 
   // Ground-truth from the catalog row
   const rowName = String(cardRow?.name || '');
