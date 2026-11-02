@@ -138,10 +138,12 @@ async function containerSample() {
         // Only these fields leave this process: inspect also carries the env (secrets).
         if (c.State === 'running') {
           const s = await docker(`/containers/${c.Id}/stats?stream=false&one-shot=true`);
+          // Keyed by container id: a recreated container restarts its CPU counter at zero,
+          // and diffing it against the old one's total reads as a huge negative spike.
           const cu = s.cpu_stats.cpu_usage.total_usage, sys = s.cpu_stats.system_cpu_usage;
-          const p = prevCtr.get(name);
-          row.cpu = p && sys > p.sys ? 100 * (cu - p.cu) / (sys - p.sys) : null;
-          prevCtr.set(name, { cu, sys });
+          const p = prevCtr.get(c.Id);
+          row.cpu = p && sys > p.sys && cu >= p.cu ? 100 * (cu - p.cu) / (sys - p.sys) : null;
+          prevCtr.set(c.Id, { cu, sys });
           const ms = s.memory_stats || {};
           row.mem = (ms.usage || 0) - ((ms.stats && (ms.stats.inactive_file ?? ms.stats.total_inactive_file)) || 0);
           row.memLimit = ms.limit || null;
@@ -160,6 +162,8 @@ async function containerSample() {
 const HIST_FILE = path.join(DATA_DIR, 'history.json');
 let samples = [], probes = [];
 try { ({ samples = [], probes = [] } = JSON.parse(fs.readFileSync(HIST_FILE, 'utf8'))); } catch { /* fresh */ }
+// Drop impossible CPU readings recorded before container restarts were handled.
+for (const s of samples) for (const v of Object.values(s.c || {})) if (v.cpu != null && (v.cpu < 0 || v.cpu > 100)) v.cpu = null;
 function trim() {
   const cut = now() - KEEP_MS;
   samples = samples.filter(s => s.t >= cut);

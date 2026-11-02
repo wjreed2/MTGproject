@@ -462,10 +462,12 @@ async function getJSON(url) {
 }
 
 let inflight = false;
-async function load() {
+// quiet: the 15s background refresh swaps data in place; only a range change the
+// viewer asked for dims the page while it loads.
+async function load({ quiet = false } = {}) {
   if (inflight) return;
   inflight = true;
-  $('#main').classList.add('stale');
+  if (!quiet) $('#main').classList.add('stale');
   try {
     data = await getJSON(API + 'summary?range=' + range);
     $('#error').hidden = true;
@@ -543,5 +545,5 @@ let resizeT;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => data && tab === 'metrics' && renderMetrics(data), 200); });
 
 load();
-setInterval(() => { if (!document.hidden) load(); }, 15_000);
+setInterval(() => { if (!document.hidden) load({ quiet: true }); }, 15_000);
 setInterval(() => { if (!document.hidden && tab === 'logs' && $('#logFollow').checked) loadLogs(); }, 5_000);
