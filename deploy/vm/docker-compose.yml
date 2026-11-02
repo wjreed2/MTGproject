@@ -1,0 +1,142 @@
+# MTG Archive — app + MySQL. Served at https://tensorcrafted.com/ via
+# HAProxy -> web01 nginx (location / proxies to container "mtgarchive":80).
+# Secrets live in ./.env (chmod 600). Database files live in ./data — that bind
+# mount IS the database; never delete it to "reset".
+name: mtgarchive
+
+# Docker's default json-file log never rotates; cap every service at 30 MB.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+
+services:
+  db:
+    image: mysql:9.7            # match Railway (9.7.2) so the dump restores cleanly
+    container_name: mtgarchive-db
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
+    volumes:
+      - ./data:/var/lib/mysql
+      - ./mysql.cnf:/etc/mysql/conf.d/mtgarchive.cnf:ro
+      - ./dumps:/dumps
+    # No ports: only reachable on the mtgarchive_default network.
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h localhost -uroot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    build:
+      context: ./src
+      dockerfile: ../Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+    image: mtgarchive-app:${GIT_COMMIT}
+    container_name: mtgarchive
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "80"
+      GIT_COMMIT: ${GIT_COMMIT}
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME}
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_SECURE: "1"
+      APP_URL: ${APP_URL}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN}
+      CHANGELOG_INGEST_SECRET: ${CHANGELOG_INGEST_SECRET}
+      SEMANTICS_INGEST_SECRET: ${SEMANTICS_INGEST_SECRET}
+      # Background jobs: off until cutover so a trial copy never writes price days
+      PRICE_CRON_ENABLED: ${PRICE_CRON_ENABLED:-0}
+      FP_CRON_ENABLED: ${FP_CRON_ENABLED:-0}
+      # Email + external APIs: empty until cutover (no transport = links logged, nothing sent)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      TCG_PUBLIC_KEY: ${TCG_PUBLIC_KEY:-}
+      TCG_PRIVATE_KEY: ${TCG_PRIVATE_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
+      APPLE_KEY_ID: ${APPLE_KEY_ID:-}
+      APPLE_PRIVATE_KEY: ${APPLE_PRIVATE_KEY:-}
+      FOUNDATION_LAB_DEFAULT_ACCOUNT: ${FOUNDATION_LAB_DEFAULT_ACCOUNT:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - default
+      - web01
+
+  # Read-only ops dashboard at https://tensorcrafted.com/ops/ (admin-only: it
+  # checks every request against the app's admin role). See opsui/server.js.
+  ops:
+    image: node:22-alpine
+    container_name: mtgarchive-ops
+    restart: unless-stopped
+    logging: *logging
+    user: "1001:1001"          # claude: can read the 600 backups to list them
+    working_dir: /opsui
+    command: ["node", "server.js"]
+    depends_on:
+      - dockerproxy
+    volumes:
+      - ./opsui:/opsui:ro
+      - ./ops:/stack/ops:ro
+      - ./backups:/stack/backups:ro
+      - ./opsui-data:/data
+      - /proc:/host/proc:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - web01
+      - opsnet
+
+  # GET-only Docker API for the dashboard: it can list containers, read stats
+  # and logs, and list images, but never start/stop/create anything.
+  dockerproxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: mtgarchive-dockerproxy
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - opsnet
+
+networks:
+  web01:
+    external: true
+    name: web01_default
+  opsnet:
+    internal: true             # no route out; only ops <-> dockerproxy

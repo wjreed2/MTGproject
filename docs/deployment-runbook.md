@@ -1,5 +1,9 @@
 # Production deployment runbook (Railway + changelog ingest)
 
+> **Production moved off Railway on 2026-11-02.** It now runs on the tensorcrafted.com VM and deploys
+> itself from `main`: see [deploy/vm/README.md](../deploy/vm/README.md). The ingest-secret and semantics
+> sections below still apply (the push URL is `https://tensorcrafted.com`); the Railway steps are history.
+
 Use this checklist whenever you deploy **MTG Archive** to production so sessions, DB, CORS, and **automated release notes** keep working.
 
 ## 1. Railway — required variables
