@@ -411,9 +411,17 @@ function renderStorage(d) {
 
   const b = d.backups;
   const failed = b.failures.length && b.last && /FAILED/.test(b.last);
-  fill($('#backupNote'), 
-    h('div', { class: 'callout' }, h('span', { class: 'warn' }, icon('warn')),
-      h('div', {}, h('b', { text: 'Off-site copies are not set up yet. ' }), 'Backups live only on this VM, so they protect against bad deploys and mistakes, not against losing the machine.')),
+  // Off-site: healthy only if the last R2 upload verified within ~a day and a half.
+  const off = b.offsite;
+  const offFresh = off && off.ok && Date.now() - off.at < 36 * 3600e3 && !(off.last && /FAILED/.test(off.last));
+  fill($('#backupNote'),
+    offFresh
+      ? h('div', { class: 'callout' }, h('span', { class: 'ok' }, icon('ok')),
+          h('div', {}, h('b', { text: 'Off-site copies are current. ' }),
+            `${off.files} backups (${bytes(off.bytes)}) in Cloudflare R2, bucket mtgarchive-backups: ${off.daily} daily, ${off.weekly} weekly. Last upload verified ${ago(off.at)}.`))
+      : h('div', { class: 'callout' }, h('span', { class: off ? 'bad' : 'warn' }, icon(off ? 'bad' : 'warn')),
+          h('div', {}, h('b', { text: off ? 'Off-site copies are stale. ' : 'Off-site copies are not set up yet. ' }),
+            off ? `The last verified upload to R2 was ${ago(off.at)}. ${off.last || ''}` : 'Backups live only on this VM, so they protect against bad deploys and mistakes, not against losing the machine.')),
     failed ? h('div', { class: 'callout', style: 'margin-top:8px' }, h('span', { class: 'bad' }, icon('bad')), h('div', { text: 'Last backup failed: ' + b.last })) : null);
   fill($('#backups'), 
     h('dl', { class: 'kv', style: 'margin-bottom:12px' },
@@ -454,10 +462,12 @@ async function getJSON(url) {
 }
 
 let inflight = false;
-async function load() {
+// quiet: the 15s background refresh swaps data in place; only a range change the
+// viewer asked for dims the page while it loads.
+async function load({ quiet = false } = {}) {
   if (inflight) return;
   inflight = true;
-  $('#main').classList.add('stale');
+  if (!quiet) $('#main').classList.add('stale');
   try {
     data = await getJSON(API + 'summary?range=' + range);
     $('#error').hidden = true;
@@ -535,5 +545,5 @@ let resizeT;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => data && tab === 'metrics' && renderMetrics(data), 200); });
 
 load();
-setInterval(() => { if (!document.hidden) load(); }, 15_000);
+setInterval(() => { if (!document.hidden) load({ quiet: true }); }, 15_000);
 setInterval(() => { if (!document.hidden && tab === 'logs' && $('#logFollow').checked) loadLogs(); }, 5_000);

@@ -33,10 +33,11 @@ browser ─► Cloudflare ─► HAProxy (owner's, TLS ends here) ─► web01 n
 | `Dockerfile`, `Dockerfile.dockerignore` | App image, built from `src/`. `dist/` is committed, so no build step. Dev deps are installed because the fingerprint builder needs `sharp`. |
 | `src/` | Git clone of this repo, checked out at the live commit |
 | `.env` | Secrets, chmod 600. Names in [`.env.example`](.env.example). |
+| `r2.env` | Cloudflare R2 key for off-site backups, chmod 600 |
 | `data/` | The MySQL data directory. **This bind mount is the database.** |
 | `mysql.cnf` | 1G buffer pool, performance_schema off |
 | `backups/` | Nightly dumps, 14 days |
-| `ops/` | `deploy.sh`, `backup.sh`, `collect.py`, logs, `status/db.json` |
+| `ops/` | `deploy.sh`, `backup.sh`, `offsite.sh`, `collect.py`, logs, `status/` |
 | `opsui/`, `opsui-data/` | Ops dashboard code and its 24h metric history |
 | `dumps/` | The Railway migration dumps (trial + final) |
 
@@ -66,9 +67,18 @@ kept, so this needs no rebuild.
 ## Backups
 
 `ops/backup.sh` runs nightly at 08:30 UTC (3:30 AM Eastern): one consistent
-`mysqldump --single-transaction`, gzipped, kept 14 days, verified by the dump's
-completion trailer. These live on the VM only. Off-site copies (Cloudflare R2 via
-restic) are the next step.
+`mysqldump --single-transaction`, gzipped, kept 14 days on the VM, verified by the
+dump's completion trailer. Each deploy also takes one first.
+
+Right after it, `ops/offsite.sh` copies them to **Cloudflare R2** (Will's account,
+bucket `mtgarchive-backups`) with the `rclone` compose tool: `daily/` keeps 14 days,
+`weekly/` keeps each Sunday's dump for 8 weeks. It checks the newest file's byte
+count in R2 and writes `ops/status/offsite.json`; the dashboard turns red if no
+upload has verified in 36 hours. The files are plain `.sql.gz` (no extra
+encryption layer, by choice), so restoring after losing the VM is: download one
+from the Cloudflare dashboard, then load it as below. The R2 key lives in
+`r2.env` (chmod 600; names in [`r2.env.example`](r2.env.example)) and can only
+read and write that one bucket.
 
 Restore a dump into a fresh database:
 
