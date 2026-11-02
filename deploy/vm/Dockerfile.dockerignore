@@ -1,0 +1,13 @@
+.git
+node_modules
+android
+ios
+www
+certs
+.env
+*.sql.gz
+nohup.out
+Ready Prompts
+engine2/fixtures/pulled
+data/foundation-lab/runs
+data/foundation-lab/user-decks

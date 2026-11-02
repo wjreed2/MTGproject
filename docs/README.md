@@ -47,7 +47,8 @@ This directory is the **persistent source of truth** for MTG Archive product con
 
 | File | Purpose |
 |------|---------|
-| [deployment-runbook.md](./deployment-runbook.md) | Railway production deploy + changelog ingest |
+| [../deploy/vm/README.md](../deploy/vm/README.md) | **Production since 2026-11-02:** the tensorcrafted.com VM — request path, auto-deploy from `main`, backups, ops dashboard, rebuild steps |
+| [deployment-runbook.md](./deployment-runbook.md) | Changelog and semantics ingest secrets; the Railway steps in it are historical |
 | [engine2-plan.md](./engine2-plan.md) | Engine2 semantics-first implementation plan |
 | [engine2-ir-spec.md](./engine2-ir-spec.md) | Engine2 IR operational semantics |
 | [../Ready Prompts/cuts-adds-ready-prompts.md](../Ready%20Prompts/cuts-adds-ready-prompts.md) | Agent implementation prompt queue |
