@@ -1,0 +1,331 @@
+{
+ "commander": "Rev, Tithe Extractor",
+ "source": "weakened from pulled/rand8-rev-tithe-extractor",
+ "seeded_weak": [
+  "Tatterkite",
+  "Shardless Outlander",
+  "Deadlock Trap",
+  "Hungry Ghoul",
+  "Scrounge for Eternity",
+  "Foraging Wickermaw",
+  "Clay Revenant",
+  "Sterling Hound",
+  "Ruin Processor",
+  "Liliana, Death Mage",
+  "Dogged Pursuit",
+  "Pulling Teeth"
+ ],
+ "removed_staples": [
+  "Sol Ring",
+  "Arcane Signet",
+  "Swiftfoot Boots",
+  "Lightning Greaves",
+  "Fellwar Stone",
+  "Mind Stone",
+  "Dark Ritual",
+  "Reanimate",
+  "Toxic Deluge",
+  "Chromatic Lantern",
+  "Feed the Swarm",
+  "Phyrexian Arena"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Academy Manufactor",
+   "qty": 1
+  },
+  {
+   "name": "Access Tunnel",
+   "qty": 1
+  },
+  {
+   "name": "Bitterblossom",
+   "qty": 1
+  },
+  {
+   "name": "Black Market Connections",
+   "qty": 1
+  },
+  {
+   "name": "Blasphemous Edict",
+   "qty": 1
+  },
+  {
+   "name": "Blood Money",
+   "qty": 1
+  },
+  {
+   "name": "Bojuka Bog",
+   "qty": 1
+  },
+  {
+   "name": "Bolas's Citadel",
+   "qty": 1
+  },
+  {
+   "name": "Bontu's Monument",
+   "qty": 1
+  },
+  {
+   "name": "Braids, Arisen Nightmare",
+   "qty": 1
+  },
+  {
+   "name": "Brainstealer Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Cabal Coffers",
+   "qty": 1
+  },
+  {
+   "name": "Cabal Stronghold",
+   "qty": 1
+  },
+  {
+   "name": "Changeling Outcast",
+   "qty": 1
+  },
+  {
+   "name": "Crypt Ghast",
+   "qty": 1
+  },
+  {
+   "name": "Cunning Rhetoric",
+   "qty": 1
+  },
+  {
+   "name": "Dauthi Horror",
+   "qty": 1
+  },
+  {
+   "name": "Dauthi Slayer",
+   "qty": 1
+  },
+  {
+   "name": "Dauthi Voidwalker",
+   "qty": 1
+  },
+  {
+   "name": "Deadly Dispute",
+   "qty": 1
+  },
+  {
+   "name": "Deadly Rollick",
+   "qty": 1
+  },
+  {
+   "name": "Defile",
+   "qty": 1
+  },
+  {
+   "name": "Drana, Liberator of Malakir",
+   "qty": 1
+  },
+  {
+   "name": "Exotic Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Exsanguinate",
+   "qty": 1
+  },
+  {
+   "name": "Faerie Dreamthief",
+   "qty": 1
+  },
+  {
+   "name": "Fell the Profane",
+   "qty": 1
+  },
+  {
+   "name": "Gingerbrute",
+   "qty": 1
+  },
+  {
+   "name": "Gix, Yawgmoth Praetor",
+   "qty": 1
+  },
+  {
+   "name": "Go for the Throat",
+   "qty": 1
+  },
+  {
+   "name": "Gonti, Lord of Luxury",
+   "qty": 1
+  },
+  {
+   "name": "Gonti, Night Minister",
+   "qty": 1
+  },
+  {
+   "name": "Gray Merchant of Asphodel",
+   "qty": 1
+  },
+  {
+   "name": "Grim Hireling",
+   "qty": 1
+  },
+  {
+   "name": "Gurmag Swiftwing",
+   "qty": 1
+  },
+  {
+   "name": "Hoard Robber",
+   "qty": 1
+  },
+  {
+   "name": "Imp's Mischief",
+   "qty": 1
+  },
+  {
+   "name": "Infernal Grasp",
+   "qty": 1
+  },
+  {
+   "name": "Jet Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Marionette Apprentice",
+   "qty": 1
+  },
+  {
+   "name": "Mastermind Plum",
+   "qty": 1
+  },
+  {
+   "name": "Mirkwood Bats",
+   "qty": 1
+  },
+  {
+   "name": "Nashi, Moon Sage's Scion",
+   "qty": 1
+  },
+  {
+   "name": "Nether Traitor",
+   "qty": 1
+  },
+  {
+   "name": "Night's Whisper",
+   "qty": 1
+  },
+  {
+   "name": "Nykthos, Shrine to Nyx",
+   "qty": 1
+  },
+  {
+   "name": "Orochi Soul-Reaver",
+   "qty": 1
+  },
+  {
+   "name": "Revel in Riches",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Passage",
+   "qty": 1
+  },
+  {
+   "name": "Shizo, Death's Storehouse",
+   "qty": 1
+  },
+  {
+   "name": "Sign in Blood",
+   "qty": 1
+  },
+  {
+   "name": "Swamp",
+   "qty": 26
+  },
+  {
+   "name": "The Darkness Crystal",
+   "qty": 1
+  },
+  {
+   "name": "Thieves' Tools",
+   "qty": 1
+  },
+  {
+   "name": "Thieving Varmint",
+   "qty": 1
+  },
+  {
+   "name": "Tinybones, the Pickpocket",
+   "qty": 1
+  },
+  {
+   "name": "Tormented Soul",
+   "qty": 1
+  },
+  {
+   "name": "Unstoppable Slasher",
+   "qty": 1
+  },
+  {
+   "name": "Urborg, Tomb of Yawgmoth",
+   "qty": 1
+  },
+  {
+   "name": "Vampire Cutthroat",
+   "qty": 1
+  },
+  {
+   "name": "Vashta Nerada",
+   "qty": 1
+  },
+  {
+   "name": "Withering Torment",
+   "qty": 1
+  },
+  {
+   "name": "Tatterkite",
+   "qty": 1
+  },
+  {
+   "name": "Shardless Outlander",
+   "qty": 1
+  },
+  {
+   "name": "Deadlock Trap",
+   "qty": 1
+  },
+  {
+   "name": "Hungry Ghoul",
+   "qty": 1
+  },
+  {
+   "name": "Scrounge for Eternity",
+   "qty": 1
+  },
+  {
+   "name": "Foraging Wickermaw",
+   "qty": 1
+  },
+  {
+   "name": "Clay Revenant",
+   "qty": 1
+  },
+  {
+   "name": "Sterling Hound",
+   "qty": 1
+  },
+  {
+   "name": "Ruin Processor",
+   "qty": 1
+  },
+  {
+   "name": "Liliana, Death Mage",
+   "qty": 1
+  },
+  {
+   "name": "Dogged Pursuit",
+   "qty": 1
+  },
+  {
+   "name": "Pulling Teeth",
+   "qty": 1
+  }
+ ]
+}

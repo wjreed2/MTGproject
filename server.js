@@ -6227,20 +6227,27 @@ async function _e2ResolveCards(names) {
   for (let i = 0; i < uniq.length; i += 400) {
     const chunk = uniq.slice(i, i + 400);
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+       WHERE c.name IN (${chunk.map(() => '?').join(',')})
+       ORDER BY c.legal_commander DESC, (c.type_line LIKE 'Token%') ASC, c.edhrec_rank IS NULL, c.edhrec_rank`, chunk);
+    // 220+ names are shared by a card and a token/variant ("Llanowar Elves" the card
+    // and the token) — keep the commander-legal, most-played printing, never a token.
     for (const r of rows) if (!found.has(r.name)) found.set(r.name, r);
   }
   // front-face fallback for DFC names ("Malakir Rebirth" → "Malakir Rebirth // …")
   for (const n of uniq) {
     if (found.has(n)) continue;
     const [rows] = await db().query(
-      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.color_identity_json, s.ir_json
        FROM scryfall_oracle_cards c
        LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
-       WHERE c.name LIKE ? LIMIT 1`, [`${n} // %`]);
+       WHERE c.name LIKE ?
+       ORDER BY c.legal_commander DESC, (c.layout IN ('art_series', 'token', 'double_faced_token', 'emblem')) ASC,
+                c.edhrec_rank IS NULL, c.edhrec_rank
+       LIMIT 1`, [`${n} // %`]);
+    // "Clearwater Pathway" must resolve to the MDFC, never its art-series card ("Card // Card")
     if (rows.length) found.set(n, rows[0]);
   }
   return found;
@@ -6273,26 +6280,50 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       });
     }
     const cr = commanderName ? resolved.get(commanderName) : null;
-    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+    let cmdrColors = null; // color identity → color-aware category targets and ramp need
+    try { cmdrColors = cr ? (typeof cr.color_identity_json === 'string' ? JSON.parse(cr.color_identity_json) : cr.color_identity_json) : null; } catch (_) { /* unknown */ }
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr), ci: cmdrColors || [] } : null;
 
     const withIR = deckCards.filter(c => c.ir).length;
     const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
 
     const goalsRes = engine2.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
     const topGoal = goalsRes.goals[0] || null;
+    // Gameplan (docs/24-gameplan-model.md): the engine, what fuels it, what the deck
+    // spends its output on — every add and cut is judged against it, and a
+    // commander-centric plan's DIRECTION (not the raw top goal) sets the category
+    // targets the user's sliders then adjust.
+    // A plan-inference failure must never take suggestions down with it: fall back
+    // to goal-driven scoring (gameplan null is the pre-gameplan path everywhere).
+    let gameplan = null;
+    try {
+      gameplan = engine2.gameplan.inferGameplan({ deckCards, commander, goals: goalsRes.goals, interactions: goalsRes.interactions });
+    } catch (e) { console.error('[analyze] gameplan inference failed — plain scoring', e); }
+    const planGoal = gameplan?.commanderCentric && gameplan.direction ? gameplan.direction.top : topGoal?.goal;
     const thresholds = engine2.thresholds.computeThresholds({
-      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+      goal: planGoal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides, colors: cmdrColors,
     });
     const roleCounts = engine2.thresholds.countRoles(deckCards);
 
-    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+    const scoringGoals = engine2.gameplan.planGoals(gameplan, goalsRes.goals);
+    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: scoringGoals, thresholds, roleCounts, gameplan })
       .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c), breakdown: engine2.explain.cutBreakdown(c) }));
 
     // ── add candidates: commander-legal cards providing the deck's wanted axes ──
     const templates = engine2.goalTemplates;
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
+    const wantedMap = engine2.recommender.wantedAxes(scoringGoals[0]?.goal, goalsRes.histogram, index, templates, scoringGoals);
       const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
+    // The plan retrieves too (docs/24): its event fuel, what amplifies its output, thin
+    // must-draw pieces; land creatures by type/text for a Jyoti-class engine; and every
+    // category the user's sliders say is 3+ short — Thranduil's removal gap has to be
+    // IN the pool before it can be recommended.
+    const hints = gameplan ? engine2.gameplan.poolHints(gameplan) : { axes: [], landCreatures: false };
+    const planAxes = hints.axes.filter(a => !wanted.includes(a));
+    const gapRoles = Object.keys(engine2.thresholds.ROLE_TO_CATEGORY).filter(r => {
+      const cat = engine2.thresholds.ROLE_TO_CATEGORY[r];
+      return ((thresholds[cat] || 0) - (roleCounts[cat] || 0)) >= 3;
+    });
     // Category focus: the pool is normally gated by the deck's ~12 wanted axes, so
     // filtering it down to one category returns whatever happened to be in there —
     // usually nothing for Tutor/Counterspell/Protection. A focused run retrieves by
@@ -6303,7 +6334,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       ? Object.keys(ROLE_TO_CAT).filter(r => ROLE_TO_CAT[r] === focusCategory)
       : [];
     let adds = [];
-    if (wanted.length || focusRoles.length) {
+    if (wanted.length || focusRoles.length || planAxes.length || gapRoles.length || hints.landCreatures || hints.tribe || hints.castFuel) {
       let ciColors = [];
       if (commanderName) {
         const [[cRow]] = await db().query(
@@ -6327,7 +6358,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
       catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
       const cmdrSlug = engine2SlugifyCommander(commanderName);
-      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeParam = /^tribal:(.+)$/.exec(String(scoringGoals[0]?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       // A hard price cap filters AFTER retrieval, so the per-axis window has to be
       // wider when one is set — otherwise the cheap cards never survive the ranking.
@@ -6350,7 +6381,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
            LIMIT 400`;
         candParams = [cmdrSlug, ...focusRoles.map(r => JSON.stringify(r)), ...disallowed.map(d => JSON.stringify(d))];
       } else {
-        const candSub = wanted.map(() =>
+        const axesToPull = [...wanted, ...planAxes];
+        const candSub = axesToPull.map(() =>
           `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
                    st.inclusion_pct AS cmdr_pct
             FROM card_semantics_axes x
@@ -6362,8 +6394,54 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
               ${ciSql}
             ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
             LIMIT ${axisWindow})`).join(' UNION ALL ');
-        candSql = `SELECT DISTINCT * FROM (${candSub}) u`;
-        candParams = wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]);
+        const extraSub = [];
+        const extraParams = [];
+        const baseSel = `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                   st.inclusion_pct AS cmdr_pct
+            FROM card_semantics s
+            JOIN scryfall_oracle_cards c ON c.oracle_id = s.oracle_id
+            LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+            WHERE s.status IN ('valid','flagged','manual') AND c.legal_commander = 1 ${ciSql}`;
+        const rankOrder = `ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, (c.edhrec_rank IS NULL), c.edhrec_rank`;
+        if (gapRoles.length) {
+          extraSub.push(`(${baseSel} AND (${gapRoles.map(() => 'JSON_CONTAINS(s.roles_json, ?)').join(' OR ')}) ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...gapRoles.map(r => JSON.stringify(r)));
+        }
+        if (hints.landCreatures) {
+          extraSub.push(`(${baseSel} AND (c.type_line LIKE '%Land Creature%' OR c.oracle_text LIKE '%land creature%'
+              OR c.oracle_text LIKE '%lands you control are%' OR c.oracle_text LIKE '%Forests you control are%'
+              OR c.oracle_text LIKE '%becomes a %creature%still a land%' OR c.oracle_text LIKE '%Forest lands%'
+              OR c.oracle_text LIKE '%lands you control become%') ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        }
+        // format staples in the deck's colors — the staple gap needs them in the pool
+        extraSub.push(`(${baseSel} AND c.type_line NOT LIKE '%Land%' AND c.edhrec_rank IS NOT NULL ORDER BY c.edhrec_rank LIMIT 150)`);
+        extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)));
+        // the engine's own tribe, by type line
+        if (hints.tribe) {
+          extraSub.push(`(${baseSel} AND c.type_line LIKE ? ${rankOrder} LIMIT ${axisWindow})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), `%${hints.tribe}%`);
+        }
+        // a cast engine's spell volume, by type line / mana value
+        if (hints.castFuel) {
+          const CT = { creature: 'Creature', artifact: 'Artifact', enchantment: 'Enchantment', instant: 'Instant', sorcery: 'Sorcery', planeswalker: 'Planeswalker', battle: 'Battle' };
+          const yes = hints.castFuel.types.map(t => CT[t]).filter(Boolean);
+          const no = hints.castFuel.notTypes.map(t => CT[t]).filter(Boolean);
+          const conds = [`c.type_line NOT LIKE 'Land%'`];
+          if (yes.length) conds.push(`(${yes.map(() => 'c.type_line LIKE ?').join(' OR ')})`);
+          for (let i = 0; i < no.length; i++) conds.push(`c.type_line NOT LIKE ?`);
+          if (hints.castFuel.mvMin != null) conds.push('c.cmc >= ?');
+          extraSub.push(`(${baseSel} AND ${conds.join(' AND ')} ${rankOrder} LIMIT ${axisWindow * 2})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), ...yes.map(t => `%${t}%`),
+            ...no.map(t => `${t}%`), ...(hints.castFuel.mvMin != null ? [hints.castFuel.mvMin] : []));
+        }
+        // the whole removal shelf for an engine fed by removal
+        if (hints.removalWide) {
+          extraSub.push(`(${baseSel} AND (JSON_CONTAINS(s.roles_json, ?) OR JSON_CONTAINS(s.roles_json, ?)) ${rankOrder} LIMIT ${axisWindow * 3})`);
+          extraParams.push(cmdrSlug, ...disallowed.map(d => JSON.stringify(d)), JSON.stringify('spot_removal'), JSON.stringify('board_wipe'));
+        }
+        candSql = `SELECT DISTINCT * FROM (${[candSub, ...extraSub].filter(Boolean).join(' UNION ALL ')}) u`;
+        candParams = [...axesToPull.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]), ...extraParams];
       }
       const [candRows] = await db().query(candSql, candParams);
 
@@ -6400,8 +6478,10 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = engine2.recommender.scoreAdds({
-        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
-        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory,
+        candidates, deckCards, commander, goals: scoringGoals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates, focusCategory, gameplan,
+        // the deck's table (declared bracket when the client sends one) picks each card's power_tier column
+        bracket: Math.min(4, Math.max(2, parseInt(body.bracket, 10) || 3)),
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
@@ -6416,6 +6496,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       cuts: cuts.map(({ trace, ...c }) => c),
       adds: adds.map(({ trace, ...a }) => a),
       combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
+      // English-only plan readout (engine, direction, weakest link) — no axis tokens
+      gameplan: engine2.gameplan.readout(gameplan),
       coverage: { semantics: coverage },
     });
   } catch (e) {
@@ -10477,16 +10559,19 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
     // inspector never open for unowned cards in prod.)
     try {
       const local = await _lookupLocalCardById(cardId);
-      // A multi-faced card ("Front // Back") whose per-face data hasn't been backfilled yet
-      // (faces_json NULL — i.e. imported before that column existed) would serve only the front
-      // image, leaving the inspector unable to flip it. Skip local for these until the next cards
-      // re-import populates faces_json; rows that already have it serve straight from local.
-      const needsFacesFromScryfall = local
-        && local.row.faces_json == null
-        && / \/\/ /.test(String(local.row.name || ''));
+      // Two multi-faced ("Front // Back") cases local can't serve, both about per-face art:
+      // rows imported before faces_json existed carry none at all (the inspector couldn't flip
+      // them), and a row that HAS it holds the representative printing's faces — wrong for any
+      // other printing, and only the FRONT face's URL derives from a printing id. Go upstream
+      // for those; everything else serves straight from local.
+      const multiFaced = !!local
+        && (local.row.faces_json != null || / \/\/ /.test(String(local.row.name || '')));
+      const needsFacesFromScryfall = !!local && multiFaced
+        && (local.row.faces_json == null || !!local.printing);
       if (local && !needsFacesFromScryfall) {
         const card = _localRowToScryfallCard(local.row);
         if (local.scryfallId) card.id = local.scryfallId;
+        if (local.printing) _applyPrintingIdentity(card, local.scryfallId, local.printing);
         await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
         if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
         return res.json(card);
@@ -11638,15 +11723,43 @@ async function _lookupLocalCardById(cardId) {
     return { row: direct, scryfallId: direct.scryfall_id === cardId ? cardId : (direct.scryfall_id || null) };
   }
   const [[pr]] = await db().query(
-    'SELECT name FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
+    'SELECT name, set_code, number, rarity, finishes FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
   );
   if (pr?.name) {
     const [[byName]] = await db().query(
       `SELECT ${cols} FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`, [pr.name]
     );
-    if (byName) return { row: byName, scryfallId: cardId };
+    // `printing` set = the oracle row we found describes a DIFFERENT printing than the one
+    // asked for, so its art/set/number belong to that other printing, not to this id.
+    if (byName) return { row: byName, scryfallId: cardId, printing: pr };
   }
   return null;
+}
+
+/**
+ * The oracle table keeps ONE representative printing per card, so a lookup for any other
+ * printing answers with that one's art, set and collector number under the requested id.
+ * Clients that build a card from the answer (the deck/commander pickers, metadata hydrates)
+ * then quietly replace the printing the user chose. Overlay the printing's own identity —
+ * `mtgjson_printing` has set/number/rarity, and Scryfall's image CDN is addressed by printing
+ * id, so the art URL derives from the id itself (same construction as the printings search).
+ */
+function _applyPrintingIdentity(card, scryfallId, printing) {
+  if (!card || !scryfallId || !printing) return;
+  const setCode = String(printing.set_code || '').toLowerCase();
+  if (setCode) { card.set = setCode; card.set_name = setCode; }
+  card.collector_number = printing.number || null;
+  if (printing.rarity) card.rarity = printing.rarity;
+  // Which finishes this printing was actually sold in. Clients carry a card's finish across
+  // a printing change, and an alt-art or foil-only version has no plain copy to carry it to.
+  const finishes = String(printing.finishes || '').split(',').map(f => f.trim()).filter(Boolean);
+  if (finishes.length) card.finishes = finishes;
+  const [a, b] = [scryfallId[0], scryfallId[1]];
+  card.image_uris = {
+    small: `https://cards.scryfall.io/small/front/${a}/${b}/${scryfallId}.jpg`,
+    normal: `https://cards.scryfall.io/normal/front/${a}/${b}/${scryfallId}.jpg`,
+    large: `https://cards.scryfall.io/large/front/${a}/${b}/${scryfallId}.jpg`,
+  };
 }
 
 // ── Local-first Scryfall-syntax search (deck "replacements" panel) ───────────

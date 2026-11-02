@@ -1,0 +1,306 @@
+{
+ "name": "Helga, Skittish Seer (chat 2026-09-28)",
+ "source": "chat-2026-09-28",
+ "commander": "Helga, Skittish Seer",
+ "cards": [
+  {
+   "name": "Ancient Gold Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Annoyed Altisaur",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Archangel of Tithes",
+   "qty": 1
+  },
+  {
+   "name": "Bard, King of Dale",
+   "qty": 1
+  },
+  {
+   "name": "Barkchannel Pathway // Tidechannel Pathway",
+   "qty": 1
+  },
+  {
+   "name": "Biosynthic Burst",
+   "qty": 1
+  },
+  {
+   "name": "Birds of Paradise",
+   "qty": 1
+  },
+  {
+   "name": "Bountiful Promenade",
+   "qty": 1
+  },
+  {
+   "name": "Bristly Bill, Spine Sower",
+   "qty": 1
+  },
+  {
+   "name": "Broodguard Elite",
+   "qty": 1
+  },
+  {
+   "name": "Counterspell",
+   "qty": 1
+  },
+  {
+   "name": "Cultivate",
+   "qty": 1
+  },
+  {
+   "name": "Curious Colossus",
+   "qty": 1
+  },
+  {
+   "name": "Dancing from Dark to Dawn",
+   "qty": 1
+  },
+  {
+   "name": "Dawnstrike Vanguard",
+   "qty": 1
+  },
+  {
+   "name": "Deserted Beach",
+   "qty": 1
+  },
+  {
+   "name": "Divine Resilience",
+   "qty": 1
+  },
+  {
+   "name": "Dragonfire Blade",
+   "qty": 1
+  },
+  {
+   "name": "Elemental Bond",
+   "qty": 1
+  },
+  {
+   "name": "Emeritus of Ideation // Ancestral Recall",
+   "qty": 1
+  },
+  {
+   "name": "Evendo, Waking Haven",
+   "qty": 1
+  },
+  {
+   "name": "Evolving Wilds",
+   "qty": 1
+  },
+  {
+   "name": "Fecund Greenshell",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 9
+  },
+  {
+   "name": "Galadriel's Dismissal",
+   "qty": 1
+  },
+  {
+   "name": "Garruk's Uprising",
+   "qty": 1
+  },
+  {
+   "name": "Gathering Place",
+   "qty": 1
+  },
+  {
+   "name": "Germination Practicum",
+   "qty": 1
+  },
+  {
+   "name": "Giant Ankheg",
+   "qty": 1
+  },
+  {
+   "name": "Giant-Man, Gargantuan Genius",
+   "qty": 1
+  },
+  {
+   "name": "Glyph Elemental",
+   "qty": 1
+  },
+  {
+   "name": "Goldvein Hydra",
+   "qty": 1
+  },
+  {
+   "name": "Heritage Reclamation",
+   "qty": 1
+  },
+  {
+   "name": "Hivespine Wolverine",
+   "qty": 1
+  },
+  {
+   "name": "Hullbreaker Horror",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 10
+  },
+  {
+   "name": "Jennifer Walters // The Sensational She-Hulk",
+   "qty": 1
+  },
+  {
+   "name": "Jin-Gitaxias, Core Augur",
+   "qty": 1
+  },
+  {
+   "name": "Knockout Maneuver",
+   "qty": 1
+  },
+  {
+   "name": "Loading Zone",
+   "qty": 1
+  },
+  {
+   "name": "Luminous Broodmoth",
+   "qty": 1
+  },
+  {
+   "name": "Lumra, Bellow of the Woods",
+   "qty": 1
+  },
+  {
+   "name": "Nature's Lore",
+   "qty": 1
+  },
+  {
+   "name": "Overprotect",
+   "qty": 1
+  },
+  {
+   "name": "Path to Exile",
+   "qty": 1
+  },
+  {
+   "name": "Perplexing Chimera",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 9
+  },
+  {
+   "name": "Port Town",
+   "qty": 1
+  },
+  {
+   "name": "Primal Empathy",
+   "qty": 1
+  },
+  {
+   "name": "Radagast of Rhosgobel",
+   "qty": 1
+  },
+  {
+   "name": "Reed Richards, Smartest Man",
+   "qty": 1
+  },
+  {
+   "name": "Repel Calamity",
+   "qty": 1
+  },
+  {
+   "name": "Royal Treatment",
+   "qty": 1
+  },
+  {
+   "name": "Shore Up",
+   "qty": 1
+  },
+  {
+   "name": "Sire of Seven Deaths",
+   "qty": 1
+  },
+  {
+   "name": "Snakeskin Veil",
+   "qty": 1
+  },
+  {
+   "name": "Sodden Verdure",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Starfall Invocation",
+   "qty": 1
+  },
+  {
+   "name": "Stock Up",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Tamiyo's Safekeeping",
+   "qty": 1
+  },
+  {
+   "name": "Terrasymbiosis",
+   "qty": 1
+  },
+  {
+   "name": "The Council of Four",
+   "qty": 1
+  },
+  {
+   "name": "The Eagles Are Coming!",
+   "qty": 1
+  },
+  {
+   "name": "Toski, Bearer of Secrets",
+   "qty": 1
+  },
+  {
+   "name": "Tyrranax Rex",
+   "qty": 1
+  },
+  {
+   "name": "Up the Beanstalk",
+   "qty": 1
+  },
+  {
+   "name": "Utopia Sprawl",
+   "qty": 1
+  },
+  {
+   "name": "Vanquish the Horde",
+   "qty": 1
+  },
+  {
+   "name": "Vaultborn Tyrant",
+   "qty": 1
+  },
+  {
+   "name": "Willowrush Verge",
+   "qty": 1
+  },
+  {
+   "name": "Zimone, Paradox Sculptor",
+   "qty": 1
+  }
+ ],
+ "planAdds": [],
+ "planCuts": [],
+ "maybe": []
+}

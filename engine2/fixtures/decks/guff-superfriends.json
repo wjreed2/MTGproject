@@ -1,0 +1,357 @@
+{
+ "name": "Average Commodore Guff deck (EDHREC)",
+ "commander": "Commodore Guff",
+ "source": "edhrec-average",
+ "source_url": "https://json.edhrec.com/pages/average-decks/commodore-guff.json",
+ "archetype_expected": "superfriends",
+ "cards": [
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Azorius Signet",
+   "qty": 1
+  },
+  {
+   "name": "Boros Signet",
+   "qty": 1
+  },
+  {
+   "name": "Fellwar Stone",
+   "qty": 1
+  },
+  {
+   "name": "Gatewatch Beacon",
+   "qty": 1
+  },
+  {
+   "name": "Ichormoon Gauntlet",
+   "qty": 1
+  },
+  {
+   "name": "Izzet Signet",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Conviction",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Creativity",
+   "qty": 1
+  },
+  {
+   "name": "Talisman of Progress",
+   "qty": 1
+  },
+  {
+   "name": "The Chain Veil",
+   "qty": 1
+  },
+  {
+   "name": "Cascade Bluffs",
+   "qty": 1
+  },
+  {
+   "name": "Command Tower",
+   "qty": 1
+  },
+  {
+   "name": "Exotic Orchard",
+   "qty": 1
+  },
+  {
+   "name": "Forge of Heroes",
+   "qty": 1
+  },
+  {
+   "name": "Frostboil Snarl",
+   "qty": 1
+  },
+  {
+   "name": "Furycalm Snarl",
+   "qty": 1
+  },
+  {
+   "name": "Hallowed Fountain",
+   "qty": 1
+  },
+  {
+   "name": "Interplanar Beacon",
+   "qty": 1
+  },
+  {
+   "name": "Island",
+   "qty": 6
+  },
+  {
+   "name": "Karn's Bastion",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 3
+  },
+  {
+   "name": "Mystic Gate",
+   "qty": 1
+  },
+  {
+   "name": "Mystic Monastery",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 6
+  },
+  {
+   "name": "Port Town",
+   "qty": 1
+  },
+  {
+   "name": "Prairie Stream",
+   "qty": 1
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Rugged Prairie",
+   "qty": 1
+  },
+  {
+   "name": "Sacred Foundry",
+   "qty": 1
+  },
+  {
+   "name": "Skycloud Expanse",
+   "qty": 1
+  },
+  {
+   "name": "Steam Vents",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Enlightenment",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Epiphany",
+   "qty": 1
+  },
+  {
+   "name": "Temple of Triumph",
+   "qty": 1
+  },
+  {
+   "name": "Deepglow Skate",
+   "qty": 1
+  },
+  {
+   "name": "Flux Channeler",
+   "qty": 1
+  },
+  {
+   "name": "Fog Bank",
+   "qty": 1
+  },
+  {
+   "name": "Grateful Apparition",
+   "qty": 1
+  },
+  {
+   "name": "Jaya's Phoenix",
+   "qty": 1
+  },
+  {
+   "name": "Lae'zel, Vlaakith's Champion",
+   "qty": 1
+  },
+  {
+   "name": "Leori, Sparktouched Hunter",
+   "qty": 1
+  },
+  {
+   "name": "Mangara, the Diplomat",
+   "qty": 1
+  },
+  {
+   "name": "Mila, Crafty Companion",
+   "qty": 1
+  },
+  {
+   "name": "Onakke Oathkeeper",
+   "qty": 1
+  },
+  {
+   "name": "Silent Arbiter",
+   "qty": 1
+  },
+  {
+   "name": "Spark Double",
+   "qty": 1
+  },
+  {
+   "name": "Thrummingbird",
+   "qty": 1
+  },
+  {
+   "name": "All Will Be One",
+   "qty": 1
+  },
+  {
+   "name": "Inexorable Tide",
+   "qty": 1
+  },
+  {
+   "name": "Oath of Gideon",
+   "qty": 1
+  },
+  {
+   "name": "Oath of Jace",
+   "qty": 1
+  },
+  {
+   "name": "Oath of Teferi",
+   "qty": 1
+  },
+  {
+   "name": "Teferi's Talent",
+   "qty": 1
+  },
+  {
+   "name": "Guff Rewrites History",
+   "qty": 1
+  },
+  {
+   "name": "Loyal Tutor",
+   "qty": 1
+  },
+  {
+   "name": "Path to Exile",
+   "qty": 1
+  },
+  {
+   "name": "Repeated Reverberation",
+   "qty": 1
+  },
+  {
+   "name": "Ripples of Potential",
+   "qty": 1
+  },
+  {
+   "name": "Semester's End",
+   "qty": 1
+  },
+  {
+   "name": "Swords to Plowshares",
+   "qty": 1
+  },
+  {
+   "name": "Ajani Steadfast",
+   "qty": 1
+  },
+  {
+   "name": "Chandra, Awakened Inferno",
+   "qty": 1
+  },
+  {
+   "name": "Chandra, Legacy of Fire",
+   "qty": 1
+  },
+  {
+   "name": "Chandra, Torch of Defiance",
+   "qty": 1
+  },
+  {
+   "name": "Elspeth, Sun's Champion",
+   "qty": 1
+  },
+  {
+   "name": "Jace Beleren",
+   "qty": 1
+  },
+  {
+   "name": "Nahiri, the Harbinger",
+   "qty": 1
+  },
+  {
+   "name": "Narset of the Ancient Way",
+   "qty": 1
+  },
+  {
+   "name": "Narset, Parter of Veils",
+   "qty": 1
+  },
+  {
+   "name": "Saheeli, Sublime Artificer",
+   "qty": 1
+  },
+  {
+   "name": "Sarkhan the Masterless",
+   "qty": 1
+  },
+  {
+   "name": "Teferi, Hero of Dominaria",
+   "qty": 1
+  },
+  {
+   "name": "Teferi, Master of Time",
+   "qty": 1
+  },
+  {
+   "name": "Teferi, Temporal Archmage",
+   "qty": 1
+  },
+  {
+   "name": "Teferi, Temporal Pilgrim",
+   "qty": 1
+  },
+  {
+   "name": "Teferi, Time Raveler",
+   "qty": 1
+  },
+  {
+   "name": "Teyo, Geometric Tactician",
+   "qty": 1
+  },
+  {
+   "name": "The Eternal Wanderer",
+   "qty": 1
+  },
+  {
+   "name": "The Wanderer",
+   "qty": 1
+  },
+  {
+   "name": "Vronos, Masked Inquisitor",
+   "qty": 1
+  },
+  {
+   "name": "Blasphemous Act",
+   "qty": 1
+  },
+  {
+   "name": "Deploy the Gatewatch",
+   "qty": 1
+  },
+  {
+   "name": "Farewell",
+   "qty": 1
+  },
+  {
+   "name": "Promise of Loyalty",
+   "qty": 1
+  },
+  {
+   "name": "Urza's Ruinous Blast",
+   "qty": 1
+  }
+ ]
+}

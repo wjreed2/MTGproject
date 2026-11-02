@@ -1,0 +1,315 @@
+{
+ "commander": "Karlach, Fury of Avernus",
+ "source": "weakened from pulled/rand8-karlach-fury-of-avernus",
+ "seeded_weak": [
+  "Magmatic Channeler",
+  "Strixhaven Skycoach",
+  "Shuri's Fabricator",
+  "Dragon's Desire",
+  "Lava Spike",
+  "Mirran Safehouse",
+  "Phyrexian Vault",
+  "Duelist's Flame",
+  "Spellbinder",
+  "Pact of the Titan",
+  "Catalyst Stone",
+  "Brute Suit"
+ ],
+ "removed_staples": [
+  "Sol Ring",
+  "Arcane Signet",
+  "Swiftfoot Boots",
+  "Lightning Greaves",
+  "Blasphemous Act",
+  "Chaos Warp",
+  "Deflecting Swat",
+  "Faithless Looting",
+  "Vandalblast",
+  "Jeska's Will",
+  "Big Score",
+  "Abrade"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Aggravated Assault",
+   "qty": 1
+  },
+  {
+   "name": "Ancient Copper Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Anger",
+   "qty": 1
+  },
+  {
+   "name": "Archetype of Aggression",
+   "qty": 1
+  },
+  {
+   "name": "Arena of Glory",
+   "qty": 1
+  },
+  {
+   "name": "Balefire Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Basilisk Collar",
+   "qty": 1
+  },
+  {
+   "name": "Berserkers' Onslaught",
+   "qty": 1
+  },
+  {
+   "name": "Bloodthirster",
+   "qty": 1
+  },
+  {
+   "name": "Castle Embereth",
+   "qty": 1
+  },
+  {
+   "name": "City on Fire",
+   "qty": 1
+  },
+  {
+   "name": "Combat Celebrant",
+   "qty": 1
+  },
+  {
+   "name": "Commander's Plate",
+   "qty": 1
+  },
+  {
+   "name": "Delina, Wild Mage",
+   "qty": 1
+  },
+  {
+   "name": "Dolmen Gate",
+   "qty": 1
+  },
+  {
+   "name": "Dragonmaster Outcast",
+   "qty": 1
+  },
+  {
+   "name": "Drakuseth, Maw of Flames",
+   "qty": 1
+  },
+  {
+   "name": "Embercleave",
+   "qty": 1
+  },
+  {
+   "name": "Etali, Primal Storm",
+   "qty": 1
+  },
+  {
+   "name": "Fiery Emancipation",
+   "qty": 1
+  },
+  {
+   "name": "Fire Diamond",
+   "qty": 1
+  },
+  {
+   "name": "Fury of the Horde",
+   "qty": 1
+  },
+  {
+   "name": "Goldspan Dragon",
+   "qty": 1
+  },
+  {
+   "name": "Gratuitous Violence",
+   "qty": 1
+  },
+  {
+   "name": "Great Train Heist",
+   "qty": 1
+  },
+  {
+   "name": "Hazoret's Monument",
+   "qty": 1
+  },
+  {
+   "name": "Hexing Squelcher",
+   "qty": 1
+  },
+  {
+   "name": "Kediss, Emberclaw Familiar",
+   "qty": 1
+  },
+  {
+   "name": "Krenko, Tin Street Kingpin",
+   "qty": 1
+  },
+  {
+   "name": "Laelia, the Blade Reforged",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Bolt",
+   "qty": 1
+  },
+  {
+   "name": "Mana Geyser",
+   "qty": 1
+  },
+  {
+   "name": "Moraug, Fury of Akoum",
+   "qty": 1
+  },
+  {
+   "name": "Mountain",
+   "qty": 30
+  },
+  {
+   "name": "Neheb, the Eternal",
+   "qty": 1
+  },
+  {
+   "name": "Port Razer",
+   "qty": 1
+  },
+  {
+   "name": "Professional Face-Breaker",
+   "qty": 1
+  },
+  {
+   "name": "Relentless Assault",
+   "qty": 1
+  },
+  {
+   "name": "Rising of the Day",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Passage",
+   "qty": 1
+  },
+  {
+   "name": "Ruby Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Sardian Cliffstomper",
+   "qty": 1
+  },
+  {
+   "name": "Scourge of the Throne",
+   "qty": 1
+  },
+  {
+   "name": "Seething Song",
+   "qty": 1
+  },
+  {
+   "name": "Spinerock Knoll",
+   "qty": 1
+  },
+  {
+   "name": "Stranglehold",
+   "qty": 1
+  },
+  {
+   "name": "Sunspine Lynx",
+   "qty": 1
+  },
+  {
+   "name": "Sword of the Animist",
+   "qty": 1
+  },
+  {
+   "name": "The Fire Crystal",
+   "qty": 1
+  },
+  {
+   "name": "The Reaver Cleaver",
+   "qty": 1
+  },
+  {
+   "name": "Thrill of Possibility",
+   "qty": 1
+  },
+  {
+   "name": "Torbran, Thane of Red Fell",
+   "qty": 1
+  },
+  {
+   "name": "Twinflame Tyrant",
+   "qty": 1
+  },
+  {
+   "name": "Unexpected Windfall",
+   "qty": 1
+  },
+  {
+   "name": "Urabrask the Hidden",
+   "qty": 1
+  },
+  {
+   "name": "Valakut, the Molten Pinnacle",
+   "qty": 1
+  },
+  {
+   "name": "World at War",
+   "qty": 1
+  },
+  {
+   "name": "Zariel, Archduke of Avernus",
+   "qty": 1
+  },
+  {
+   "name": "Magmatic Channeler",
+   "qty": 1
+  },
+  {
+   "name": "Strixhaven Skycoach",
+   "qty": 1
+  },
+  {
+   "name": "Shuri's Fabricator",
+   "qty": 1
+  },
+  {
+   "name": "Dragon's Desire",
+   "qty": 1
+  },
+  {
+   "name": "Lava Spike",
+   "qty": 1
+  },
+  {
+   "name": "Mirran Safehouse",
+   "qty": 1
+  },
+  {
+   "name": "Phyrexian Vault",
+   "qty": 1
+  },
+  {
+   "name": "Duelist's Flame",
+   "qty": 1
+  },
+  {
+   "name": "Spellbinder",
+   "qty": 1
+  },
+  {
+   "name": "Pact of the Titan",
+   "qty": 1
+  },
+  {
+   "name": "Catalyst Stone",
+   "qty": 1
+  },
+  {
+   "name": "Brute Suit",
+   "qty": 1
+  }
+ ]
+}

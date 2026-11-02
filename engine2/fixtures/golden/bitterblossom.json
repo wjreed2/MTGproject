@@ -66,6 +66,7 @@
     "wincon": null,
     "tribal": { "types": ["Faerie"], "lord_of": [] },
     "power_level_hint": 4,
+    "power_tier": { "b2": 7, "b3": 7, "b4": 7 },
     "confidence": 0.98
   }
 }

@@ -86,6 +86,13 @@ const AXIS_LABELS = {
   'extra_turns': 'extra turns', 'group.slug': 'group slug', 'group.hug': 'group hug',
   'monarch.initiative': 'monarch / initiative', 'flash.enabler': 'flash enabler',
   'haste.enabler': 'haste enabler', 'politics.deterrent': 'attack deterrent',
+  'mana.ramp_permanent': 'mana enchantment', 'combat.keyword_grant': 'team combat keywords',
+  'heroic.payoff': 'heroic payoff', 'toughness.matters': 'toughness matters',
+  'body.high_toughness': 'high-toughness body', 'damage.amplifier': 'damage amplifier',
+  'trigger.copy': 'trigger copier', 'facedown.source': 'face-down creatures',
+  'facedown.matters': 'face-down payoff', 'snow.source': 'snow permanent', 'snow.matters': 'snow payoff',
+  'keyword.matters': 'keyword payoff', 'exile.matters': 'exile matters', 'party.matters': 'party',
+  'cycling.source': 'cycling', 'cycling.payoff': 'cycling payoff', 'burn.spell': 'burn spell', 'burn.payoff': 'burn payoff',
 };
 
 // "axis" or "axis:Param" → short English label. Tribal params are woven in.

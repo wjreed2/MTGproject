@@ -63,6 +63,7 @@
     "wincon": null,
     "tribal": { "types": ["Vampire", "Wizard"], "lord_of": [] },
     "power_level_hint": 3,
+    "power_tier": { "b2": 6, "b3": 6, "b4": 7 },
     "confidence": 0.98
   }
 }

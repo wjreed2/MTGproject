@@ -1,0 +1,6517 @@
+{
+ "note": "CardIRs for the rules fixtures — refresh with --write-snapshot after re-extraction or backfills",
+ "cards": [
+  {
+   "name": "Ambush Commander",
+   "typeLine": "Creature — Elf",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "e75b2a97-b28d-43fe-8b1e-ba87a09f339c",
+    "name": "Ambush Commander",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Ambush Commander",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf"
+       ]
+      },
+      "mana_cost": "{3}{G}{G}",
+      "mana_value": 5,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "applies_to": {
+         "sub": [
+          "Forest"
+         ],
+         "controller": "you",
+         "all": true
+        },
+        "layer": {
+         "layer": 4,
+         "sublayer": null
+        },
+        "effects": [
+         {
+          "op": "set_pt",
+          "pump": {
+           "p": 1,
+           "t": 1
+          },
+          "duration": "while_condition",
+          "text": "Forests you control are 1/1 green Elf creatures that are still lands."
+         }
+        ],
+        "text": "Forests you control are 1/1 green Elf creatures that are still lands."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}{G}",
+         "sacrifice": {
+          "sub": [
+           "Elf"
+          ],
+          "controller": "you"
+         }
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 3,
+           "t": 3
+          },
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "{1}{G}, Sacrifice an Elf: Target creature gets +3/+3 until end of turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "lands.matter",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "sac.outlet_cost",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "sac.fodder",
+      "param": null,
+      "rate": "static",
+      "weight": 4
+     },
+     {
+      "axis": "pump.single",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "sac_outlet",
+     "combat_trick"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.88,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "edhrec-11970-13516",
+     "prompt_version": "p7",
+     "extracted_at": 1787012728892,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Ayara, First of Locthwain",
+   "typeLine": "Legendary Creature — Elf Noble",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "388168b3-ec68-4af2-b88c-6a5ec88c15f6",
+    "name": "Ayara, First of Locthwain",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Ayara, First of Locthwain",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Noble"
+       ]
+      },
+      "mana_cost": "{B}{B}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "types": [
+           "creature"
+          ],
+          "colors": [
+           "B"
+          ],
+          "controller": "you",
+          "or_self": true
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "drain",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "each_opponent"
+          },
+          "text": "each opponent loses 1 life and you gain 1 life"
+         }
+        ],
+        "text": "Whenever Ayara or another black creature you control enters, each opponent loses 1 life and you gain 1 life."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "tap": true,
+         "sacrifice": {
+          "types": [
+           "creature"
+          ],
+          "colors": [
+           "B"
+          ],
+          "controller": "you",
+          "other": true
+         }
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}, Sacrifice another black creature: Draw a card."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "drain.incremental",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "trigger.etb_payoff",
+      "param": "black creature",
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "sac.outlet_cost",
+      "param": "black creature",
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "creatures_dying",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "sac.fodder",
+      "param": "black creature",
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "token.creature",
+      "param": "black creature",
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "sac_outlet",
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": {
+     "kind": "drain",
+     "detail": "incremental drain that scales with the number of black creatures entering the battlefield"
+    },
+    "tribal": {
+     "types": [
+      "Elf",
+      "Noble"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784494459980,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Bard, King of Dale",
+   "typeLine": "Legendary Creature — Human Noble Archer",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "d05db2c1-a19a-4803-8e8a-fa2f9b798181",
+    "name": "Bard, King of Dale",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Bard, King of Dale",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Human",
+        "Noble",
+        "Archer"
+       ]
+      },
+      "mana_cost": "{4}{W}{U}",
+      "mana_value": 6,
+      "colors": [
+       "U",
+       "W"
+      ],
+      "pt": {
+       "power": "3",
+       "toughness": "5"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Reach",
+        "param": null
+       },
+       {
+        "name": "Vigilance",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "replacement",
+        "replaces": {
+         "event": "draw",
+         "scope": {
+          "controller": "you"
+         }
+        },
+        "layer": null,
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          },
+          "condition": {
+           "text": "except the first one you draw in each of your draw steps"
+          }
+         }
+        ],
+        "text": "If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead."
+       },
+       {
+        "kind": "replacement",
+        "replaces": {
+         "event": "token_created",
+         "scope": {
+          "controller": "you"
+         }
+        },
+        "layer": null,
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "variable",
+           "formula": "twice that many"
+          }
+         }
+        ],
+        "text": "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw_engine",
+      "param": null,
+      "rate": "static",
+      "weight": 4
+     },
+     {
+      "axis": "token.doubler",
+      "param": null,
+      "rate": "static",
+      "weight": 5
+     }
+    ],
+    "needs": [
+     {
+      "axis": "token.creature",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Human",
+      "Noble",
+      "Archer"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.93,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "user-deck-backfill-2026-09",
+     "prompt_version": "p7",
+     "extracted_at": 1789054683853,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Biosynthic Burst",
+   "typeLine": "Instant",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "3abd2342-f783-4871-ac78-1a54b35722c2",
+    "name": "Biosynthic Burst",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Biosynthic Burst",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "put_counter",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "counter_kind": "+1/+1",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "text": "Put a +1/+1 counter on target creature you control."
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Reach",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Trample",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Indestructible",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         },
+         {
+          "op": "untap",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "text": "Untap it."
+         }
+        ],
+        "text": "Put a +1/+1 counter on target creature you control. It gains reach, trample, and indestructible until end of turn. Untap it."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "pump.single",
+      "weight": 2,
+      "rate": "once"
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "combat_trick",
+     "protection"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "helga-gap",
+     "prompt_version": "p3",
+     "extracted_at": 1784560795810,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Buried Alive",
+   "typeLine": "Sorcery",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "8203c621-a1a0-4865-8c9a-0d4064c86107",
+    "name": "Buried Alive",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Buried Alive",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 3
+          },
+          "target": {
+           "who": "you",
+           "up_to": true,
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "zone": "library"
+           }
+          },
+          "zone_from": "library",
+          "zone_to": "graveyard",
+          "text": "Search your library for up to three creature cards, put them into your graveyard, then shuffle."
+         }
+        ],
+        "text": "Search your library for up to three creature cards, put them into your graveyard, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "gy.self_fill",
+      "param": "creature",
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "tutor.creature",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     }
+    ],
+    "needs": [
+     {
+      "axis": "gy.reanimate",
+      "param": "creature",
+      "criticality": "wants",
+      "weight": 5
+     }
+    ],
+    "roles": [
+     "tutor"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-p2-cleanup",
+     "prompt_version": "p2",
+     "extracted_at": 1784507180213,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Commune with Evil",
+   "typeLine": "Sorcery",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "0248bf01-14e0-4a39-ba3a-5177fe272fe9",
+    "name": "Commune with Evil",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Commune with Evil",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "look_at",
+          "n": {
+           "kind": "fixed",
+           "value": 4
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "Look at the top four cards of your library."
+         },
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          },
+          "zone_from": "library",
+          "zone_to": "hand",
+          "text": "Put one of them into your hand"
+         },
+         {
+          "op": "mill",
+          "n": {
+           "kind": "variable",
+           "formula": "the rest"
+          },
+          "target": {
+           "who": "you"
+          },
+          "zone_from": "library",
+          "zone_to": "graveyard",
+          "text": "and the rest into your graveyard."
+         },
+         {
+          "op": "gain_life",
+          "n": {
+           "kind": "fixed",
+           "value": 3
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "You gain 3 life."
+         }
+        ],
+        "text": "Look at the top four cards of your library. Put one of them into your hand and the rest into your graveyard. You gain 3 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "gy.self_fill",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "once",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "edhrec-8576-11969",
+     "prompt_version": "p7",
+     "extracted_at": 1786926364024,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Devoted Druid",
+   "typeLine": "Creature — Elf Druid",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "cb814e16-acf7-41d5-a357-1323dcc369f3",
+    "name": "Devoted Druid",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Devoted Druid",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "0",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "mana": null,
+         "tap": true,
+         "sacrifice": null,
+         "life": null,
+         "discard": null,
+         "other": null,
+         "remove_counter": null,
+         "untap_symbol": null
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "G"
+         }
+        ],
+        "text": "{T}: Add {G}."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": null,
+         "tap": false,
+         "sacrifice": null,
+         "life": null,
+         "discard": null,
+         "other": "Put a -1/-1 counter on this creature",
+         "remove_counter": null,
+         "untap_symbol": null
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "untap",
+          "target": {
+           "who": "you",
+           "object": {
+            "or_self": true
+           }
+          }
+         }
+        ],
+        "text": "Put a -1/-1 counter on this creature: Untap this creature."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "untap.permanent",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_dork"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.94,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784521261031,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Dina's Guidance",
+   "typeLine": "Instant",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "a9abed25-9256-4fc7-8afb-edb4286e18f4",
+    "name": "Dina's Guidance",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Dina's Guidance",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{B}{G}",
+      "mana_value": 3,
+      "colors": [
+       "B",
+       "G"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "reveal",
+          "target": {
+           "who": "you"
+          },
+          "text": "reveal it"
+         },
+         {
+          "op": "modal",
+          "modes": {
+           "choose": 1,
+           "options": [
+            [
+             {
+              "op": "search_library",
+              "n": {
+               "kind": "fixed",
+               "value": 1
+              },
+              "target": {
+               "who": "you",
+               "object": {
+                "types": [
+                 "creature"
+                ],
+                "zone": "library"
+               }
+              },
+              "zone_from": "library",
+              "zone_to": "hand"
+             }
+            ],
+            [
+             {
+              "op": "search_library",
+              "n": {
+               "kind": "fixed",
+               "value": 1
+              },
+              "target": {
+               "who": "you",
+               "object": {
+                "types": [
+                 "creature"
+                ],
+                "zone": "library"
+               }
+              },
+              "zone_from": "library",
+              "zone_to": "graveyard"
+             }
+            ]
+           ]
+          }
+         }
+        ],
+        "text": "Search your library for a creature card, reveal it, put it into your hand or graveyard, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "tutor.creature",
+      "param": null,
+      "rate": "once",
+      "weight": 4
+     },
+     {
+      "axis": "gy.self_fill",
+      "param": "creature",
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "gy.reanimate",
+      "param": "creature",
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "tutor"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top-7400",
+     "prompt_version": "p7",
+     "extracted_at": 1785214783330,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Diresight",
+   "typeLine": "Sorcery",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "a7b12df9-fddd-4cd4-8c09-d54a47867ab6",
+    "name": "Diresight",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Diresight",
+      "types": {
+       "super": [],
+       "card": [
+        "Sorcery"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}",
+      "mana_value": 3,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Surveil",
+        "param": "2"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "surveil",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "lose_life",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "Surveil 2, then draw two cards. You lose 2 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "topdeck.manipulation",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "gy.self_fill",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "vren-gap",
+     "prompt_version": "p2",
+     "extracted_at": 1784505027940,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Eclipsed Realms",
+   "typeLine": "Land",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "5715ed43-395c-4877-99a7-8e28e7bf9dce",
+    "name": "Eclipsed Realms",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Eclipsed Realms",
+      "types": {
+       "super": [],
+       "card": [
+        "Land"
+       ],
+       "sub": []
+      },
+      "mana_cost": null,
+      "mana_value": null,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "restriction",
+          "text": "As this land enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk."
+         }
+        ],
+        "text": "As this land enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk."
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "{C}",
+          "text": "Add {C}."
+         }
+        ],
+        "text": "{T}: Add {C}."
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "one mana of any color",
+          "text": "Add one mana of any color."
+         },
+         {
+          "op": "restriction",
+          "text": "Spend this mana only to cast a spell of the chosen type or activate an ability of a source of the chosen type."
+         }
+        ],
+        "text": "{T}: Add one mana of any color. Spend this mana only to cast a spell of the chosen type or activate an ability of a source of the chosen type."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "other",
+        "text": "Spend this mana only to cast a spell of the chosen type or activate an ability of a source of the chosen type."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.color_fix",
+      "param": "chosen type",
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "land"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.85,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top4500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784694644064,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Elvish Archdruid",
+   "typeLine": "Creature — Elf Druid",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "6e2c2423-d854-4478-99e6-64f29851f026",
+    "name": "Elvish Archdruid",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Elvish Archdruid",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{1}{G}{G}",
+      "mana_value": 3,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 7,
+         "sublayer": "c"
+        },
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "sub": [
+          "Elf"
+         ],
+         "controller": "you",
+         "other": true
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 1,
+           "t": 1
+          },
+          "duration": "while_condition"
+         }
+        ],
+        "text": "Other Elf creatures you control get +1/+1."
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "G",
+          "n": {
+           "kind": "count",
+           "of": {
+            "types": [
+             "creature"
+            ],
+            "sub": [
+             "Elf"
+            ],
+            "controller": "you"
+           }
+          }
+         }
+        ],
+        "text": "{T}: Add {G} for each Elf you control."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "tribal.lord",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 5
+     },
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 5
+     }
+    ],
+    "roles": [
+     "mana_dork",
+     "tribal_lord"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": [
+      "Elf"
+     ]
+    },
+    "power_level_hint": 4,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784520716028,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Entomb",
+   "typeLine": "Instant",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "299fc083-0834-4064-8344-f895aff68867",
+    "name": "Entomb",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Entomb",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{B}",
+      "mana_value": 1,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "search_library",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "zone": "library"
+           }
+          },
+          "zone_from": "library",
+          "zone_to": "graveyard",
+          "text": "Search your library for a card, put that card into your graveyard, then shuffle."
+         }
+        ],
+        "text": "Search your library for a card, put that card into your graveyard, then shuffle."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "gy.self_fill",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "tutor.any",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "gy.reanimate",
+      "param": null,
+      "criticality": "wants",
+      "weight": 5
+     },
+     {
+      "axis": "gy.cast_from",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "tutor"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-p2-cleanup",
+     "prompt_version": "p2",
+     "extracted_at": 1784507180194,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Forbidden Orchard",
+   "typeLine": "Land",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "cfd60d1f-9832-4408-b84e-0fd3018b015b",
+    "name": "Forbidden Orchard",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Forbidden Orchard",
+      "types": {
+       "super": [],
+       "card": [
+        "Land"
+       ],
+       "sub": []
+      },
+      "mana_cost": null,
+      "mana_value": 0,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "one mana of any color"
+         }
+        ],
+        "text": "{T}: Add one mana of any color."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "tapped_for_mana",
+         "subject": {
+          "or_self": true
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "target": {
+           "who": "target_opponent",
+           "n_targets": 1
+          },
+          "token": {
+           "name": "Spirit",
+           "types": "Creature — Spirit",
+           "pt": "1/1",
+           "colors": [
+            "C"
+           ],
+           "predefined": true,
+           "abilities_text": null
+          }
+         }
+        ],
+        "text": "Whenever you tap this land for mana, target opponent creates a 1/1 colorless Spirit creature token."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "static",
+      "weight": 5
+     },
+     {
+      "axis": "group.hug",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "land"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.94,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784493064917,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Galadriel's Dismissal",
+   "typeLine": "Instant",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "e46d0b57-5eec-4ab6-b9a7-a5c5cc01cc34",
+    "name": "Galadriel's Dismissal",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Galadriel's Dismissal",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{W}",
+      "mana_value": 1,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [
+        {
+         "kind": "kicker",
+         "n": null,
+         "text": "Kicker {2}{W}"
+        }
+       ],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Kicker",
+        "param": "{2}{W}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": null,
+        "effects": [
+         {
+          "op": "phase_out",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Target creature phases out."
+         },
+         {
+          "op": "branch",
+          "condition": {
+           "text": "If this spell was kicked"
+          },
+          "sub": [
+           {
+            "op": "phase_out",
+            "target": {
+             "who": "target_player",
+             "object": {
+              "types": [
+               "creature"
+              ],
+              "controller": "any",
+              "all": true
+             }
+            },
+            "text": "each creature target player controls phases out instead"
+           }
+          ]
+         }
+        ],
+        "text": "Target creature phases out. If this spell was kicked, each creature target player controls phases out instead."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "protection.mass",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "protection"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784538487843,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Greenhilt Trainee",
+   "typeLine": "Creature — Elf Warrior",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "1d7d340d-fe6f-4314-97ba-e0bf36a4ef6c",
+    "name": "Greenhilt Trainee",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Greenhilt Trainee",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Warrior"
+       ]
+      },
+      "mana_cost": "{3}{G}",
+      "mana_value": 4,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 4,
+           "t": 4
+          },
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Target creature gets +4/+4 until end of turn."
+         }
+        ],
+        "text": "{T}: Target creature gets +4/+4 until end of turn. Activate only if this creature's power is 4 or greater."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "other",
+        "text": "Activate only if this creature's power is 4 or greater."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "pump.single",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "tribal.body",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "combat_trick"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Warrior"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "feedback-invisible-1",
+     "prompt_version": "p7",
+     "extracted_at": 1790098058066,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Helga, Skittish Seer",
+   "typeLine": "Legendary Creature — Frog Druid",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "0a0d25a8-4f28-453b-9270-4d449fe0ca65",
+    "name": "Helga, Skittish Seer",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Helga, Skittish Seer",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Frog",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{G}{W}{U}",
+      "mana_value": 3,
+      "colors": [
+       "G",
+       "U",
+       "W"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "cast_spell",
+         "subject": {
+          "types": [
+           "creature"
+          ],
+          "controller": "you",
+          "mv_cmp": {
+           "op": ">=",
+           "n": 4
+          }
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "gain_life",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "put_counter",
+          "counter_kind": "+1/+1",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "or_self": true
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Whenever you cast a creature spell with mana value 4 or greater, you draw a card, gain 1 life, and put a +1/+1 counter on Helga."
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "n": {
+           "kind": "variable",
+           "formula": "Helga's power"
+          },
+          "mana": "any one color",
+          "text": "Add X mana of any one color, where X is Helga's power."
+         },
+         {
+          "op": "restriction",
+          "target": {
+           "who": "you"
+          },
+          "text": "Spend this mana only to cast creature spells with mana value 4 or greater or creature spells with {X} in their mana costs."
+         }
+        ],
+        "text": "{T}: Add X mana of any one color, where X is Helga's power. Spend this mana only to cast creature spells with mana value 4 or greater or creature spells with {X} in their mana costs."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw_engine",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 1
+     },
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "mana.dork",
+      "param": "creature",
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": "creature",
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "body.big",
+      "param": null,
+      "criticality": "requires",
+      "weight": 5
+     }
+    ],
+    "roles": [
+     "card_draw",
+     "mana_dork"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Frog",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "helga-gap",
+     "prompt_version": "p3",
+     "extracted_at": 1784560730269,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Helm of the Host",
+   "typeLine": "Legendary Artifact — Equipment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "83b43aba-bf9c-4da2-967d-9daa632e97d2",
+    "name": "Helm of the Host",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Helm of the Host",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{4}",
+      "mana_value": 4,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Equip",
+        "param": "{5}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "begin_combat",
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "token": {
+           "name": "Copy of equipped creature",
+           "types": "Creature",
+           "predefined": false
+          },
+          "text": "create a token that's a copy of equipped creature, except the token isn't legendary."
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Haste",
+          "target": {
+           "who": "you",
+           "object": {
+            "token": true,
+            "types": [
+             "creature"
+            ]
+           }
+          },
+          "text": "That token gains haste."
+         }
+        ],
+        "text": "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except the token isn't legendary. That token gains haste."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{5}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {5}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.copy",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     },
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "haste.enabler",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "etb_value",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "voltron.carrier",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "utility",
+     "copy"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784490421264,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "High Perfect Morcant",
+   "typeLine": "Legendary Creature — Elf Noble",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "dd27c5fa-4355-4e5c-8219-b74cfe209da0",
+    "name": "High Perfect Morcant",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "High Perfect Morcant",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Noble"
+       ]
+      },
+      "mana_cost": "{2}{B}{G}",
+      "mana_value": 4,
+      "colors": [
+       "B",
+       "G"
+      ],
+      "pt": {
+       "power": "4",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Blight",
+        "param": "1"
+       },
+       {
+        "name": "Proliferate",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "sub": [
+           "Elf"
+          ],
+          "controller": "you",
+          "or_self": true
+         },
+         "controller_scope": "you"
+        },
+        "effects": [
+         {
+          "op": "put_counter",
+          "counter_kind": "-1/-1",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "each_opponent"
+          },
+          "text": "each opponent blights 1"
+         }
+        ],
+        "text": "Whenever High Perfect Morcant or another Elf you control enters, each opponent blights 1."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "other": "Tap three untapped Elves you control"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "proliferate"
+         }
+        ],
+        "text": "Tap three untapped Elves you control: Proliferate. Activate only as a sorcery."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "counters.proliferate",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "removal.spot",
+      "param": "counters",
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "requires",
+      "weight": 5
+     },
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Noble"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.88,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top4500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784700602715,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Immaculate Magistrate",
+   "typeLine": "Creature — Elf Shaman",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "e6e38bd4-e6dc-400b-8e08-956726842dc4",
+    "name": "Immaculate Magistrate",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Immaculate Magistrate",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Shaman"
+       ]
+      },
+      "mana_cost": "{3}{G}",
+      "mana_value": 4,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": null,
+         "tap": true,
+         "sacrifice": null,
+         "life": null,
+         "discard": null
+        },
+        "effects": [
+         {
+          "op": "put_counter",
+          "n": {
+           "kind": "count",
+           "of": {
+            "types": [
+             "creature"
+            ],
+            "sub": [
+             "Elf"
+            ],
+            "controller": "you"
+           }
+          },
+          "counter_kind": "+1/+1",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "{T}: Put a +1/+1 counter on target creature for each Elf you control."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "pump.single",
+      "weight": 3,
+      "rate": "repeatable"
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "requires",
+      "weight": 5
+     }
+    ],
+    "roles": [
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Shaman"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.94,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top4500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784694320606,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Imperious Perfect",
+   "typeLine": "Creature — Elf Warrior",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "3fa71348-fa4d-4f39-a451-cf1570591991",
+    "name": "Imperious Perfect",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Imperious Perfect",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Warrior"
+       ]
+      },
+      "mana_cost": "{2}{G}",
+      "mana_value": 3,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 7,
+         "sublayer": "c"
+        },
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "sub": [
+          "Elf"
+         ],
+         "controller": "you",
+         "other": true
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 1,
+           "t": 1
+          },
+          "duration": "while_condition"
+         }
+        ],
+        "text": "Other Elves you control get +1/+1."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{G}",
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Elf Warrior",
+           "types": "Creature",
+           "pt": "1/1",
+           "colors": [
+            "G"
+           ]
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{G}, {T}: Create a 1/1 green Elf Warrior creature token."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "tribal.lord",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 5
+     },
+     {
+      "axis": "token.creature",
+      "param": "Elf",
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 4
+     }
+    ],
+    "roles": [
+     "tribal_lord",
+     "token_maker"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Warrior"
+     ],
+     "lord_of": [
+      "Elf"
+     ]
+    },
+    "power_level_hint": 3,
+    "confidence": 0.98,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2k-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784536578919,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Intruder Alarm",
+   "typeLine": "Enchantment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "1e943e04-e213-4781-b1a7-935aad8790e1",
+    "name": "Intruder Alarm",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Intruder Alarm",
+      "types": {
+       "super": [],
+       "card": [
+        "Enchantment"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{U}",
+      "mana_value": 3,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "restriction",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "text": "Creatures don't untap during their controllers' untap steps."
+         }
+        ],
+        "text": "Creatures don't untap during their controllers' untap steps."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "types": [
+           "creature"
+          ],
+          "controller": "any"
+         },
+         "controller_scope": "any",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "untap",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "text": "untap all creatures"
+         }
+        ],
+        "text": "Whenever a creature enters, untap all creatures."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "untap.permanent",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "token.creature_wide",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "token.creature",
+      "param": null,
+      "criticality": "wants",
+      "weight": 4
+     }
+    ],
+    "roles": [
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "p3-rerun",
+     "prompt_version": "p3",
+     "extracted_at": 1784513184126,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Iridescent Blademaster",
+   "typeLine": "Creature — Elf Warrior",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "5e1fd76b-46c8-41b5-87b3-e078f7a47535",
+    "name": "Iridescent Blademaster",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Iridescent Blademaster",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Warrior"
+       ]
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{3}{G}"
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 2,
+           "t": 2
+          },
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "or_self": true
+           }
+          }
+         }
+        ],
+        "text": "{3}{G}: This creature gets +2/+2 until end of turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "pump.single",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "tribal.body",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 1
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "combat_trick"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Warrior"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 1,
+    "confidence": 0.94,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "feedback-invisible-1",
+     "prompt_version": "p7",
+     "extracted_at": 1790098058100,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Jyoti, Moag Ancient",
+   "typeLine": "Legendary Creature — Elemental",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 3,
+    "oracle_id": "67f0cef6-8ef4-4c39-b306-2b580036894e",
+    "name": "Jyoti, Moag Ancient",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Jyoti, Moag Ancient",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elemental"
+       ]
+      },
+      "mana_cost": "{2}{G}{U}",
+      "mana_value": 4,
+      "colors": [
+       "G",
+       "U"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "or_self": true
+         },
+         "controller_scope": "you"
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "variable",
+           "formula": "for each time you've cast your commander from the command zone this game"
+          },
+          "target": {
+           "who": "you"
+          },
+          "token": {
+           "name": "Forest Dryad",
+           "types": "Land Creature",
+           "pt": "1/1",
+           "colors": [
+            "G"
+           ],
+           "abilities_text": null
+          }
+         }
+        ],
+        "text": "When Jyoti enters, create a 1/1 green Forest Dryad land creature token for each time you've cast your commander from the command zone this game."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "begin_combat",
+         "controller_scope": "any"
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "n": {
+           "kind": "variable",
+           "formula": "Jyoti's power"
+          },
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "land",
+             "creature"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          },
+          "duration": "eot"
+         }
+        ],
+        "text": "At the beginning of each combat, land creatures you control get +X/+X until end of turn, where X is Jyoti's power."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "token.creature",
+      "param": "land creature",
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "anthem.global",
+      "param": "land creature",
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "lands.matter",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "token_maker",
+     "anthem"
+    ],
+    "anti": [],
+    "wincon": {
+     "kind": "combat",
+     "detail": "creates a squad of land creature tokens that grow every combat with Jyoti's power"
+    },
+    "tribal": {
+     "types": [
+      "Elemental"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.83,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "edhrec-8379-10432",
+     "prompt_version": "p7",
+     "extracted_at": 1786510224641,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Krenko, Mob Boss",
+   "typeLine": "Legendary Creature — Goblin Warrior",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "68418069-f615-40ef-ae0d-764192acae00",
+    "name": "Krenko, Mob Boss",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Krenko, Mob Boss",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Goblin",
+        "Warrior"
+       ]
+      },
+      "mana_cost": "{2}{R}{R}",
+      "mana_value": 4,
+      "colors": [
+       "R"
+      ],
+      "pt": {
+       "power": "3",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "count",
+           "of": {
+            "types": [
+             "creature"
+            ],
+            "sub": [
+             "Goblin"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          },
+          "target": {
+           "who": "you"
+          },
+          "token": {
+           "name": "Goblin",
+           "types": "Creature — Goblin",
+           "pt": "1/1",
+           "colors": [
+            "R"
+           ]
+          },
+          "text": "Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
+         }
+        ],
+        "text": "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.creature_wide",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     },
+     {
+      "axis": "tribal.body",
+      "param": "Goblin",
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Goblin",
+      "criticality": "wants",
+      "weight": 4
+     }
+    ],
+    "roles": [
+     "token_maker"
+    ],
+    "anti": [],
+    "wincon": {
+     "kind": "combat",
+     "detail": "exponentially grows a Goblin army each turn for a combat kill"
+    },
+    "tribal": {
+     "types": [
+      "Goblin",
+      "Warrior"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783947957290,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Lathril, Blade of the Elves",
+   "typeLine": "Legendary Creature — Elf Noble",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "9b568c34-ba0a-44a7-a0ee-bee3a37b3396",
+    "name": "Lathril, Blade of the Elves",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Lathril, Blade of the Elves",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Noble"
+       ]
+      },
+      "mana_cost": "{2}{B}{G}",
+      "mana_value": 4,
+      "colors": [
+       "B",
+       "G"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Menace",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "deal_combat_damage",
+         "subject": {
+          "or_self": true
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "variable",
+           "formula": "that many"
+          },
+          "target": {
+           "who": "you"
+          },
+          "token": {
+           "name": "Elf Warrior",
+           "types": "Creature",
+           "pt": "1/1",
+           "colors": [
+            "G"
+           ],
+           "abilities_text": null
+          }
+         }
+        ],
+        "text": "Whenever Lathril deals combat damage to a player, create that many 1/1 green Elf Warrior creature tokens."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "tap": true,
+         "other": "Tap ten untapped Elves you control"
+        },
+        "effects": [
+         {
+          "op": "drain",
+          "n": {
+           "kind": "fixed",
+           "value": 10
+          },
+          "target": {
+           "who": "each_opponent"
+          }
+         }
+        ],
+        "text": "{T}, Tap ten untapped Elves you control: Each opponent loses 10 life and you gain 10 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.creature_wide",
+      "param": "Elf",
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "drain.incremental",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 4
+     }
+    ],
+    "roles": [
+     "token_maker"
+    ],
+    "anti": [],
+    "wincon": {
+     "kind": "combat",
+     "detail": "combat damage snowballs into an Elf army feeding a 10-life drain finisher"
+    },
+    "tribal": {
+     "types": [
+      "Elf",
+      "Noble"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.93,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784566195038,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Llanowar Elves",
+   "typeLine": "Creature — Elf Druid",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "68954295-54e3-4303-a6bc-fc4547a4e3a3",
+    "name": "Llanowar Elves",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Llanowar Elves",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{G}",
+      "mana_value": 1,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "1"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "{G}",
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "{T}: Add {G}."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.dork",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "mana_dork",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.99,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784488925333,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "M.O.D.O.K.",
+   "typeLine": "Legendary Artifact Creature — Villain",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "fe7cc414-42d0-4dad-8516-7a0be0860a67",
+    "name": "M.O.D.O.K.",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "M.O.D.O.K.",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Artifact",
+        "Creature"
+       ],
+       "sub": [
+        "Villain"
+       ]
+      },
+      "mana_cost": "{3}{B}{B}",
+      "mana_value": 5,
+      "colors": [
+       "B"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Mental Organism",
+        "param": null
+       },
+       {
+        "name": "Flying",
+        "param": null
+       },
+       {
+        "name": "Lifelink",
+        "param": null
+       },
+       {
+        "name": "Connive",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": null,
+         "tap": false,
+         "sacrifice": null,
+         "life": 3,
+         "discard": null
+        },
+        "activation_limit": null,
+        "layer": null,
+        "effects": [
+         {
+          "op": "draw",
+          "keyword": "Connive",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "M.O.D.O.K. connives."
+         },
+         {
+          "op": "restriction",
+          "text": "Activate only during your turn."
+         }
+        ],
+        "text": "Mental Organism — Pay 3 life: M.O.D.O.K. connives. Activate only during your turn."
+       },
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 7,
+         "sublayer": "c"
+        },
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "controller": "opp",
+         "all": true
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": -1,
+           "t": -1
+          },
+          "duration": "while_condition",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "opp",
+            "all": true
+           }
+          }
+         }
+        ],
+        "text": "Designed Only for Killing — Creatures your opponents control get -1/-1."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "cast_timing",
+        "text": "Activate only during your turn."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "body.evasive",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "card_advantage.loot",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "life.payment_engine",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "criticality": "helps",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "card_draw",
+     "lifegain",
+     "utility"
+    ],
+    "anti": [
+     {
+      "axis": "hate.tokens",
+      "scope": "opponents",
+      "note": "-1/-1 to all opponents' creatures kills most 1-toughness tokens"
+     }
+    ],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Villain"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "modok-gap",
+     "prompt_version": "p2",
+     "extracted_at": 1784505663045,
+     "validated": true,
+     "validation_score": 0.95,
+     "validation_flags": [
+      "cross_layer"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ms. Bumbleflower",
+   "typeLine": "Legendary Creature — Rabbit Citizen",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "25636214-c6ea-4655-a5e8-98e735da5b05",
+    "name": "Ms. Bumbleflower",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Ms. Bumbleflower",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Rabbit",
+        "Citizen"
+       ]
+      },
+      "mana_cost": "{1}{G}{W}{U}",
+      "mana_value": 4,
+      "colors": [
+       "G",
+       "U",
+       "W"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "5"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Vigilance",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "cast_spell",
+         "subject": {
+          "types": [
+           "spell"
+          ],
+          "controller": "you"
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "target_opponent",
+           "n_targets": 1
+          },
+          "text": "target opponent draws a card"
+         },
+         {
+          "op": "put_counter",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "counter_kind": "+1/+1",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "Put a +1/+1 counter on target creature."
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Flying",
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          },
+          "text": "It gains flying until end of turn."
+         },
+         {
+          "op": "branch",
+          "condition": {
+           "text": "If this is the second time this ability has resolved this turn"
+          },
+          "sub": [
+           {
+            "op": "draw",
+            "n": {
+             "kind": "fixed",
+             "value": 2
+            },
+            "target": {
+             "who": "you"
+            }
+           }
+          ],
+          "text": "If this is the second time this ability has resolved this turn, you draw two cards."
+         }
+        ],
+        "text": "Whenever you cast a spell, target opponent draws a card. Put a +1/+1 counter on target creature. It gains flying until end of turn. If this is the second time this ability has resolved this turn, you draw two cards."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "evasion.grant",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "pump.single",
+      "weight": 2,
+      "rate": "once"
+     }
+    ],
+    "needs": [
+     {
+      "axis": "cast.instant_sorcery_volume",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "card_draw",
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Rabbit",
+      "Citizen"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.85,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top3500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784621365861,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Night of Souls' Betrayal",
+   "typeLine": "Legendary Enchantment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "916bd025-c44f-49c9-8d76-4b7b2f9a8ba3",
+    "name": "Night of Souls' Betrayal",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Night of Souls' Betrayal",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Enchantment"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{2}{B}{B}",
+      "mana_value": 4,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 7,
+         "sublayer": "c"
+        },
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "all": true
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": -1,
+           "t": -1
+          },
+          "duration": "while_condition"
+         }
+        ],
+        "text": "All creatures get -1/-1."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "hate.tokens",
+      "param": null,
+      "rate": "static",
+      "weight": 4
+     },
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "criticality": "helps",
+      "weight": 1
+     }
+    ],
+    "roles": [
+     "board_wipe"
+    ],
+    "anti": [
+     {
+      "axis": "token.creature_wide",
+      "scope": "all_players",
+      "note": "kills X/1 tokens for all players"
+     }
+    ],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "vren-gap",
+     "prompt_version": "p2",
+     "extracted_at": 1784505224711,
+     "validated": true,
+     "validation_score": 0.95,
+     "validation_flags": [
+      "cross_layer"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Reed Richards, Smartest Man",
+   "typeLine": "Legendary Creature — Human Scientist Hero",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "51f55021-04e0-49bf-8f1f-de2a578c95fc",
+    "name": "Reed Richards, Smartest Man",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Reed Richards, Smartest Man",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Human",
+        "Scientist",
+        "Hero"
+       ]
+      },
+      "mana_cost": "{5}{U}",
+      "mana_value": 6,
+      "colors": [
+       "U"
+      ],
+      "pt": {
+       "power": "2",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Reach",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "replacement",
+        "replaces": {
+         "event": "draw",
+         "scope": {
+          "controller": "you"
+         }
+        },
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 4
+          },
+          "target": {
+           "who": "you"
+          },
+          "condition": {
+           "text": "The first time you would draw a card each turn except the first card you draw during each of your draw steps"
+          }
+         }
+        ],
+        "text": "The first time you would draw a card each turn except the first card you draw during each of your draw steps, you draw four cards instead."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "other",
+        "text": "You have no maximum hand size."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "card_advantage.draw_engine",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     }
+    ],
+    "needs": [
+     {
+      "axis": "card_advantage.draw",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Human",
+      "Scientist",
+      "Hero"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.85,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "rules-fixtures",
+     "prompt_version": "p9",
+     "extracted_at": 1790708623561,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Shadowheart, Dark Justiciar",
+   "typeLine": "Legendary Creature — Human Elf Cleric",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "180919a5-67b2-473a-9b90-a828bdc2477c",
+    "name": "Shadowheart, Dark Justiciar",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Shadowheart, Dark Justiciar",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Human",
+        "Elf",
+        "Cleric"
+       ]
+      },
+      "mana_cost": "{3}{B}",
+      "mana_value": 4,
+      "colors": [
+       "B"
+      ],
+      "pt": {
+       "power": "3",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Choose a background",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}{B}",
+         "tap": true,
+         "sacrifice": {
+          "types": [
+           "creature"
+          ],
+          "controller": "you",
+          "other": true
+         },
+         "life": null,
+         "discard": null,
+         "remove_counter": null,
+         "other": null,
+         "untap_symbol": null
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "variable",
+           "formula": "that creature's power"
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "Draw X cards, where X is that creature's power"
+         }
+        ],
+        "text": "{1}{B}, {T}, Sacrifice another creature: Draw X cards, where X is that creature's power."
+       },
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "restriction",
+          "text": "Choose a Background"
+         }
+        ],
+        "text": "Choose a Background"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "sac.outlet_cost",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "card_advantage.draw_engine",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "creatures_dying",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "sac.fodder",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "body.big",
+      "param": null,
+      "criticality": "helps",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "sac_outlet",
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Human",
+      "Elf",
+      "Cleric"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.95,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top3500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784625625021,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Spark Double",
+   "typeLine": "Creature — Illusion",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "8dcb35e5-ae44-455f-86e3-4a77d496ff34",
+    "name": "Spark Double",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Spark Double",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Illusion"
+       ]
+      },
+      "mana_cost": "{3}{U}",
+      "mana_value": 4,
+      "colors": [
+       "U"
+      ],
+      "pt": {
+       "power": "0",
+       "toughness": "0"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "replacement",
+        "replaces": {
+         "event": "etb",
+         "scope": {
+          "or_self": true
+         }
+        },
+        "effects": [
+         {
+          "op": "clone",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "creature",
+             "planeswalker"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "text": "You may have this creature enter as a copy of a creature or planeswalker you control"
+         },
+         {
+          "op": "put_counter",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "counter_kind": "+1/+1",
+          "condition": {
+           "text": "if it's a creature"
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "it enters with an additional +1/+1 counter on it if it's a creature"
+         },
+         {
+          "op": "put_counter",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "counter_kind": "loyalty",
+          "condition": {
+           "text": "if it's a planeswalker"
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "it enters with an additional loyalty counter on it if it's a planeswalker"
+         }
+        ],
+        "text": "You may have this creature enter as a copy of a creature or planeswalker you control, except it enters with an additional +1/+1 counter on it if it's a creature, it enters with an additional loyalty counter on it if it's a planeswalker, and it isn't legendary."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "counters.plus1",
+      "param": null,
+      "rate": "once",
+      "weight": 1
+     }
+    ],
+    "needs": [
+     {
+      "axis": "etb_value",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "body.big",
+      "param": null,
+      "criticality": "helps",
+      "weight": 1
+     }
+    ],
+    "roles": [
+     "copy"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Illusion"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.85,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784490421271,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "typeLine": "Artifact — Equipment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "c8b143ad-43ec-4e0d-a440-e348daa31391",
+    "name": "Swiftfoot Boots",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Swiftfoot Boots",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{2}",
+      "mana_value": 2,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Equip",
+        "param": "{1}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "text": "equipped creature"
+        },
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Hexproof",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "text": "equipped creature"
+           }
+          }
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Haste",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "text": "equipped creature"
+           }
+          }
+         }
+        ],
+        "text": "Equipped creature has hexproof and haste."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {1}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "static",
+      "weight": 3
+     },
+     {
+      "axis": "haste.enabler",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "protection",
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "pilot-sonnet",
+     "prompt_version": "p1",
+     "extracted_at": 1783895283214,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Sword of Wealth and Power",
+   "typeLine": "Artifact — Equipment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "b3a80545-9a8a-46b2-9d8c-b0d66fb68a5d",
+    "name": "Sword of Wealth and Power",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Sword of Wealth and Power",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{3}",
+      "mana_value": 3,
+      "colors": [],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Treasure",
+        "param": null
+       },
+       {
+        "name": "Equip",
+        "param": "{2}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 7,
+         "sublayer": "c"
+        },
+        "applies_to": {
+         "types": [
+          "creature"
+         ],
+         "text": "equipped creature"
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 2,
+           "t": 2
+          },
+          "duration": "permanent"
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Protection",
+          "keyword_param": "from instants",
+          "duration": "permanent"
+         },
+         {
+          "op": "grant_keyword",
+          "keyword": "Protection",
+          "keyword_param": "from sorceries",
+          "duration": "permanent"
+         }
+        ],
+        "text": "Equipped creature gets +2/+2 and has protection from instants and from sorceries."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "deal_combat_damage",
+         "subject": {
+          "text": "equipped creature"
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Treasure",
+           "types": "Artifact",
+           "colors": [],
+           "pt": null,
+           "abilities_text": "{T}, Sacrifice this artifact: Add one mana of any color.",
+           "predefined": true
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "copy_spell",
+          "condition": {
+           "text": "When you next cast an instant or sorcery spell this turn"
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "copy that spell. You may choose new targets for the copy."
+         }
+        ],
+        "text": "Whenever equipped creature deals combat damage to a player, create a Treasure token. When you next cast an instant or sorcery spell this turn, copy that spell. You may choose new targets for the copy."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{2}",
+         "tap": false,
+         "sacrifice": null,
+         "life": null,
+         "discard": null,
+         "other": null,
+         "untap_symbol": null
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {2}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 4
+     },
+     {
+      "axis": "token.treasure",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "copy.spell",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "cast.instant_sorcery_volume",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "voltron.carrier",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "utility",
+     "protection"
+    ],
+    "anti": [],
+    "wincon": {
+     "kind": "combat",
+     "detail": "Protected equipped creature generates Treasure and copies your next instant/sorcery on connect, snowballing into lethal."
+    },
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 4,
+    "confidence": 0.88,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top2500-edhrec",
+     "prompt_version": "p3",
+     "extracted_at": 1784565779089,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "The Eagles Are Coming!",
+   "typeLine": "Instant",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "169a4a77-12ff-4997-9550-bdcd456aa2f7",
+    "name": "The Eagles Are Coming!",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "The Eagles Are Coming!",
+      "types": {
+       "super": [],
+       "card": [
+        "Instant"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{1}{W}",
+      "mana_value": 2,
+      "colors": [
+       "W"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [
+        {
+         "kind": "kicker",
+         "n": null,
+         "text": "Kicker {2}{W}{W}",
+         "what": null
+        }
+       ],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Kicker",
+        "param": "{2}{W}{W}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": null,
+        "effects": [
+         {
+          "op": "bounce",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "you"
+           },
+           "n_targets": 1
+          },
+          "zone_to": "hand",
+          "text": "Choose target creature you own. Return each chosen creature to your hand."
+         },
+         {
+          "op": "branch",
+          "condition": {
+           "text": "If this spell was kicked"
+          },
+          "sub": [
+           {
+            "op": "bounce",
+            "target": {
+             "who": "any",
+             "object": {
+              "types": [
+               "creature"
+              ],
+              "controller": "you"
+             },
+             "n_targets": null,
+             "up_to": true
+            },
+            "zone_to": "hand",
+            "text": "instead choose any number of target creatures you own"
+           }
+          ],
+          "text": "If this spell was kicked, instead choose any number of target creatures you own."
+         },
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "count",
+           "of": {
+            "zone": "hand",
+            "controller": "you",
+            "text": "creature returned to hand this way"
+           }
+          },
+          "token": {
+           "name": "Bird Soldier",
+           "types": "Creature — Bird Soldier",
+           "pt": "4/4",
+           "colors": [
+            "W"
+           ],
+           "abilities_text": "Flying",
+           "predefined": null
+          },
+          "condition": {
+           "text": "At the beginning of the next upkeep"
+          },
+          "text": "At the beginning of the next upkeep, create a 4/4 white Bird Soldier creature token with flying for each creature returned to your hand this way."
+         }
+        ],
+        "text": "Choose target creature you own. If this spell was kicked, instead choose any number of target creatures you own. Return each chosen creature to your hand. At the beginning of the next upkeep, create a 4/4 white Bird Soldier creature token with flying for each creature returned to your hand this way."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.creature",
+      "param": "Bird Soldier",
+      "rate": "once",
+      "weight": 2
+     },
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "once",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "token_maker"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "user-deck-backfill-2026-09",
+     "prompt_version": "p7",
+     "extracted_at": 1789054683821,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "The Meathook Massacre",
+   "typeLine": "Legendary Enchantment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "127de52b-df75-4342-95a0-20d84c5bf916",
+    "name": "The Meathook Massacre",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "The Meathook Massacre",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Enchantment"
+       ],
+       "sub": []
+      },
+      "mana_cost": "{X}{B}{B}",
+      "mana_value": 2,
+      "colors": [
+       "B"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "or_self": true
+         },
+         "controller_scope": "you"
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "n": {
+           "kind": "x"
+          },
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "all": true
+           }
+          },
+          "duration": "eot",
+          "text": "each creature gets -X/-X until end of turn."
+         }
+        ],
+        "text": "When The Meathook Massacre enters, each creature gets -X/-X until end of turn."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "dies",
+         "subject": {
+          "types": [
+           "creature"
+          ],
+          "controller": "you"
+         },
+         "controller_scope": "you"
+        },
+        "effects": [
+         {
+          "op": "lose_life",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "each_opponent"
+          }
+         }
+        ],
+        "text": "Whenever a creature you control dies, each opponent loses 1 life."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "dies",
+         "subject": {
+          "types": [
+           "creature"
+          ],
+          "controller": "opp"
+         },
+         "controller_scope": "opponent"
+        },
+        "effects": [
+         {
+          "op": "gain_life",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "Whenever a creature an opponent controls dies, you gain 1 life."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "rate": "once",
+      "weight": 5
+     },
+     {
+      "axis": "trigger.death_payoff",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "drain.incremental",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "lifegain.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "creatures_dying",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "board_wipe",
+     "wincon"
+    ],
+    "anti": [
+     {
+      "axis": "token.creature_wide",
+      "scope": "opponents",
+      "note": "Scalable -X/-X wipe punishes wide boards especially hard."
+     }
+    ],
+    "wincon": {
+     "kind": "drain",
+     "detail": "Grinds opponents down via incremental drain triggers off creature deaths on both sides, doubling as a scalable X-cost board wipe."
+    },
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.97,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "top500-edhrec",
+     "prompt_version": "p2",
+     "extracted_at": 1784491354811,
+     "validated": true,
+     "validation_score": 0.95,
+     "validation_flags": [
+      "cross_layer"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Thranduil, the Elvenking",
+   "typeLine": "Legendary Creature — Elf Noble",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "4a5f76e7-40be-4b06-9935-4a3b2672e1c2",
+    "name": "Thranduil, the Elvenking",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Thranduil, the Elvenking",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Noble"
+       ]
+      },
+      "mana_cost": "{2}{B}{G}{U}",
+      "mana_value": 5,
+      "colors": [
+       "B",
+       "G",
+       "U"
+      ],
+      "pt": {
+       "power": "5",
+       "toughness": "6"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 6,
+         "sublayer": null
+        },
+        "applies_to": {
+         "or_self": true
+        },
+        "effects": [
+         {
+          "op": "grant_ability",
+          "target": {
+           "who": "you",
+           "object": {
+            "or_self": true
+           }
+          },
+          "text": "Thranduil has all activated abilities of all Elf cards in your graveyard."
+         }
+        ],
+        "text": "Thranduil has all activated abilities of all Elf cards in your graveyard."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "sub": [
+           "Elf"
+          ],
+          "controller": "you",
+          "other": true,
+          "text": "legendary Elf"
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "draw",
+          "n": {
+           "kind": "fixed",
+           "value": 2
+          },
+          "target": {
+           "who": "you"
+          }
+         },
+         {
+          "op": "discard",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "Whenever another legendary Elf you control enters, draw two cards, then discard a card."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "gy.matters",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 5
+     },
+     {
+      "axis": "card_advantage.loot",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "gy.self_fill",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 4
+     },
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "body.legendary",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 5
+     },
+     {
+      "axis": "ability.activated",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 4
+     }
+    ],
+    "roles": [
+     "card_draw"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Noble"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.85,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "user-deck-backfill-2026-09",
+     "prompt_version": "p7",
+     "extracted_at": 1789054683836,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Urza, Lord High Artificer",
+   "typeLine": "Legendary Creature — Human Artificer",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "e87906d2-db1a-4e19-b910-adb4eb339945",
+    "name": "Urza, Lord High Artificer",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Urza, Lord High Artificer",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Human",
+        "Artificer"
+       ]
+      },
+      "mana_cost": "{2}{U}{U}",
+      "mana_value": 4,
+      "colors": [
+       "U"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "or_self": true
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Construct",
+           "types": "Artifact Creature — Construct",
+           "colors": [],
+           "pt": "0/0",
+           "abilities_text": "This token gets +1/+1 for each artifact you control."
+          },
+          "target": {
+           "who": "you"
+          },
+          "text": "create a 0/0 colorless Construct artifact creature token with \"This token gets +1/+1 for each artifact you control.\""
+         }
+        ],
+        "text": "When Urza enters, create a 0/0 colorless Construct artifact creature token with \"This token gets +1/+1 for each artifact you control.\""
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "other": "Tap an untapped artifact you control"
+        },
+        "effects": [
+         {
+          "op": "add_mana",
+          "mana": "U"
+         }
+        ],
+        "text": "Tap an untapped artifact you control: Add {U}."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{5}"
+        },
+        "effects": [
+         {
+          "op": "exile",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "zone_from": "library",
+          "zone_to": "exile",
+          "target": {
+           "who": "you"
+          },
+          "text": "Shuffle your library, then exile the top card."
+         },
+         {
+          "op": "play_from_zone",
+          "zone_from": "exile",
+          "zone_to": "stack",
+          "duration": "eot",
+          "target": {
+           "who": "you"
+          },
+          "text": "Until end of turn, you may play that card without paying its mana cost."
+         }
+        ],
+        "text": "{5}: Shuffle your library, then exile the top card. Until end of turn, you may play that card without paying its mana cost."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "artifacts.matter",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "artifacts.source",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     },
+     {
+      "axis": "card_advantage.impulse",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "etb_value",
+      "param": null,
+      "rate": "once",
+      "weight": 3
+     }
+    ],
+    "needs": [
+     {
+      "axis": "artifacts.source",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "token_maker",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Human",
+      "Artificer"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 5,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "p3-rerun",
+     "prompt_version": "p3",
+     "extracted_at": 1784513184172,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Verdant Kraken",
+   "typeLine": "Creature — Plant Kraken",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "83c61083-b357-4775-a855-5a9013cc2bdf",
+    "name": "Verdant Kraken",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Verdant Kraken",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Plant",
+        "Kraken"
+       ]
+      },
+      "mana_cost": "{4}{G}{G}{G}",
+      "mana_value": 7,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "6",
+       "toughness": "6"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "upkeep",
+         "controller_scope": "any"
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Tentacle",
+           "types": "Land Creature — Forest Tentacle",
+           "pt": "3/3",
+           "colors": [
+            "G"
+           ],
+           "abilities_text": "{T}: Add {G}.",
+           "predefined": false
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "At the beginning of each player's upkeep, you create a 3/3 green Forest Tentacle land creature token."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.ramp_land",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 5
+     },
+     {
+      "axis": "token.creature",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "body.big",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [],
+    "roles": [
+     "ramp",
+     "token_maker"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Plant",
+      "Kraken"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.93,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "rules-fixtures",
+     "prompt_version": "p9",
+     "extracted_at": 1790708623569,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Vraska, Soul of Stone",
+   "typeLine": "Legendary Creature — Gorgon Wizard",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "cad63b31-667b-4518-bc49-be4ffb82bc63",
+    "name": "Vraska, Soul of Stone",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Vraska, Soul of Stone",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Gorgon",
+        "Wizard"
+       ]
+      },
+      "mana_cost": "{U}{R}{W}",
+      "mana_value": 3,
+      "colors": [
+       "R",
+       "U",
+       "W"
+      ],
+      "pt": {
+       "power": "3",
+       "toughness": "3"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Treasure",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 6,
+         "sublayer": null
+        },
+        "applies_to": {
+         "types": [
+          "artifact",
+          "creature"
+         ],
+         "controller": "you",
+         "all": true
+        },
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Vigilance",
+          "target": {
+           "who": "you",
+           "object": {
+            "types": [
+             "artifact",
+             "creature"
+            ],
+            "controller": "you",
+            "all": true
+           }
+          }
+         }
+        ],
+        "text": "Artifact creatures you control have vigilance."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "cast_spell",
+         "controller_scope": "you",
+         "subject": {
+          "types": [
+           "spell"
+          ],
+          "text": "noncreature spell"
+         }
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "fixed",
+           "value": 1
+          },
+          "token": {
+           "name": "Sculpture Treasure",
+           "types": "Artifact Creature — Treasure",
+           "pt": "1/1",
+           "colors": [],
+           "abilities_text": "{T}, Sacrifice this token: Add one mana of any color.",
+           "predefined": false
+          },
+          "target": {
+           "who": "you"
+          }
+         }
+        ],
+        "text": "Whenever you cast a noncreature spell, create a 1/1 colorless Sculpture Treasure artifact creature token with \"{T}, Sacrifice this token: Add one mana of any color.\""
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.treasure",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "artifacts.source",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "token.creature",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "cast.instant_sorcery_volume",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "artifacts.matter",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "token_maker",
+     "ramp"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Gorgon",
+      "Wizard"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.87,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "rules-fixtures",
+     "prompt_version": "p9",
+     "extracted_at": 1790708623573,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Vren, the Relentless",
+   "typeLine": "Legendary Creature — Rat Rogue",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "1216900e-93e3-41a4-b354-9c81938639c2",
+    "name": "Vren, the Relentless",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Vren, the Relentless",
+      "types": {
+       "super": [
+        "Legendary"
+       ],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Rat",
+        "Rogue"
+       ]
+      },
+      "mana_cost": "{2}{U}{B}",
+      "mana_value": 4,
+      "colors": [
+       "U",
+       "B"
+      ],
+      "pt": {
+       "power": "3",
+       "toughness": "4"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Ward",
+        "param": "{2}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "replacement",
+        "replaces": {
+         "event": "dies",
+         "scope": {
+          "controller": "opp",
+          "types": [
+           "creature"
+          ]
+         }
+        },
+        "effects": [
+         {
+          "op": "exile",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "controller": "opp"
+           }
+          },
+          "zone_to": "exile",
+          "text": "exile it instead"
+         }
+        ],
+        "text": "If a creature an opponent controls would die, exile it instead."
+       },
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "end_step",
+         "controller_scope": "any",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "create_token",
+          "n": {
+           "kind": "variable",
+           "formula": "the number of creatures that were exiled under your opponents' control this turn"
+          },
+          "target": {
+           "who": "you"
+          },
+          "token": {
+           "name": "Rat",
+           "types": "Creature — Rat",
+           "colors": [
+            "B"
+           ],
+           "pt": "1/1",
+           "abilities_text": "This token gets +1/+1 for each other Rat you control."
+          }
+         }
+        ],
+        "text": "At the beginning of each end step, create X 1/1 black Rat creature tokens with \"This token gets +1/+1 for each other Rat you control,\" where X is the number of creatures that were exiled under your opponents' control this turn."
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "token.creature_wide",
+      "param": "Rat",
+      "rate": "repeatable",
+      "weight": 4
+     },
+     {
+      "axis": "anthem.global",
+      "param": "Rat",
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "protection.single",
+      "param": null,
+      "rate": "static",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "removal.spot",
+      "param": null,
+      "criticality": "wants",
+      "weight": 3
+     },
+     {
+      "axis": "removal.wipe",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "token_maker",
+     "tribal_lord",
+     "utility"
+    ],
+    "anti": [
+     {
+      "axis": "hate.graveyard",
+      "scope": "opponents",
+      "note": "exiles opponents' creatures instead of letting them die, denying their graveyard recursion/reanimation"
+     }
+    ],
+    "wincon": {
+     "kind": "combat",
+     "detail": "grows a Rat army fueled by opponents' creatures dying, with tokens buffed by total Rat count"
+    },
+    "tribal": {
+     "types": [
+      "Rat",
+      "Rogue"
+     ],
+     "lord_of": [
+      "Rat"
+     ]
+    },
+    "power_level_hint": 4,
+    "confidence": 0.92,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "vren-gap",
+     "prompt_version": "p2",
+     "extracted_at": 1784505054616,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Wizard's Staff",
+   "typeLine": "Artifact — Equipment",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "30c3c700-46f4-4a77-8c45-5c7e3a21bd62",
+    "name": "Wizard's Staff",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Wizard's Staff",
+      "types": {
+       "super": [],
+       "card": [
+        "Artifact"
+       ],
+       "sub": [
+        "Equipment"
+       ]
+      },
+      "mana_cost": "{1}{U}",
+      "mana_value": 2,
+      "colors": [
+       "U"
+      ],
+      "pt": null,
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Equip",
+        "param": "Wizard {1}"
+       },
+       {
+        "name": "Equip",
+        "param": "{3}"
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "static",
+        "layer": {
+         "layer": 6,
+         "sublayer": null
+        },
+        "effects": [
+         {
+          "op": "grant_keyword",
+          "keyword": "Prowess",
+          "target": {
+           "who": "any",
+           "object": {
+            "text": "equipped creature"
+           }
+          }
+         }
+        ],
+        "text": "Equipped creature has prowess."
+       },
+       {
+        "kind": "static",
+        "effects": [
+         {
+          "op": "grant_ability",
+          "target": {
+           "who": "any",
+           "object": {
+            "text": "equipped creature"
+           }
+          },
+          "text": "If a triggered ability of equipped creature triggers, that ability triggers an additional time."
+         }
+        ],
+        "text": "If a triggered ability of equipped creature triggers, that ability triggers an additional time."
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{1}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ],
+            "sub": [
+             "Wizard"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip Wizard {1}"
+       },
+       {
+        "kind": "activated",
+        "cost": {
+         "mana": "{3}"
+        },
+        "activation_limit": "sorcery_only",
+        "effects": [
+         {
+          "op": "attach",
+          "target": {
+           "who": "any",
+           "object": {
+            "types": [
+             "creature"
+            ]
+           },
+           "n_targets": 1
+          }
+         }
+        ],
+        "text": "Equip {3}"
+       }
+      ],
+      "restrictions": [],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "voltron.aura_equipment",
+      "param": "equipment",
+      "rate": "static",
+      "weight": 2
+     },
+     {
+      "axis": "pump.single",
+      "param": null,
+      "rate": "repeatable",
+      "weight": 2
+     }
+    ],
+    "needs": [
+     {
+      "axis": "cast.instant_sorcery_volume",
+      "param": null,
+      "criticality": "wants",
+      "weight": 2
+     },
+     {
+      "axis": "tribal.synergy",
+      "param": "Wizard",
+      "criticality": "wants",
+      "weight": 2
+     }
+    ],
+    "roles": [
+     "utility"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [],
+     "lord_of": []
+    },
+    "power_level_hint": 2,
+    "confidence": 0.88,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "rules-fixtures",
+     "prompt_version": "p9",
+     "extracted_at": 1790708623537,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  },
+  {
+   "name": "Woodland Weavemaster",
+   "typeLine": "Creature — Elf Druid",
+   "ir": {
+    "ir_version": 1,
+    "vocab_version": 4,
+    "oracle_id": "28ffddca-a3c4-467d-a2dc-2c5e62393e11",
+    "name": "Woodland Weavemaster",
+    "layout": "normal",
+    "faces": [
+     {
+      "face_name": "Woodland Weavemaster",
+      "types": {
+       "super": [],
+       "card": [
+        "Creature"
+       ],
+       "sub": [
+        "Elf",
+        "Druid"
+       ]
+      },
+      "mana_cost": "{1}{G}",
+      "mana_value": 2,
+      "colors": [
+       "G"
+      ],
+      "pt": {
+       "power": "1",
+       "toughness": "2"
+      },
+      "loyalty": null,
+      "defense": null,
+      "costs": {
+       "additional": [],
+       "alternative": []
+      },
+      "keywords": [
+       {
+        "name": "Vigilance",
+        "param": null
+       }
+      ],
+      "abilities": [
+       {
+        "kind": "triggered",
+        "trigger": {
+         "event": "etb",
+         "subject": {
+          "sub": [
+           "Elf"
+          ],
+          "controller": "you",
+          "other": true
+         },
+         "controller_scope": "you",
+         "condition": null,
+         "once_each_turn": false
+        },
+        "effects": [
+         {
+          "op": "pump",
+          "pump": {
+           "p": 1,
+           "t": 1
+          },
+          "duration": "eot",
+          "target": {
+           "who": "any",
+           "object": {
+            "or_self": true
+           }
+          },
+          "text": "this creature gets +1/+1 until end of turn"
+         }
+        ],
+        "text": "Whenever another Elf you control enters, this creature gets +1/+1 until end of turn."
+       },
+       {
+        "kind": "mana",
+        "cost": {
+         "tap": true
+        },
+        "activation_limit": "any_time",
+        "effects": [
+         {
+          "op": "add_mana",
+          "n": {
+           "kind": "variable",
+           "formula": "this creature's power"
+          },
+          "text": "Add X mana of any one color, where X is this creature's power."
+         }
+        ],
+        "text": "{T}: Add X mana of any one color, where X is this creature's power. Spend this mana only to cast Elf spells and activate abilities of Elf sources."
+       }
+      ],
+      "restrictions": [
+       {
+        "kind": "other",
+        "text": "Spend this mana only to cast Elf spells and activate abilities of Elf sources."
+       }
+      ],
+      "cdf": null
+     }
+    ],
+    "provides": [
+     {
+      "axis": "mana.dork",
+      "param": "Elf",
+      "rate": "repeatable",
+      "weight": 3
+     },
+     {
+      "axis": "mana.color_fix",
+      "param": "Elf",
+      "rate": "repeatable",
+      "weight": 2
+     },
+     {
+      "axis": "tribal.body",
+      "param": "Elf",
+      "rate": "static",
+      "weight": 1
+     }
+    ],
+    "needs": [
+     {
+      "axis": "tribal.synergy",
+      "param": "Elf",
+      "criticality": "wants",
+      "weight": 3
+     }
+    ],
+    "roles": [
+     "mana_dork"
+    ],
+    "anti": [],
+    "wincon": null,
+    "tribal": {
+     "types": [
+      "Elf",
+      "Druid"
+     ],
+     "lord_of": []
+    },
+    "power_level_hint": 3,
+    "confidence": 0.9,
+    "_prov": {
+     "model": "sonnet",
+     "run_id": "feedback-invisible-1",
+     "prompt_version": "p7",
+     "extracted_at": 1790098058085,
+     "validated": true,
+     "validation_score": 1,
+     "validation_flags": []
+    }
+   }
+  }
+ ]
+}

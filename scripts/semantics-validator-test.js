@@ -225,6 +225,71 @@ console.log('feedback lints (§12, shared with scripts/semantics-backfill-feedba
   })());
 }
 
+console.log('corpus-audit lints (§12f, shared with scripts/semantics-p11-targets.js)');
+{
+  // combat wincon on a small body with no finisher provide → wincon_unearned;
+  // the Krenko golden (token.creature_wide swarm) and a power-6 body both earn it.
+  const fx = clone(fixtures['serra-angel']);
+  fx.ir.wincon = { kind: 'combat', detail: 'evasive beater' };
+  check('4-power flier with combat wincon → wincon_unearned', hasFlag(validateCardIR(fx.ir, fx.row), 'wincon_unearned', 'soft'));
+  const big = clone(fx);
+  big.row.power = '6'; big.ir.faces[0].pt.power = '6';
+  check('power-6 body earns its combat wincon', !hasFlag(validateCardIR(big.ir, big.row), 'wincon_unearned'));
+  check('Krenko golden (token swarm) earns its combat wincon',
+    !hasFlag(validateCardIR(fixtures['krenko-mob-boss'].ir, fixtures['krenko-mob-boss'].row), 'wincon_unearned'));
+}
+{
+  // payoff marker as a wants-need with no source provided → need_on_marker;
+  // an enabler that supplies the source (token maker wanting token.payoff) and
+  // helps-level wishes (Bitterblossom golden) pass.
+  const fx = clone(fixtures['serra-angel']);
+  fx.ir.needs = [{ axis: 'artifacts.matter', param: null, criticality: 'wants', weight: 3 }];
+  check('artifacts.matter need on a non-source → need_on_marker', hasFlag(validateCardIR(fx.ir, fx.row), 'need_on_marker', 'soft'));
+  const src = clone(fx);
+  src.ir.provides.push({ axis: 'artifacts.source', param: null, rate: 'once', weight: 3 });
+  check('artifact source wanting artifacts.matter payoffs passes', !hasFlag(validateCardIR(src.ir, src.row), 'need_on_marker'));
+  check('Bitterblossom golden (helps token.payoff) passes',
+    !hasFlag(validateCardIR(fixtures['bitterblossom'].ir, fixtures['bitterblossom'].row), 'need_on_marker'));
+}
+{
+  // a tapper as removal → tap_not_removal; a permanent "doesn't untap" lock passes.
+  const fx = clone(fixtures['lightning-bolt']);
+  fx.ir.provides = [{ axis: 'removal.spot', param: 'tap', rate: 'once', weight: 2 }];
+  check('removal.spot param tap → tap_not_removal', hasFlag(validateCardIR(fx.ir, fx.row), 'tap_not_removal', 'soft'));
+  const lock = clone(fx);
+  lock.row.oracle_text = 'Tap target creature. It doesn\'t untap during its controller\'s untap step for as long as you control this.';
+  check('permanent tap lock stays removal', !hasFlag(validateCardIR(lock.ir, lock.row), 'tap_not_removal'));
+}
+{
+  // self-only provides: own hexproof as protection.single; self-return as recursion.
+  const fx = clone(fixtures['serra-angel']);
+  fx.row.keywords_json = ['Flying', 'Vigilance', 'Hexproof'];
+  fx.ir.faces[0].keywords.push({ name: 'Hexproof', param: null });
+  fx.ir.provides.push({ axis: 'protection.single', param: null, rate: 'static', weight: 2 });
+  check('own hexproof as protection.single → self_only_provide', hasFlag(validateCardIR(fx.ir, fx.row), 'self_only_provide', 'soft'));
+  const rec = clone(fixtures['serra-angel']);
+  rec.row.oracle_text += '\n{2}{W}: Return Serra Angel from your graveyard to your hand.';
+  rec.ir.provides.push({ axis: 'gy.recursion', param: null, rate: 'repeatable', weight: 2 });
+  check('returns only itself as gy.recursion → self_only_provide', hasFlag(validateCardIR(rec.ir, rec.row), 'self_only_provide', 'soft'));
+  const other = clone(rec);
+  other.row.oracle_text += '\n{T}: Return target creature card from your graveyard to your hand.';
+  check('returns other creature cards → no self_only_provide', !hasFlag(validateCardIR(other.ir, other.row), 'self_only_provide'));
+  const cp = clone(fixtures['lightning-bolt']);
+  cp.row.oracle_text += '\nWhen you cast this spell, copy it for each time you paid its replicate cost.';
+  cp.row.oracle_text = cp.row.oracle_text.replace('When you cast this spell, copy it', 'Replicate {1} (When you cast this spell, copy it');
+  cp.row.oracle_text += ')';
+  cp.row.keywords_json = ['Replicate'];
+  cp.ir.faces[0].keywords = [{ name: 'Replicate', param: '{1}' }];
+  cp.ir.provides.push({ axis: 'copy.spell', param: null, rate: 'once', weight: 2 });
+  check('replicate as copy.spell → self_only_provide', hasFlag(validateCardIR(cp.ir, cp.row), 'self_only_provide', 'soft'));
+}
+{
+  // every golden few-shot stays clean of the new lints — the prompt teaches from them
+  const NEW = ['wincon_unearned', 'need_on_marker', 'tap_not_removal', 'self_only_provide'];
+  const dirty = Object.entries(fixtures).filter(([, fx]) => NEW.some(c => hasFlag(validateCardIR(fx.ir, fx.row), c))).map(([n]) => n);
+  check('no golden fixture trips a corpus-audit lint', dirty.length === 0, dirty.join(', '));
+}
+
 console.log('vocab / schema agreement');
 check('every wire-schema effect op enum matches vocab', (() => {
   const s = JSON.stringify(irSchema.cardIRSchema);

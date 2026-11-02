@@ -1,0 +1,16 @@
+{
+  "meta": { "title": "Eval cycle 10–11 lock-ins (engine2/eval/cycles/10/triage.md)", "created": "2026-09-30" },
+  "principles": {
+    "P-ARISTO-PKG": "Sacrifice pieces need a sacrifice package (outlets and payoffs together) or a sacrificing commander",
+    "P-ARTIFACTS": "Artifact-conversion payoffs need artifacts",
+    "P-STAX": "Lock pieces belong in lock decks"
+  },
+  "decks": { "weak-gornog-warriors": "../decks/weak-gornog-warriors.json" },
+  "assertions": [
+    { "id": "EV10-01", "deck": "weak-rev-theft", "kind": "adds_exclude", "expect": ["Phyrexian Altar", "Syr Konrad, the Grim", "Warren Soultrader"], "confidence": "medium", "known_miss": "deck has 2+ cards that ask for sac fodder, so the engine sees a home; the judges disagree", "principle": "P-ARISTO-PKG" },
+    { "id": "EV10-02", "deck": "rakdos-chaos", "kind": "adds_exclude", "expect": ["Chalice of the Void", "Zulaport Cutthroat"], "confidence": "high", "principle": "P-STAX" },
+    { "id": "EV10-02b", "deck": "rakdos-chaos", "kind": "adds_exclude", "expect": ["Vampiric Rites"], "confidence": "medium", "principle": "P-ARISTO-PKG", "known_miss": "deck has 2+ cards that ask for sac fodder, so the engine sees a home; the judges disagree" },
+    { "id": "EV10-03", "deck": "weak-gornog-warriors", "kind": "adds_exclude", "expect": ["Bludgeon Brawl", "Liquimetal Torque"], "confidence": "medium", "principle": "P-ARTIFACTS" },
+    { "id": "EV10-04", "deck": "korvold-aristocrats", "kind": "not_anti_plan", "cards": ["Zulaport Cutthroat"], "confidence": "high", "principle": "P-ARISTO-PKG", "note": "Korvold is a sacrifice deck" }
+  ]
+}

@@ -1,6 +1,12 @@
 'use strict';
-// Pure helpers for scripts/semantics-extract.js — no DB, no child_process, so the
-// usage-limit detection and response parsing are unit-testable (semantics-validator-test.js).
+// Shared helpers for the semantics runners (scripts/semantics-extract.js and the targeted
+// backfills such as semantics-backfill-power-tier.js). Everything above the subscription-call
+// section is pure — no DB, no child_process — so usage-limit detection and response parsing
+// stay unit-testable (semantics-validator-test.js); callClaude at the bottom spawns the CLI.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // Claude Code usage-limit failures come in (at least) two phrasings:
 //   interactive: "You've hit your session limit · resets 3:45pm"
@@ -96,4 +102,59 @@ function groupItems(arr, size) {
   return out;
 }
 
-module.exports = { isLimitError, parseLimitReset, buildClaudeArgs, extractResultJson, groupItems };
+// ── subscription call ────────────────────────────────────────────────────────
+function childEnv() {
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;      // would silently switch billing to the API
+  delete env.ANTHROPIC_AUTH_TOKEN;   // same
+  return env;
+}
+
+// Binary resolution: CLAUDE_BIN env → `claude` on PATH → newest VS Code extension bundle.
+function resolveClaudeBin() {
+  if (process.env.CLAUDE_BIN && fs.existsSync(process.env.CLAUDE_BIN)) return process.env.CLAUDE_BIN;
+  try {
+    require('child_process').execSync('command -v claude', { stdio: 'pipe' });
+    return 'claude';
+  } catch (_) { /* not on PATH */ }
+  const extDir = path.join(os.homedir(), '.vscode', 'extensions');
+  try {
+    const candidates = fs.readdirSync(extDir)
+      .filter(d => d.startsWith('anthropic.claude-code-'))
+      .sort()
+      .reverse()
+      .map(d => path.join(extDir, d, 'resources', 'native-binary', 'claude'))
+      .filter(p => fs.existsSync(p));
+    if (candidates.length) return candidates[0];
+  } catch (_) { /* no extensions dir */ }
+  return 'claude'; // let the spawn error explain
+}
+const CLAUDE_BIN = resolveClaudeBin();
+
+// live children, so a runner that is stopped can stop its in-flight calls too
+const LIVE = new Set();
+function killChildren() { for (const c of LIVE) { try { c.kill('SIGKILL'); } catch (_) { /* gone */ } } LIVE.clear(); }
+
+function callClaude(args, cwd, timeoutMs) {
+  // spawn (not execFile) so stdin can be closed outright: an open-but-silent stdin pipe
+  // makes the CLI wait ("no stdin data received in 3s…") and can leave calls lingering
+  // until the timeout instead of exiting when the response is done.
+  const { spawn } = require('child_process');
+  return new Promise((resolve) => {
+    const child = spawn(CLAUDE_BIN, args, {
+      cwd, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: timeoutMs, killSignal: 'SIGKILL',
+    });
+    LIVE.add(child);
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', err => { LIVE.delete(child); resolve({ err, stdout, stderr }); });
+    child.on('close', code => {
+      LIVE.delete(child);
+      resolve({ err: code === 0 ? null : new Error(`exit ${code}`), stdout, stderr });
+    });
+  });
+}
+
+module.exports = { isLimitError, parseLimitReset, buildClaudeArgs, extractResultJson, groupItems, callClaude, killChildren, childEnv, resolveClaudeBin, CLAUDE_BIN };

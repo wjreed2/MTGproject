@@ -1,0 +1,303 @@
+{
+ "commander": "Titania, Nature's Force",
+ "source": "weakened from pulled/rand8-titania-natures-force",
+ "seeded_weak": [
+  "Skybox Ferry",
+  "Veilstone Amulet",
+  "Urban Burgeoning",
+  "Deep Reconnaissance",
+  "Dependable Quinjet",
+  "Corrupted Grafstone",
+  "Endless Swarm",
+  "Duel for Dominance",
+  "Moldervine Cloak",
+  "Nissa's Triumph",
+  "Crash the Party",
+  "Rootwire Amalgam"
+ ],
+ "removed_staples": [
+  "Sol Ring",
+  "Cultivate",
+  "Beast Within",
+  "Nature's Lore",
+  "Rampant Growth",
+  "Heroic Intervention",
+  "Kodama's Reach",
+  "Three Visits",
+  "Garruk's Uprising",
+  "Sakura-Tribe Elder",
+  "Eternal Witness",
+  "Return of the Wildspeaker"
+ ],
+ "note": "The 12 most-played nonland cards were replaced with 12 low-play on-color fillers (EDHREC rank 12k–30k).",
+ "cards": [
+  {
+   "name": "Ancient Greenwarden",
+   "qty": 1
+  },
+  {
+   "name": "Argoth, Sanctum of Nature",
+   "qty": 1
+  },
+  {
+   "name": "Ashaya, Soul of the Wild",
+   "qty": 1
+  },
+  {
+   "name": "Avenger of Zendikar",
+   "qty": 1
+  },
+  {
+   "name": "Awaken the Woods",
+   "qty": 1
+  },
+  {
+   "name": "Azusa, Lost but Seeking",
+   "qty": 1
+  },
+  {
+   "name": "Case of the Locked Hothouse",
+   "qty": 1
+  },
+  {
+   "name": "Conduit of Worlds",
+   "qty": 1
+  },
+  {
+   "name": "Crop Rotation",
+   "qty": 1
+  },
+  {
+   "name": "Cultivator Colossus",
+   "qty": 1
+  },
+  {
+   "name": "Cycle of Renewal",
+   "qty": 1
+  },
+  {
+   "name": "Druid Class",
+   "qty": 1
+  },
+  {
+   "name": "Dryad Arbor",
+   "qty": 1
+  },
+  {
+   "name": "Elemental Bond",
+   "qty": 1
+  },
+  {
+   "name": "Emerald Medallion",
+   "qty": 1
+  },
+  {
+   "name": "Entish Restoration",
+   "qty": 1
+  },
+  {
+   "name": "Evolving Wilds",
+   "qty": 1
+  },
+  {
+   "name": "Exploration",
+   "qty": 1
+  },
+  {
+   "name": "Explore",
+   "qty": 1
+  },
+  {
+   "name": "Forest",
+   "qty": 33
+  },
+  {
+   "name": "Greater Good",
+   "qty": 1
+  },
+  {
+   "name": "Greensleeves, Maro-Sorcerer",
+   "qty": 1
+  },
+  {
+   "name": "Harrow",
+   "qty": 1
+  },
+  {
+   "name": "Icetill Explorer",
+   "qty": 1
+  },
+  {
+   "name": "Loot, Exuberant Explorer",
+   "qty": 1
+  },
+  {
+   "name": "Lotus Cobra",
+   "qty": 1
+  },
+  {
+   "name": "Lotus Field",
+   "qty": 1
+  },
+  {
+   "name": "Lumra, Bellow of the Woods",
+   "qty": 1
+  },
+  {
+   "name": "Multani, Yavimaya's Avatar",
+   "qty": 1
+  },
+  {
+   "name": "Myriad Landscape",
+   "qty": 1
+  },
+  {
+   "name": "Nissa, Who Shakes the World",
+   "qty": 1
+  },
+  {
+   "name": "Oracle of Mul Daya",
+   "qty": 1
+  },
+  {
+   "name": "Planar Engineering",
+   "qty": 1
+  },
+  {
+   "name": "Rampaging Baloths",
+   "qty": 1
+  },
+  {
+   "name": "Ramunap Excavator",
+   "qty": 1
+  },
+  {
+   "name": "Roiling Regrowth",
+   "qty": 1
+  },
+  {
+   "name": "Sapling Nursery",
+   "qty": 1
+  },
+  {
+   "name": "Scapeshift",
+   "qty": 1
+  },
+  {
+   "name": "Scute Swarm",
+   "qty": 1
+  },
+  {
+   "name": "Shamanic Revelation",
+   "qty": 1
+  },
+  {
+   "name": "Six",
+   "qty": 1
+  },
+  {
+   "name": "Skyshroud Claim",
+   "qty": 1
+  },
+  {
+   "name": "Splendid Reclamation",
+   "qty": 1
+  },
+  {
+   "name": "Springbloom Druid",
+   "qty": 1
+  },
+  {
+   "name": "Staff of Titania",
+   "qty": 1
+  },
+  {
+   "name": "Sylvan Safekeeper",
+   "qty": 1
+  },
+  {
+   "name": "Terramorphic Expanse",
+   "qty": 1
+  },
+  {
+   "name": "Tireless Provisioner",
+   "qty": 1
+  },
+  {
+   "name": "Tireless Tracker",
+   "qty": 1
+  },
+  {
+   "name": "Titania, Protector of Argoth",
+   "qty": 1
+  },
+  {
+   "name": "Titania, Voice of Gaea",
+   "qty": 1
+  },
+  {
+   "name": "Tribute to the World Tree",
+   "qty": 1
+  },
+  {
+   "name": "Yavimaya, Cradle of Growth",
+   "qty": 1
+  },
+  {
+   "name": "Zendikar's Roil",
+   "qty": 1
+  },
+  {
+   "name": "Zuran Orb",
+   "qty": 1
+  },
+  {
+   "name": "Skybox Ferry",
+   "qty": 1
+  },
+  {
+   "name": "Veilstone Amulet",
+   "qty": 1
+  },
+  {
+   "name": "Urban Burgeoning",
+   "qty": 1
+  },
+  {
+   "name": "Deep Reconnaissance",
+   "qty": 1
+  },
+  {
+   "name": "Dependable Quinjet",
+   "qty": 1
+  },
+  {
+   "name": "Corrupted Grafstone",
+   "qty": 1
+  },
+  {
+   "name": "Endless Swarm",
+   "qty": 1
+  },
+  {
+   "name": "Duel for Dominance",
+   "qty": 1
+  },
+  {
+   "name": "Moldervine Cloak",
+   "qty": 1
+  },
+  {
+   "name": "Nissa's Triumph",
+   "qty": 1
+  },
+  {
+   "name": "Crash the Party",
+   "qty": 1
+  },
+  {
+   "name": "Rootwire Amalgam",
+   "qty": 1
+  }
+ ]
+}

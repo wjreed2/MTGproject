@@ -50,7 +50,55 @@ const AXIS_LABELS = {
   'control.counter': 'counterspells',
   'lifegain.source': 'lifegain',
   'etb_value': 'ETB value',
+  'damage.amplifier': 'damage amplifiers',
+  'trigger.copy': 'trigger copiers',
+  'combat.keyword_grant': 'team combat keywords',
+  'mana.ramp_permanent': 'mana enchantments',
+  'heroic.payoff': 'heroic payoffs',
+  'toughness.matters': 'toughness payoffs',
+  'body.high_toughness': 'high-toughness creatures',
+  'facedown.source': 'face-down creatures',
+  'facedown.matters': 'face-down payoffs',
+  'snow.source': 'snow permanents',
+  'snow.matters': 'snow payoffs',
+  'keyword.matters': 'keyword payoffs',
+  'exile.matters': 'exile payoffs',
+  'party.matters': 'party payoffs',
+  'cycling.source': 'cycling cards',
+  'cycling.payoff': 'cycling payoffs',
+  'burn.spell': 'burn spells',
+  'burn.payoff': 'burn payoffs',
+  // rules-layer axes (engine2/rules.js)
+  'etb.per_creature': 'per-creature enter triggers',
+  'opp.token_kill': 'tokens given to opponents dying',
+  'opp.creature_deaths': "opponents' creatures dying",
+  'untap.mana_creature': 'untapping mana creatures',
+  'protect.keeps_counters': 'protection that keeps counters',
+  'draw.amplified': 'bigger draws',
+  'draw.replacement': 'draw replacements',
+  'copy.trigger_source': 'nonlegendary copies',
+  'trigger.doubler_equipped': 'trigger doubling',
+  'lands.base_pt': 'land creature size',
 };
+
+const { planReason } = require('./gameplan');
+const { noun: qualityNoun } = require('./quality');
+
+function qualityReason(t) {
+  if (t.kind === 'quality_upgrade') return `An upgrade over ${t.over} at the same job`;
+  if (t.kind === 'quality_power') return t.pts > 0 ? 'A powerful card for its cost' : null;
+  if (t.kind === 'quality_cheap') return `A cheap, efficient ${qualityNoun(t.cls, 1)} — the kind every list keeps`;
+  if (t.kind === 'quality_shield') return `A top-tier ${qualityNoun(t.cls, 1)} — keep it even with a surplus`;
+  if (t.kind === 'quality' && t.rank != null) {
+    if (t.rank === t.of) return `The weakest of your ${t.of} ${qualityNoun(t.cls, t.of)}`;
+    if (t.rank === 1) return `The strongest of your ${t.of} ${qualityNoun(t.cls, t.of)}`;
+    // only the bottom third is a reason to cut; a mid-pack rank explains nothing
+    if (t.rank > Math.ceil(t.of * 2 / 3)) return `Among the weakest of your ${t.of} ${qualityNoun(t.cls, t.of)} (${t.rank} of ${t.of})`;
+    return null;
+  }
+  if (t.kind === 'quality') return t.q >= 0.75 ? `A top-tier ${qualityNoun(t.cls, 1)}` : t.q < 0.45 ? `A weak ${qualityNoun(t.cls, 1)}` : null;
+  return null;
+}
 
 function axisLabel(axis) {
   return AXIS_LABELS[axis] || String(axis || '').replace(/[._]/g, ' ');
@@ -72,6 +120,11 @@ function listAxes(axes) {
 function cutReasons(cut) {
   const out = [];
   for (const t of cut.trace || []) {
+    // Anti-plan lines are the strongest cut reasons; positive plan links explain
+    // why a card is NOT cut and stay out of the "why cut" list.
+    if (t.kind === 'plan_anti') { out.push(planReason(t)); if (out.length >= 3) break; continue; }
+    if (t.kind === 'quality') { if (t.pts < 0) { const r = qualityReason(t); if (r) out.push(r); } if (out.length >= 3) break; continue; }
+    if (String(t.kind).startsWith('plan_')) continue;
     switch (t.kind) {
       case 'synergy':
         if (t.value <= 2) out.push('Barely connected to the deck — almost no synergy edges');
@@ -99,6 +152,11 @@ function cutReasons(cut) {
 function addReasons(add) {
   const out = [];
   for (const t of add.trace || []) {
+    if (String(t.kind).startsWith('plan_')) {
+      if (t.kind !== 'plan_anti') { const r = planReason(t); if (r) out.push(r); }
+      continue;
+    }
+    if (String(t.kind).startsWith('quality')) { const r = t.pts > 0 ? qualityReason(t) : null; if (r) out.push(r); continue; }
     switch (t.kind) {
       case 'fills_axis':
         out.push(t.needers && t.needers.length
@@ -164,6 +222,8 @@ function addBreakdown(add) {
   for (const t of add.trace || []) {
     const val = fmtPts(t.pts);
     const ax = t.axis ? axisLabel(t.axis) + (t.param ? `: ${t.param}` : '') : '';
+    if (String(t.kind).startsWith('plan_')) { out.push({ text: planReason(t) || 'Game plan', val }); continue; }
+    if (String(t.kind).startsWith('quality')) { out.push({ text: qualityReason(t) || `Card quality at its job (${Math.round((t.q || 0) * 100)}/100)`, val }); continue; }
     switch (t.kind) {
       case 'fills_axis':
         out.push({ text: `Fills wanted axis — ${ax}${t.needers && t.needers.length ? ` (for ${listNames(t.needers)})` : ''} [${t.why}]${t.offTribe ? ' (off-tribe ×0.5)' : ''}`, val });
@@ -188,6 +248,28 @@ function addBreakdown(add) {
         break;
       case 'role_deficit':
         out.push({ text: `${t.cat} deficit (${Math.max(1, Math.round(Number(t.deficit) || 0))} short)`, val });
+        break;
+      case 'thin_substrate':
+        out.push({ text: ({ plain_rock: 'A plain mana rock — the deck isn\'t short on ramp', slow_ramp: 'Slow ramp for a low curve',
+          no_sink: 'A mana sink with nothing to grow', few_tokens: 'A token payoff in a deck that makes few tokens',
+          few_counters: 'A counter doubler in a deck with few counters', few_artifacts: 'Needs artifacts the deck doesn\'t run',
+          no_sac_payoff: 'A sacrifice outlet with no death payoffs', seven_drop: 'Seven mana without a big-mana plan',
+          colorless_pips: 'Needs colorless mana the deck barely makes', tempo_no_rocks: 'A mana rock in a low-curve deck',
+          weak_fit: 'Only a loose fit for the deck\'s main plan', no_sac_outlet: 'Sacrifice fodder with no outlet to sacrifice it',
+          wipes_own_board: 'A wipe that kills the deck\'s own attackers', not_wide: 'An anthem for a board the deck doesn\'t build',
+          feeds_on_tokens: 'Eats a creature every turn — the deck makes few tokens', no_counter_slot: 'A counterspell for a deck with no counterspell slot',
+          no_tribe: 'Tribal glue without a tribe', missing_tribe: 'Needs a creature type the deck barely runs',
+          no_aristocrats: 'A sacrifice piece without a sacrifice package', stax_piece: 'A lock piece in a deck that doesn\'t lock',
+          no_lifegain: 'A lifegain payoff in a deck that gains little life', no_fodder: 'Needs small creatures to die — the deck\'s are big',
+          ritual: 'A one-shot ritual outside a spells deck', few_tapped: 'Untaps tapped permanents — few enter tapped here',
+          upkeep_cost: 'Extra upkeeps multiply its upkeep cost', gy_land_mana: 'Its mana needs lands in graveyards — few go there in this deck', no_fit: 'A strong card, but not one this deck\'s plan uses' })[t.why] || 'Little to work with here', val });
+        break;
+      case 'role_full':
+        out.push({ text: t.gear === 'returns_to_hand' ? 'Equipment falls off a commander that returns to hand'
+          : t.gear === 'commander_in_zone' ? 'The commander works from the command zone — nothing to protect'
+          : t.gear === 'already_has_gear' ? 'The deck already runs protection equipment'
+            : t.gear === 'shroud_blocks_own' ? 'Shroud blocks the deck\'s own auras and targeting'
+              : `${t.cat} is already covered (${t.have} vs ~${Math.round(t.need)})`, val });
         break;
       case 'focus_fill':
         out.push({ text: `Focused category (${t.cat})`, val });
@@ -234,6 +316,8 @@ function cutBreakdown(cut) {
   const out = [];
   for (const t of cut.trace || []) {
     const val = fmtPts(t.pts);
+    if (String(t.kind).startsWith('plan_')) { out.push({ text: planReason(t) || 'Game plan', val }); continue; }
+    if (String(t.kind).startsWith('quality')) { out.push({ text: qualityReason(t) || `Card quality at its job (${Math.round((t.q || 0) * 100)}/100)`, val }); continue; }
     switch (t.kind) {
       case 'synergy': out.push({ text: `Synergy edges in deck (degree ${Number(t.value).toFixed(1)})`, val }); break;
       case 'role_protects': out.push({ text: `Protects ${t.cat} target (${t.have}/${Math.round(t.need)})`, val }); break;

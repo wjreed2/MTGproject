@@ -1,0 +1,31 @@
+{
+  "meta": { "title": "Eval cycle 4 lock-ins (engine2/eval/cycles/4/triage.md)", "created": "2026-09-29" },
+  "principles": {
+    "P-STAPLE": "A deck missing a format staple for a core job gets it suggested",
+    "P-COMBO": "Two-card loops (lifegain ↔ life loss) are combos and never cut",
+    "P-FETCH": "A fetch land must find a land type in the deck's colors",
+    "P-CHANGELING": "A changeling is every creature type",
+    "P-ONE-SIDED": "A power-filtered sweeper that spares the engine's small tokens is one-sided here",
+    "P-SWAP": "Replacing the engine's tokens with a different kind is anti-plan"
+  },
+  "decks": {
+    "edgar-vampires": "../decks/edgar-vampires.json",
+    "yuriko-ninjas": "../decks/yuriko-ninjas.json",
+    "muldrotha-graveyard": "../decks/muldrotha-graveyard.json",
+    "weak-karlach-combat": "../decks/weak-karlach-combat.json",
+    "weak-titania-lands": "../decks/weak-titania-lands.json",
+    "weak-treebeard-lifegain": "../decks/weak-treebeard-lifegain.json"
+  },
+  "assertions": [
+    { "id": "EV4-01", "deck": "edgar-vampires", "kind": "link", "card": "Exquisite Blood", "expect": { "link": "combo" }, "confidence": "high", "principle": "P-COMBO" },
+    { "id": "EV4-02", "deck": "edgar-vampires", "kind": "cuts_exclude", "expect": ["Sanguine Bond", "Exquisite Blood"], "confidence": "high", "principle": "P-COMBO" },
+    { "id": "EV4-03", "deck": "yuriko-ninjas", "kind": "link", "card": "Mothdust Changeling", "expect": { "link": "fuel" }, "confidence": "high", "principle": "P-CHANGELING" },
+    { "id": "EV4-04", "deck": "muldrotha-graveyard", "kind": "adds_exclude", "expect": ["Arid Mesa"], "confidence": "high", "principle": "P-FETCH" },
+    { "id": "EV4-05", "deck": "vraska-current", "kind": "link", "card": "Fell the Mighty", "expect": { "link": "one_sided_wipe" }, "confidence": "high", "principle": "P-ONE-SIDED" },
+    { "id": "EV4-06", "deck": "vraska-current", "kind": "cuts_exclude", "expect": ["Fell the Mighty"], "confidence": "high", "principle": "P-ONE-SIDED" },
+    { "id": "EV4-07", "deck": "vraska-v2", "kind": "anti_plan", "card": "Divine Visitation", "expect": { "reasons": ["swaps_tokens"] }, "confidence": "high", "principle": "P-SWAP" },
+    { "id": "EV4-08", "deck": "weak-karlach-combat", "kind": "adds_include_any", "min": 1, "expect": ["Sol Ring", "Arcane Signet", "Lightning Greaves", "Swiftfoot Boots"], "confidence": "high", "principle": "P-STAPLE" },
+    { "id": "EV4-09", "deck": "weak-titania-lands", "kind": "adds_include_any", "min": 1, "expect": ["Sol Ring", "Cultivate", "Nature's Lore", "Rampant Growth", "Beast Within"], "confidence": "high", "principle": "P-STAPLE" },
+    { "id": "EV4-10", "deck": "weak-treebeard-lifegain", "kind": "adds_include_any", "min": 1, "expect": ["Swords to Plowshares", "Path to Exile", "Arcane Signet"], "confidence": "high", "principle": "P-STAPLE" }
+  ]
+}

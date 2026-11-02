@@ -55,3 +55,11 @@ eng.traineddata
 .semantics-requeue/
 # Requeue lists built from live account decks — user data, never version
 .semantics-requeue-user/
+
+# engine2 eval loop output (scripts/semantics-eval-loop.js). packets/engine/probes
+# regenerate per run; ratings/probe-ratings are judge labels that
+# scripts/semantics-learn-weights.js trains on: keep them locally, never version.
+engine2/eval/cycles/
+
+# Local camera photos for scripts/scan-photo-test.js — personal, never version
+fixtures/scan-photos/

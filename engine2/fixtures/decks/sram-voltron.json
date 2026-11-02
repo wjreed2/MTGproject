@@ -1,0 +1,305 @@
+{
+ "name": "Average Sram, Senior Edificer deck (EDHREC)",
+ "commander": "Sram, Senior Edificer",
+ "source": "edhrec-average",
+ "source_url": "https://json.edhrec.com/pages/average-decks/sram-senior-edificer.json",
+ "archetype_expected": "voltron",
+ "cards": [
+  {
+   "name": "Accorder's Shield",
+   "qty": 1
+  },
+  {
+   "name": "Arcane Signet",
+   "qty": 1
+  },
+  {
+   "name": "Basilisk Collar",
+   "qty": 1
+  },
+  {
+   "name": "Blackblade Reforged",
+   "qty": 1
+  },
+  {
+   "name": "Bloodforged Battle-Axe",
+   "qty": 1
+  },
+  {
+   "name": "Bone Saw",
+   "qty": 1
+  },
+  {
+   "name": "Cathar's Shield",
+   "qty": 1
+  },
+  {
+   "name": "Colossus Hammer",
+   "qty": 1
+  },
+  {
+   "name": "Commander's Plate",
+   "qty": 1
+  },
+  {
+   "name": "Explorer's Scope",
+   "qty": 1
+  },
+  {
+   "name": "Golem-Skin Gauntlets",
+   "qty": 1
+  },
+  {
+   "name": "Hammer of Nazahn",
+   "qty": 1
+  },
+  {
+   "name": "Kite Shield",
+   "qty": 1
+  },
+  {
+   "name": "Lightning Greaves",
+   "qty": 1
+  },
+  {
+   "name": "Loxodon Warhammer",
+   "qty": 1
+  },
+  {
+   "name": "Mask of Memory",
+   "qty": 1
+  },
+  {
+   "name": "Masterwork of Ingenuity",
+   "qty": 1
+  },
+  {
+   "name": "Nettlecyst",
+   "qty": 1
+  },
+  {
+   "name": "Paradise Mantle",
+   "qty": 1
+  },
+  {
+   "name": "Shadowspear",
+   "qty": 1
+  },
+  {
+   "name": "Sol Ring",
+   "qty": 1
+  },
+  {
+   "name": "Spidersilk Net",
+   "qty": 1
+  },
+  {
+   "name": "Swiftfoot Boots",
+   "qty": 1
+  },
+  {
+   "name": "Sword of Feast and Famine",
+   "qty": 1
+  },
+  {
+   "name": "Sword of Fire and Ice",
+   "qty": 1
+  },
+  {
+   "name": "Sword of Vengeance",
+   "qty": 1
+  },
+  {
+   "name": "Sword of the Animist",
+   "qty": 1
+  },
+  {
+   "name": "Thran Power Suit",
+   "qty": 1
+  },
+  {
+   "name": "Ancient Den",
+   "qty": 1
+  },
+  {
+   "name": "Buried Ruin",
+   "qty": 1
+  },
+  {
+   "name": "Emeria, the Sky Ruin",
+   "qty": 1
+  },
+  {
+   "name": "Inventors' Fair",
+   "qty": 1
+  },
+  {
+   "name": "Myriad Landscape",
+   "qty": 1
+  },
+  {
+   "name": "Plains",
+   "qty": 26
+  },
+  {
+   "name": "Reliquary Tower",
+   "qty": 1
+  },
+  {
+   "name": "Rogue's Passage",
+   "qty": 1
+  },
+  {
+   "name": "Ardenn, Intrepid Archaeologist",
+   "qty": 1
+  },
+  {
+   "name": "Balan, Wandering Knight",
+   "qty": 1
+  },
+  {
+   "name": "Cid, Freeflier Pilot",
+   "qty": 1
+  },
+  {
+   "name": "Codsworth, Handy Helper",
+   "qty": 1
+  },
+  {
+   "name": "Danitha Capashen, Paragon",
+   "qty": 1
+  },
+  {
+   "name": "Esper Sentinel",
+   "qty": 1
+  },
+  {
+   "name": "Foundry Inspector",
+   "qty": 1
+  },
+  {
+   "name": "Halvar, God of Battle",
+   "qty": 1
+  },
+  {
+   "name": "Kíli the Resourceful",
+   "qty": 1
+  },
+  {
+   "name": "Lion Sash",
+   "qty": 1
+  },
+  {
+   "name": "Mother of Runes",
+   "qty": 1
+  },
+  {
+   "name": "Puresteel Paladin",
+   "qty": 1
+  },
+  {
+   "name": "Starnheim Courser",
+   "qty": 1
+  },
+  {
+   "name": "Stoneforge Mystic",
+   "qty": 1
+  },
+  {
+   "name": "Sun Titan",
+   "qty": 1
+  },
+  {
+   "name": "All That Glitters",
+   "qty": 1
+  },
+  {
+   "name": "Armored Ascension",
+   "qty": 1
+  },
+  {
+   "name": "Darksteel Mutation",
+   "qty": 1
+  },
+  {
+   "name": "Ethereal Armor",
+   "qty": 1
+  },
+  {
+   "name": "Flickering Ward",
+   "qty": 1
+  },
+  {
+   "name": "Forge Anew",
+   "qty": 1
+  },
+  {
+   "name": "Hyena Umbra",
+   "qty": 1
+  },
+  {
+   "name": "Land Tax",
+   "qty": 1
+  },
+  {
+   "name": "Mantle of the Ancients",
+   "qty": 1
+  },
+  {
+   "name": "Sage's Reverie",
+   "qty": 1
+  },
+  {
+   "name": "Sigarda's Aid",
+   "qty": 1
+  },
+  {
+   "name": "Spirit Mantle",
+   "qty": 1
+  },
+  {
+   "name": "Unquestioned Authority",
+   "qty": 1
+  },
+  {
+   "name": "Dispatch",
+   "qty": 1
+  },
+  {
+   "name": "Enlightened Tutor",
+   "qty": 1
+  },
+  {
+   "name": "Generous Gift",
+   "qty": 1
+  },
+  {
+   "name": "Path to Exile",
+   "qty": 1
+  },
+  {
+   "name": "Swords to Plowshares",
+   "qty": 1
+  },
+  {
+   "name": "Teferi's Protection",
+   "qty": 1
+  },
+  {
+   "name": "Divine Reckoning",
+   "qty": 1
+  },
+  {
+   "name": "Open the Armory",
+   "qty": 1
+  },
+  {
+   "name": "Single Combat",
+   "qty": 1
+  },
+  {
+   "name": "Steelshaper's Gift",
+   "qty": 1
+  }
+ ]
+}
