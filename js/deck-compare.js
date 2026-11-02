@@ -32,6 +32,10 @@ let _dcDeckId = null;
 //   sync: { inFlight, retryTimer, state, localOnly } — not persisted, per session
 //   phase: 'scan' | 'report' (this device only), updatedAt }
 let _dcSession = null;
+// One live session object per deck for the life of the page, so switching decks and
+// back reuses the object whose send may still be in flight (its inFlight guard, retry
+// timer and pending batch stay authoritative) instead of a second copy racing it.
+const _dcSessions = new Map();
 const _dcClientId = 'dc-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 const _DC_BATCH_MAX = 500;   // ops per request (server accepts up to 2000)
 let _dcUndo = null;          // { label, zones, after } — one level, the last deck change made from this screen
@@ -91,6 +95,16 @@ function _dcLoadSession(deckId) {
   } catch (_) {
     return _dcEmptySession();
   }
+}
+
+/** The live session for a deck: loaded from this device once, then kept in memory. */
+function _dcGetSession(deckId) {
+  let sess = _dcSessions.get(deckId);
+  if (!sess) {
+    sess = _dcLoadSession(deckId);
+    _dcSessions.set(deckId, sess);
+  }
+  return sess;
 }
 
 function _dcStoreSession(deckId, sess) {
@@ -240,7 +254,7 @@ function _dcApplyOps(ops) {
 function deckCompareOnRemote(msg) {
   if (!msg || !msg.deckId || msg.clientId === _dcClientId) return;
   const isOpenDeck = _dcSession && _dcDeckId === msg.deckId;
-  const sess = isOpenDeck ? _dcSession : _dcLoadSession(msg.deckId);
+  const sess = isOpenDeck ? _dcSession : _dcGetSession(msg.deckId);
   if (!_dcAdoptBase(sess, msg)) return;
   _dcStoreSession(msg.deckId, sess);
   if (!isOpenDeck) return;
@@ -349,7 +363,7 @@ function openDeckCompare() {
   if (!deck) { showNotif('Open a deck first', true); return; }
   if (_dcDeckId !== deck.id || !_dcSession) {
     _dcDeckId = deck.id;
-    _dcSession = _dcLoadSession(deck.id);
+    _dcSession = _dcGetSession(deck.id);
     _dcUndo = null;
     _dcFilter = '';
     _dcMissingUnchecked.clear();
@@ -1001,10 +1015,11 @@ function _dcRecordLateScan(deckId, card) {
     _dcApplyOps(ops);
     _dcRender();
   } else {
-    const sess = _dcLoadSession(deckId);
+    const sess = _dcGetSession(deckId);
     sess.outbox.push(...ops);
     _dcRecompute(sess);
     _dcStoreSession(deckId, sess);
+    void _dcFlush(deckId, sess);
   }
   if (typeof showNotif === 'function') showNotif(`${card.name} added to the compare`);
 }
