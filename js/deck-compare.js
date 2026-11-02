@@ -59,7 +59,7 @@ function _dcNewSync() {
 function _dcEmptySession() {
   return {
     scanned: {}, includeExtras: false, base: _dcEmptyBase(), outbox: [], sending: null,
-    sync: _dcNewSync(), phase: 'scan', updatedAt: Date.now(),
+    sync: _dcNewSync(), pendingBase: null, phase: 'scan', updatedAt: Date.now(),
   };
 }
 
@@ -111,7 +111,7 @@ function _dcGetSession(deckId) {
 function _dcStoreSession(deckId, sess) {
   if (!deckId || !sess) return;
   sess.updatedAt = Date.now();
-  const { scanned, includeExtras, sync, ...persist } = sess; // displayed state is derived
+  const { scanned, includeExtras, sync, pendingBase, ...persist } = sess; // derived / per page
   try { localStorage.setItem(_DC_STORE_PREFIX + deckId, JSON.stringify(persist)); } catch (_) {}
 }
 
@@ -137,10 +137,20 @@ async function _dcApi(method, path, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
-/** Adopt a server state if it is newer than what this device has. */
-function _dcAdoptBase(sess, st) {
+/**
+ * Adopt a server state if it is newer than what this device has.
+ * While a batch of this device's ops is unconfirmed (sent, no answer yet, or the
+ * answer was lost), another device's snapshot may or may not already include it,
+ * and replaying the outbox on top could count it twice. Such snapshots wait in
+ * pendingBase until the batch's acknowledgement (ack: true) settles it.
+ */
+function _dcAdoptBase(sess, st, { ack = false } = {}) {
   if (!st || typeof st !== 'object') return false;
   const rev = Number(st.revision) || 0;
+  if (!ack && sess.sending) {
+    if (!sess.pendingBase || rev >= (Number(sess.pendingBase.revision) || 0)) sess.pendingBase = st;
+    return false;
+  }
   if (rev < (Number(sess.base.revision) || 0)) return false;
   sess.base = { revision: rev, scanned: st.scanned || {}, includeExtras: !!st.includeExtras };
   _dcRecompute(sess);
@@ -196,7 +206,9 @@ async function _dcFlush(deckId = _dcDeckId, sess = _dcSession) {
       // 400 = this batch is malformed and never will be accepted: drop just this batch.
       sess.outbox = sess.outbox.slice(count);
       sess.sending = null;
-      if (r.ok) _dcAdoptBase(sess, r.data);
+      if (r.ok) _dcAdoptBase(sess, r.data, { ack: true });
+      // A snapshot held back while this batch was unconfirmed can be judged now.
+      if (sess.pendingBase) { _dcAdoptBase(sess, sess.pendingBase); sess.pendingBase = null; }
       _dcRecompute(sess);
       _dcStoreSession(deckId, sess);
       _dcSetSyncState(sess, 'synced');
@@ -495,6 +507,9 @@ function _dcRender() {
     return;
   }
   if (_dcUndo && !_dcUndoStillValid(deck)) _dcUndo = null;
+  // The flag can change under us (another device, a GET on open): keep the box honest.
+  const incBox = document.getElementById('deckCompareIncludeExtras');
+  if (incBox) incBox.checked = !!_dcSession.includeExtras;
   const rep = _dcReport(deck);
   _dcRenderProgress(rep);
   const scanPhase = _dcSession.phase !== 'report';
@@ -755,14 +770,24 @@ function _dcCommit(deck, result, label, before) {
 }
 
 async function _dcRunAction(act, key, el) {
-  const deck = _dcDeck();
+  let deck = _dcDeck();
   if (!deck) return;
   if (!_dcCanEdit()) { showNotif('This deck is read-only', true); return; }
   const rep = _dcReport(deck);
   const one = list => list.filter(r => r.key === key);
-  const onEvent = _dcOnEvent(deck);
+  let onEvent = _dcOnEvent(deck);
   const C = DeckCompareCore;
-  const before = _dcSnapshotZones(deck);
+  let before = _dcSnapshotZones(deck);
+  // After a confirm dialog the deck may have changed (or been replaced by a remote
+  // refresh): work on the live deck and take the undo snapshot right before the change,
+  // so Undo can never remove something added while the dialog was open.
+  const relive = () => {
+    deck = _dcDeck();
+    if (!deck || !_dcCanEdit()) return false;
+    onEvent = _dcOnEvent(deck);
+    before = _dcSnapshotZones(deck);
+    return true;
+  };
   let res = null, label = '', msg = '';
 
   if (act === 'remove-cuts') {
@@ -773,7 +798,7 @@ async function _dcRunAction(act, key, el) {
       body: `Are you sure? This removes <strong>${n}</strong> planned cut${n === 1 ? '' : 's'} you didn't scan from the deck.`,
       okLabel: 'Remove', okClass: 'btn-danger',
     });
-    if (!ok || !_dcDeck()) return;
+    if (!ok || !relive()) return;
     res = C.removeUnscannedCuts(deck, _dcReport(deck).unscannedCuts, { onEvent });
     label = 'remove cuts'; msg = `Removed ${n} cut${n === 1 ? '' : 's'} from the deck`;
   } else if (act === 'remove-missing') {
@@ -785,7 +810,7 @@ async function _dcRunAction(act, key, el) {
       body: `Are you sure? This removes <strong>${n}</strong> card${n === 1 ? '' : 's'} you didn't scan from the main board.`,
       okLabel: 'Remove', okClass: 'btn-danger',
     });
-    if (!ok || !_dcDeck()) return;
+    if (!ok || !relive()) return;
     const fresh = _dcReport(deck).missing.filter(r => rows.some(x => x.key === r.key));
     res = C.removeMissing(deck, fresh, { onEvent });
     label = 'remove missing'; msg = `Removed ${n} card${n === 1 ? '' : 's'} from the main board`;
@@ -798,7 +823,7 @@ async function _dcRunAction(act, key, el) {
       body: `Are you sure? This removes <strong>${n}</strong> card${n === 1 ? '' : 's'} from the maybeboard / sideboard.`,
       okLabel: 'Remove', okClass: 'btn-danger',
     });
-    if (!ok || !_dcDeck()) return;
+    if (!ok || !relive()) return;
     const fresh = _dcReport(deck).unscannedExtras.filter(r => rows.some(x => x.key === r.key));
     res = C.removeUnscannedExtras(deck, fresh, { onEvent });
     label = 'remove'; msg = `Removed ${n} card${n === 1 ? '' : 's'}`;

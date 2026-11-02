@@ -5908,6 +5908,29 @@ app.delete('/api/decks/:id', requireAuth, async (req, res) => {
 // client runs), are applied under a per-deck row lock, and the new state is pushed
 // to the deck's socket room as 'deck:compare'.
 
+/**
+ * Send a tally update to the deck's compare room, re-checking each member first.
+ * Room membership is granted on deck:join; a collaborator downgraded to view-only
+ * or removed since then is dropped from the room instead of being sent the tally.
+ */
+async function emitDeckCompare(deckId, payload) {
+  const room = `deckcompare:${deckId}`;
+  try {
+    const sockets = await _io.in(room).fetchSockets();
+    const allowed = new Map(); // accountId -> still an editor?
+    for (const s of sockets) {
+      const acc = s.data?.accountId;
+      if (!allowed.has(acc)) {
+        allowed.set(acc, acc != null && !!(await deckCompareAccess(acc, deckId)).ok);
+      }
+      if (allowed.get(acc)) s.emit('deck:compare', payload);
+      else s.leave(room);
+    }
+  } catch (e) {
+    console.error('[deck-compare] broadcast', e.message);
+  }
+}
+
 async function deckCompareAccess(accountId, deckId) {
   const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
   if (!rows.length) return { status: 404, error: 'Deck not found' };
@@ -6051,9 +6074,7 @@ app.post('/api/decks/:id/compare/ops', requireAuth, async (req, res) => {
     }
     if (!duplicate) {
       // Editors only — view-only collaborators share the deck room but not the tally.
-      if (_io) {
-        _io.to(`deckcompare:${deckId}`).emit('deck:compare', await deckBroadcastMeta(accountId, { ...state, clientId }));
-      }
+      if (_io) await emitDeckCompare(deckId, await deckBroadcastMeta(accountId, { ...state, clientId }));
       // Batch ids only need to outlive client retries.
       void db().query('DELETE FROM deck_compare_batches WHERE applied_at < ?', [now - 7 * 24 * 3600 * 1000]).catch(() => {});
     }
@@ -7727,6 +7748,7 @@ function attachRealtime(httpServer) {
     const sess = socket.request.session;
     if (!sess || !sess.accountId) return next(new Error('unauthorized'));
     socket.accountId = sess.accountId;
+    socket.data.accountId = sess.accountId; // visible to fetchSockets() (emitDeckCompare)
     next();
   });
   io.on('connection', socket => {
