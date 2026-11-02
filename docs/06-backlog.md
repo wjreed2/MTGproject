@@ -8,6 +8,7 @@ These are the live design frontier. Hybrid still runs; **Hybrid v2** replaces th
 - Later (not v1 blockers): coefficients / seed tables; Theme E CardIR wizard depth.
 - **Deck themes readout** — **DECIDED v1 shape** (`docs/21-deck-themes.md`). Placement A (own panel), band labels (numbers not locked), name chips, clash 4A. Reshape the existing sketch; do not hide it.
 - **By Architecture deck view** — **SHIPPED v1** (`docs/22-deck-architecture.md`). Visualization only; do not confuse with Foundation evaluator calibration.
+- **Deck Compare (physical vs digital deck)** — **IMPLEMENTED v1** (`docs/26-deck-compare.md`). Scanner is not modified; verify with a live camera on a phone.
 
 Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until the Hybrid v2 cutover.
 
