@@ -16,10 +16,12 @@ actions, scanner bridge). Markup `#deckCompareModal` in `index.html`; styles und
    `_scnVoiceAddAndResume`) and its two buttons (`scnAddPendingToCollection`, `closeScanner`) for
    compare versions. It also stashes and restores any queued collection scans. When the scanner
    closes, the buttons are restored at once. The add functions are restored the next time the
-   scanner opens (a MutationObserver on `#scannerModal`), so a search still in flight from the
-   compare run lands in the compare, not the collection. Whenever the scanner is open outside a
-   compare scan it runs its own original code. Nothing scanned during a compare is written to
-   the collection.
+   scanner opens (a MutationObserver on `#scannerModal`) or 20 seconds after it closed,
+   whichever comes first, so a search still in flight from the compare run lands in the
+   compare, not the collection. Whenever the scanner is open outside a compare scan it runs its
+   own original code. Nothing scanned during a compare is written to the collection.
+   The one visible change to the scanner during a compare run: its "add to collection" button
+   reads **Done — compare with deck**. The original text comes back when the run ends.
 2. **It matches the current UI.** Glass modal styled like the Export modal, 34px/8px glass
    controls, card rows reuse the scanner's Scanned-panel rows (`.scn-session-row`, `.scn-qty-btn`).
 
@@ -30,7 +32,11 @@ actions, scanner bridge). Markup `#deckCompareModal` in `index.html`; styles und
   maybeboard → sideboard → not in deck.
 - Progress counts main-board copies that aren't cuts. Maybeboard/sideboard count only when
   **Include maybeboard & sideboard** is ticked (default off).
-- Every row has − / number / + so counts can be typed. That covers basic lands and anything
+- Every row has − / number / + so counts can be typed. The row being stepped or typed in stays
+  in place (same section, same position) until another row is touched or 2.5 s pass, so
+  repeated taps keep hitting the same card. An update from another device never replaces a
+  number box that is being typed in; the list catches up when the box loses focus. The
+  "updated on another device" toast shows once per burst (5 s quiet), not once per tap. That covers basic lands and anything
   the scanner misses. Basics can also be scanned one at a time; repeat scans count up through
   the scanner's own duplicate handling.
 - **I've scanned everything** opens the report:

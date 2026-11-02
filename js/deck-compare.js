@@ -9,9 +9,10 @@
 // stream and voice) are swapped for compare versions: matches queue in the
 // scanner's own Scanned panel and nothing is written to the collection. When
 // the scanner closes, its buttons are put back at once. Its add functions are
-// put back the next time the scanner opens, so a search still in flight from
-// the compare run lands in the compare, not the collection. Whenever the
-// scanner is open outside a compare scan, it runs its own original code.
+// put back the next time the scanner opens, or 20 seconds after it closed,
+// whichever comes first, so a search still in flight from the compare run
+// lands in the compare, not the collection. Whenever the scanner is open
+// outside a compare scan, it runs its own original code.
 //
 // Shared tally: everyone who can edit the deck shares one scan tally on the
 // server (GET/POST /api/decks/:id/compare). Each device shows the last server
@@ -199,7 +200,7 @@ async function _dcFlush(deckId = _dcDeckId, sess = _dcSession) {
       _dcRecompute(sess);
       _dcStoreSession(deckId, sess);
       _dcSetSyncState(sess, 'synced');
-      if (sess === _dcSession) _dcRender();
+      if (sess === _dcSession) _dcRenderUnlessTyping();
     } else if (r.status === 401 || r.status === 403 || r.status === 404) {
       // View-only / signed out / deck not on the server yet: keep counting on this device.
       sess.sync.localOnly = true;
@@ -226,7 +227,7 @@ async function _dcPull(deckId = _dcDeckId, sess = _dcSession) {
       sess.sync.localOnly = false;
       if (_dcAdoptBase(sess, r.data)) {
         _dcStoreSession(deckId, sess);
-        if (sess === _dcSession) _dcRender();
+        if (sess === _dcSession) _dcRenderUnlessTyping();
       }
       if (sess.outbox.length) void _dcFlush(deckId, sess);
       else _dcSetSyncState(sess, 'synced');
@@ -250,6 +251,9 @@ function _dcApplyOps(ops) {
   void _dcFlush(_dcDeckId, _dcSession);
 }
 
+const _DC_REMOTE_TOAST_QUIET_MS = 5000;
+let _dcRemoteToastAt = 0;
+
 /** Socket push from the server ('deck:compare'): another device changed the tally. */
 function deckCompareOnRemote(msg) {
   if (!msg || !msg.deckId || msg.clientId === _dcClientId) return;
@@ -263,8 +267,13 @@ function deckCompareOnRemote(msg) {
   if (modalOpen) {
     const inc = document.getElementById('deckCompareIncludeExtras');
     if (inc) inc.checked = !!sess.includeExtras;
-    _dcRender();
-    if (typeof showNotif === 'function') {
+    _dcRenderUnlessTyping();
+    // One toast per burst: someone tapping steppers on another device sends an
+    // update per tap; the sync label in the progress line covers the rest.
+    const now = Date.now();
+    const quiet = now - _dcRemoteToastAt > _DC_REMOTE_TOAST_QUIET_MS;
+    _dcRemoteToastAt = now;
+    if (quiet && typeof showNotif === 'function') {
       const mine = typeof currentUser !== 'undefined' && currentUser?.id != null
         && Number(msg.actorAccountId) === Number(currentUser.id);
       showNotif(mine || !msg.actorEmail
@@ -290,10 +299,6 @@ if (typeof window !== 'undefined') {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function _dcEsc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-}
 
 function _dcDeck() {
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
@@ -430,9 +435,60 @@ async function deckCompareReset() {
   _dcRender();
 }
 
+// ── Keeping the list steady while someone works in it ────────────────────────
+// A row the user just stepped or typed in stays where it was (same section, same
+// place) until they work on another row or pause for _DC_HOLD_MS, so repeated
+// taps on + keep landing on the same card even after it moves to "Found".
+const _DC_HOLD_MS = 2500;
+let _dcHold = null;           // { key, section, index, timer }
+let _dcRenderDeferred = false; // a background update arrived while a count was being typed
+
+function _dcHoldRow(rowEl) {
+  const key = rowEl?.getAttribute('data-key');
+  const section = rowEl?.closest('.dc-section')?.getAttribute('data-dc-section');
+  if (!key || !section) return;
+  const rows = Array.from(rowEl.parentElement?.children || []);
+  if (_dcHold) clearTimeout(_dcHold.timer);
+  _dcHold = { key, section, index: Math.max(0, rows.indexOf(rowEl)), timer: 0 };
+  _dcHold.timer = setTimeout(() => {
+    _dcHold = null;
+    if (document.getElementById('deckCompareModal')?.classList.contains('open')) _dcRenderUnlessTyping();
+  }, _DC_HOLD_MS);
+}
+
+/** Put the held row back in the section and place it was in, if it has moved out. */
+function _dcApplyHold(sectionId, list, rep) {
+  const h = _dcHold;
+  if (!h || h.section !== sectionId || list.some(r => r.key === h.key)) return list;
+  const r = rep.rows.find(x => x.key === h.key);
+  if (!r) return list;
+  const out = list.slice();
+  out.splice(Math.min(h.index, out.length), 0, r);
+  return out;
+}
+
+function _dcTyping() {
+  const a = document.activeElement;
+  return !!(a && a.classList?.contains('dc-qty-input') && document.getElementById('deckCompareBody')?.contains(a));
+}
+
+/**
+ * Re-render for a change that didn't come from this screen (another device, a
+ * finished send, a late scan). While a count is being typed, only the progress
+ * line updates; the list re-renders once the box loses focus, so the edit and
+ * the focus aren't thrown away.
+ */
+function _dcRenderUnlessTyping() {
+  if (!_dcTyping()) { _dcRender(); return; }
+  _dcRenderDeferred = true;
+  const deck = _dcDeck();
+  if (deck && _dcSession) _dcRenderProgress(_dcReport(deck));
+}
+
 function _dcRender() {
   const body = document.getElementById('deckCompareBody');
   if (!body || !_dcSession) return;
+  _dcRenderDeferred = false;
   const deck = _dcDeck();
   if (!deck) {
     body.innerHTML = '<div class="dc-empty">This deck is no longer open.</div>';
@@ -461,34 +517,34 @@ function _dcRenderProgress(rep) {
   el.innerHTML = `
     <div class="dc-progress-line">
       <span><strong>${rep.matched}</strong> / ${rep.expected} cards found</span>
-      <span class="dc-progress-sub">${rep.scannedTotal} scanned${extra > 0 ? ` · ${extra} elsewhere or not in deck` : ''}<span class="dc-sync" id="deckCompareSyncState">${_dcEsc(_dcSyncLabel())}</span></span>
+      <span class="dc-progress-sub">${rep.scannedTotal} scanned${extra > 0 ? ` · ${extra} elsewhere or not in deck` : ''}<span class="dc-sync" id="deckCompareSyncState">${escapeHtml(_dcSyncLabel())}</span></span>
     </div>
     <div class="dc-progress-track"><div class="dc-progress-fill" style="width:${pct}%"></div></div>`;
 }
 
 // Row with a scanned-count stepper (scan phase).
 function _dcStepRow(r, meta) {
-  const tags = _dcRowTags(r).map(t => `<span class="scn-session-tag">${_dcEsc(t)}</span>`).join('');
+  const tags = _dcRowTags(r).map(t => `<span class="scn-session-tag">${escapeHtml(t)}</span>`).join('');
   return `
-    <div class="scn-session-row dc-row" data-key="${_dcEsc(r.key)}" data-name="${_dcEsc(r.name)}">
-      ${r.image ? `<img src="${_dcEsc(r.image)}" alt="" loading="lazy">` : '<div class="dc-img-ph"></div>'}
+    <div class="scn-session-row dc-row" data-key="${escapeHtml(r.key)}" data-name="${escapeHtml(r.name)}">
+      ${r.image ? `<img src="${escapeHtml(r.image)}" alt="" loading="lazy">` : '<div class="dc-img-ph"></div>'}
       <div class="scn-session-info">
-        <div class="scn-session-name">${_dcEsc(r.name)}${tags}</div>
+        <div class="scn-session-name">${escapeHtml(r.name)}${tags}</div>
         <div class="scn-session-meta">${meta}</div>
       </div>
       <div class="scn-session-qty">
         <button type="button" class="scn-qty-btn" data-dc-act="dec" aria-label="One fewer scanned">&minus;</button>
-        <input type="number" class="dc-qty-input" data-dc-act="set" min="0" max="999" inputmode="numeric" value="${r.scanned}" aria-label="Scanned copies of ${_dcEsc(r.name)}">
+        <input type="number" class="dc-qty-input" data-dc-act="set" min="0" max="999" inputmode="numeric" value="${r.scanned}" aria-label="Scanned copies of ${escapeHtml(r.name)}">
         <button type="button" class="scn-qty-btn" data-dc-act="inc" aria-label="One more scanned">+</button>
       </div>
     </div>`;
 }
 
-function _dcSection(label, count, inner, note) {
+function _dcSection(id, label, count, inner, note) {
   if (!inner) return '';
   return `
-    <section class="dc-section">
-      <div class="settings-section-label">${_dcEsc(label)}${count != null ? ` <span class="dc-count">${count}</span>` : ''}</div>
+    <section class="dc-section" data-dc-section="${id}">
+      <div class="settings-section-label">${escapeHtml(label)}${count != null ? ` <span class="dc-count">${count}</span>` : ''}</div>
       ${note ? `<p class="dc-note">${note}</p>` : ''}
       <div class="dc-list">${inner}</div>
     </section>`;
@@ -499,22 +555,23 @@ function _dcMatchesFilter(r) {
 }
 
 function _dcScanHtml(rep) {
-  const f = list => list.filter(_dcMatchesFilter);
+  // Filtered, plus the row the user is working on kept in place (see _dcHoldRow).
+  const f = (id, list) => _dcApplyHold(id, list.filter(_dcMatchesFilter), rep);
   const inc = !!_dcSession.includeExtras;
   const parts = [];
-  const notIn = f(rep.notInDeck);
-  parts.push(_dcSection('Not in this deck', notIn.length,
+  const notIn = f('notin', rep.notInDeck);
+  parts.push(_dcSection('notin', 'Not in this deck', notIn.length,
     notIn.map(r => _dcStepRow(r, `Scanned ${r.scanned}${r.inDeck ? ` · ${r.extra} more than the deck lists` : ''}`)).join(''),
     'Scanned cards the digital deck doesn\'t list. After you finish, you can add them to Adds.'));
-  const toScan = f(rep.toScan);
-  parts.push(_dcSection('Still to scan', toScan.reduce((s, r) => s + r.missing + (inc ? r.unscannedMaybe + r.unscannedSide : 0), 0),
+  const toScan = f('toscan', rep.toScan);
+  parts.push(_dcSection('toscan', 'Still to scan', toScan.reduce((s, r) => s + r.missing + (inc ? r.unscannedMaybe + r.unscannedSide : 0), 0),
     toScan.map(r => {
       const want = r.keep + (inc ? r.maybe + r.side : 0);
       const have = r.scannedKeep + (inc ? r.scannedMaybe + r.scannedSide : 0);
       return _dcStepRow(r, `Scanned ${have} of ${want}`);
     }).join('')));
-  const cuts = f(rep.cuts);
-  parts.push(_dcSection('Planned cuts', cuts.length,
+  const cuts = f('cuts', rep.cuts);
+  parts.push(_dcSection('cuts', 'Planned cuts', cuts.length,
     cuts.map(r => {
       const copies = r.cut === 1 ? 'cut copy' : 'cut copies';
       const kept = r.keep > 0 ? `Scanned ${r.scanned} of ${r.main} · ` : '';
@@ -523,18 +580,18 @@ function _dcScanHtml(rep) {
         : (kept ? `${kept}${copies} not scanned` : `${copies[0].toUpperCase()}${copies.slice(1)} not scanned`));
     }).join(''),
     'Cuts don\'t count toward the total — you may have already pulled them.'));
-  const adds = f(rep.adds);
-  parts.push(_dcSection('Planned adds', adds.length,
+  const adds = f('adds', rep.adds);
+  parts.push(_dcSection('adds', 'Planned adds', adds.length,
     adds.map(r => _dcStepRow(r, r.scannedAdd > 0 ? `${r.scannedAdd} of ${r.add} already in your deck` : `Not scanned (${r.add})`)).join('')));
-  const extras = f(rep.extras);
-  parts.push(_dcSection('Maybeboard & sideboard', extras.length,
+  const extras = f('extras', rep.extras);
+  parts.push(_dcSection('extras', 'Maybeboard & sideboard', extras.length,
     extras.map(r => {
       const tot = r.maybe + r.side;
       const got = r.scannedMaybe + r.scannedSide;
       return _dcStepRow(r, `Scanned ${got} of ${tot}`);
     }).join('')));
-  const done = f(rep.done);
-  parts.push(_dcSection('Found', done.length,
+  const done = f('done', rep.done);
+  parts.push(_dcSection('done', 'Found', done.length,
     done.map(r => _dcStepRow(r, `Scanned ${r.scannedKeep} of ${r.keep}`)).join('')));
   const html = parts.join('');
   if (html) return html;
@@ -545,13 +602,13 @@ function _dcScanHtml(rep) {
 // ── Report phase ─────────────────────────────────────────────────────────────
 
 function _dcPlainRow(r, meta, actionsHtml, check) {
-  const tags = _dcRowTags(r).map(t => `<span class="scn-session-tag">${_dcEsc(t)}</span>`).join('');
+  const tags = _dcRowTags(r).map(t => `<span class="scn-session-tag">${escapeHtml(t)}</span>`).join('');
   return `
-    <div class="scn-session-row dc-row" data-key="${_dcEsc(r.key)}">
+    <div class="scn-session-row dc-row" data-key="${escapeHtml(r.key)}">
       ${check || ''}
-      ${r.image ? `<img src="${_dcEsc(r.image)}" alt="" loading="lazy">` : '<div class="dc-img-ph"></div>'}
+      ${r.image ? `<img src="${escapeHtml(r.image)}" alt="" loading="lazy">` : '<div class="dc-img-ph"></div>'}
       <div class="scn-session-info">
-        <div class="scn-session-name">${_dcEsc(r.name)}${tags}</div>
+        <div class="scn-session-name">${escapeHtml(r.name)}${tags}</div>
         <div class="scn-session-meta">${meta}</div>
       </div>
       ${actionsHtml ? `<div class="dc-row-actions">${actionsHtml}</div>` : ''}
@@ -559,14 +616,14 @@ function _dcPlainRow(r, meta, actionsHtml, check) {
 }
 
 function _dcBtn(act, label, { cls = 'btn-outline', key = '', disabled = false, extra = '' } = {}) {
-  return `<button type="button" class="btn ${cls} btn-sm" data-dc-act="${act}"${key ? ` data-key="${_dcEsc(key)}"` : ''}${extra}${disabled ? ' disabled' : ''}>${label}</button>`;
+  return `<button type="button" class="btn ${cls} btn-sm" data-dc-act="${act}"${key ? ` data-key="${escapeHtml(key)}"` : ''}${extra}${disabled ? ' disabled' : ''}>${label}</button>`;
 }
 
 function _dcReportSection(label, count, note, rowsHtml, bulkHtml) {
   if (!rowsHtml) return '';
   return `
     <section class="dc-section">
-      <div class="settings-section-label">${_dcEsc(label)} <span class="dc-count">${count}</span></div>
+      <div class="settings-section-label">${escapeHtml(label)} <span class="dc-count">${count}</span></div>
       ${note ? `<p class="dc-note">${note}</p>` : ''}
       <div class="dc-list">${rowsHtml}</div>
       ${bulkHtml ? `<div class="dc-bulk">${bulkHtml}</div>` : ''}
@@ -594,7 +651,7 @@ function _dcReportHtml(rep) {
     ms.map(r => {
       const isCmd = r.isCommander && r.mainNonCmd === 0;
       const check = isCmd ? '<span class="dc-check-ph"></span>'
-        : `<input type="checkbox" class="dc-check" data-dc-act="toggle-missing" data-key="${_dcEsc(r.key)}"${_dcMissingUnchecked.has(r.key) ? '' : ' checked'}${dis ? ' disabled' : ''} aria-label="Select ${_dcEsc(r.name)}">`;
+        : `<input type="checkbox" class="dc-check" data-dc-act="toggle-missing" data-key="${escapeHtml(r.key)}"${_dcMissingUnchecked.has(r.key) ? '' : ' checked'}${dis ? ' disabled' : ''} aria-label="Select ${escapeHtml(r.name)}">`;
       const meta = isCmd ? 'Commander — not removed here'
         : `Scanned ${r.scannedKeep} of ${r.keep}${r.missing < r.keep ? ` · remove ${r.missing}` : ''}`;
       return _dcPlainRow(r, meta, '', check);
@@ -647,7 +704,7 @@ function _dcReportHtml(rep) {
   parts.push(_dcReportSection('Maybeboard & sideboard not scanned', sum(ue, r => r.unscannedMaybe + r.unscannedSide),
     'Listed in the maybeboard or sideboard but not scanned.',
     ue.map(r => {
-      const check = `<input type="checkbox" class="dc-check" data-dc-act="toggle-extra" data-key="${_dcEsc(r.key)}"${_dcExtrasUnchecked.has(r.key) ? '' : ' checked'}${dis ? ' disabled' : ''} aria-label="Select ${_dcEsc(r.name)}">`;
+      const check = `<input type="checkbox" class="dc-check" data-dc-act="toggle-extra" data-key="${escapeHtml(r.key)}"${_dcExtrasUnchecked.has(r.key) ? '' : ' checked'}${dis ? ' disabled' : ''} aria-label="Select ${escapeHtml(r.name)}">`;
       const where = [r.unscannedMaybe ? `${r.unscannedMaybe} maybeboard` : '', r.unscannedSide ? `${r.unscannedSide} sideboard` : ''].filter(Boolean).join(' · ');
       return _dcPlainRow(r, `Not scanned: ${where}`, '', check);
     }).join(''),
@@ -807,6 +864,7 @@ function _dcBodyClick(e) {
   const rowEl = el.closest('.dc-row');
   const key = el.getAttribute('data-key') || rowEl?.getAttribute('data-key') || '';
   if (act === 'inc' || act === 'dec') {
+    _dcHoldRow(rowEl);
     _dcAddScanned(key, rowEl?.getAttribute('data-name') || key, act === 'inc' ? 1 : -1);
     _dcRender();
     return;
@@ -827,6 +885,7 @@ function _dcBodyChange(e) {
   if (!el || el.getAttribute('data-dc-act') !== 'set' || !_dcSession) return;
   const rowEl = el.closest('.dc-row');
   const key = rowEl?.getAttribute('data-key') || '';
+  _dcHoldRow(rowEl);
   _dcSetScanned(key, rowEl?.getAttribute('data-name') || key, el.value);
   _dcRender();
 }
@@ -846,6 +905,10 @@ function _dcBodyKeydown(e) {
     body.addEventListener('click', _dcBodyClick);
     body.addEventListener('change', _dcBodyChange);
     body.addEventListener('keydown', _dcBodyKeydown);
+    // A background update held back while a count was being typed lands once the box loses focus.
+    body.addEventListener('focusout', () => {
+      setTimeout(() => { if (_dcRenderDeferred && !_dcTyping()) _dcRender(); }, 0);
+    });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
   else wire();
@@ -881,7 +944,7 @@ function _dcAnnounce(card) {
   // Deferred: the scanner writes its own "Queued" status right after staging returns.
   setTimeout(() => {
     if (!_dcHooks || typeof _scnStatus !== 'function') return;
-    _scnStatus(`<strong>${_dcEsc(card.name)}</strong> — ${_dcEsc(label)}${count}`);
+    _scnStatus(`<strong>${escapeHtml(card.name)}</strong> — ${escapeHtml(label)}${count}`);
   }, 0);
 }
 
@@ -971,11 +1034,14 @@ function _dcScannerOpen() {
   return !!document.getElementById('scannerModal')?.classList.contains('open');
 }
 
+const _DC_LATE_WINDOW_MS = 20000; // longest a scanner search / recognition can still settle after close
+
 /** Put the scanner's own add functions back (ends the late-result window). */
 function _dcRemoveLateSinks() {
   const late = _dcLate;
   if (!late) return;
   _dcLate = null;
+  clearTimeout(late.timer);
   try { late.observer?.disconnect(); } catch (_) {}
   for (const n of _DC_ADD_FNS) window[n] = late.orig[n];
 }
@@ -983,8 +1049,12 @@ function _dcRemoveLateSinks() {
 function _dcInstallLateSinks(h) {
   const orig = {};
   for (const n of _DC_ADD_FNS) orig[n] = h.orig[n];
-  const late = { orig, deckId: h.deckId, observer: null };
+  const late = { orig, deckId: h.deckId, observer: null, timer: 0 };
   _dcLate = late;
+  // A request still in flight when the run ended settles within seconds; after that
+  // nothing from the run can arrive, so the scanner gets its own functions back
+  // even if it's never reopened.
+  late.timer = setTimeout(() => { if (_dcLate === late) _dcRemoveLateSinks(); }, _DC_LATE_WINDOW_MS);
   const sink = name => function (card) {
     // The scanner was reopened (for the collection or a new run): it is the scanner
     // again — originals back first, then behave exactly like the original.
@@ -1013,7 +1083,7 @@ function _dcRecordLateScan(deckId, card) {
   const ops = DeckCompareCore.queueToAddOps([entry], { keepEntry: k => !inDeck.has(k) });
   if (_dcSession && _dcDeckId === deckId) {
     _dcApplyOps(ops);
-    _dcRender();
+    _dcRenderUnlessTyping();
   } else {
     const sess = _dcGetSession(deckId);
     sess.outbox.push(...ops);
@@ -1081,6 +1151,6 @@ async function deckCompareStartScan() {
     return;
   }
   if (typeof _scnStatus === 'function') {
-    _scnStatus(`Comparing with <strong>${_dcEsc(deck.name || 'this deck')}</strong> — scanned cards are not added to your collection`);
+    _scnStatus(`Comparing with <strong>${escapeHtml(deck.name || 'this deck')}</strong> — scanned cards are not added to your collection`);
   }
 }
