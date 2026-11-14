@@ -519,8 +519,14 @@
     column-gap: 6px !important;
     row-gap: 4px;
     position: relative;
-    z-index: 40;
+    /* One above .deck-back-row (40), which follows it in the DOM: at equal
+       z-index the later row paints over the ✗ and ⓘ popovers hanging down out
+       of this bar, so the + / tag / ⋮ buttons showed through them. */
+    z-index: 41;
   }
+  /* main.css pins z-index:40 at #tab-decks #deckTopBar, which outranks the bare
+     id above — restate it at matching specificity. */
+  #tab-decks #deckTopBar { z-index: 41; }
   /* Header buttons only. The options dropdown is a descendant of #deckTopBar, so
      an unscoped .btn rule here also flattened all 13 of its rows to 0 vertical
      padding — 17px tall against desktop's 29px. Everything else about the menu
@@ -603,6 +609,15 @@
      instead and spans the header's full width, which is on-screen either way. */
   #tab-decks #deckInfoBadge { position: static; }
   #tab-decks #deckInfoBadge .deck-info-tooltip {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    max-width: none;
+  }
+  /* The ✗/⚠ issues popover has the same problem (its 280px min-width ran off the
+     right edge beside a long name), so it gets the same full-width treatment. */
+  #tab-decks #deckValidBadge { position: static; }
+  #tab-decks #deckValidBadge .deck-valid-tooltip {
     left: 0;
     right: 0;
     min-width: 0;
